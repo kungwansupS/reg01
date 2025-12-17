@@ -1,11 +1,19 @@
-qa_cache = {}
-
 import tiktoken
+# แก้ไขการ import: เอา google.generativeai ออก และเพิ่ม get_llm_model
 from app.config import LLM_PROVIDER, GEMINI_API_KEY, GEMINI_MODEL_NAME, OPENAI_API_KEY, OPENAI_MODEL_NAME
-from google import genai # เปลี่ยนจาก google.generativeai
+from app.utils.llm.llm_model import get_llm_model
 import openai
 
-ENCODING = tiktoken.encoding_for_model("gpt-3.5-turbo") # ใช้ชื่อ model string ตรงๆ กัน error ถ้าตัวแปร config ไม่มี
+# ใช้ try-import เพื่อป้องกัน error หากไม่ได้ติดตั้ง library ของ google ตัวใหม่
+try:
+    from google import genai
+except ImportError:
+    genai = None
+
+qa_cache = {}
+
+# ใช้ encoding ของ gpt-3.5-turbo เป็นมาตรฐานสำหรับการนับ token
+ENCODING = tiktoken.encoding_for_model("gpt-3.5-turbo")
 MAX_OUTPUT_TOKENS = 300
 
 def count_tokens(text):
@@ -23,7 +31,6 @@ def summarize_chat_history(history):
 
     prompt_header = f"""
 สรุปบทสนทนาให้กระชับ โดยจำกัดความยาวของผลลัพธ์ไม่เกิน {MAX_OUTPUT_TOKENS} token:
-
 """
     max_prompt_tokens = 1000
     truncated_dialogue = full_dialogue
@@ -33,30 +40,26 @@ def summarize_chat_history(history):
 
     prompt = prompt_header + truncated_dialogue
 
-    if LLM_PROVIDER == "gemini":
-        # อัปเดต: ใช้ Client ของ google-genai
-        if not GEMINI_API_KEY:
-            print("❌ GEMINI_API_KEY missing")
-            return "(ไม่สามารถสรุปได้: ไม่มี API KEY)"
+    try:
+        # เรียกใช้ Model กลาง (จะได้ Client ที่ถูกต้องตาม Config)
+        model = get_llm_model()
 
-        client = genai.Client(api_key=GEMINI_API_KEY)
-        try:
-            response = client.models.generate_content(
+        if LLM_PROVIDER == "gemini":
+            if genai is None:
+                return "(Error: google-genai library not installed)"
+
+            # ใช้ Client ของ google-genai (SDK ใหม่)
+            response = model.models.generate_content(
                 model=GEMINI_MODEL_NAME,
                 contents=prompt
             )
             result = response.text.strip() if response.text else ""
-            token_used = count_tokens(result)
-            print(f"[Gemini] summary used {token_used} tokens.")
+            print(f"[Gemini] summary done.")
             return result
-        except Exception as e:
-            print(f"❌ Gemini Error: {e}")
-            return "(Error summarization)"
 
-    elif LLM_PROVIDER == "openai":
-        openai.api_key = OPENAI_API_KEY
-        try:
-            response = openai.chat.completions.create( # อัปเดต syntax openai ล่าสุดเผื่อไว้
+        elif LLM_PROVIDER == "openai":
+            # ใช้ Client ของ OpenAI (รองรับ Groq)
+            response = model.chat.completions.create(
                 model=OPENAI_MODEL_NAME,
                 messages=[
                     {"role": "system", "content": f"สรุปใจความสำคัญของบทสนทนาให้อยู่ภายใต้ {MAX_OUTPUT_TOKENS} token"},
@@ -66,11 +69,11 @@ def summarize_chat_history(history):
                 max_tokens=MAX_OUTPUT_TOKENS
             )
             result = response.choices[0].message.content.strip()
-            # Usage access อาจต่างกันไปตาม version openai แต่โดยรวมใช้ attribute
-            # print(f"[OpenAI] usage: {response.usage}")
+            print(f"[Groq/OpenAI] summary done.")
             return result
-        except Exception as e:
-            print(f"❌ OpenAI Error: {e}")
-            return "(Error summarization)"
+
+    except Exception as e:
+        print(f"❌ Summarize Error: {e}")
+        return "(ไม่สามารถสรุปได้)"
 
     return "(ไม่สามารถสรุปได้: ไม่รู้จัก LLM_PROVIDER)"

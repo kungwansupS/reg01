@@ -1,48 +1,47 @@
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 
+# Load environment variables
 load_dotenv()
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+class Settings:
+    # --- Base Paths ---
+    BASE_DIR = Path(__file__).resolve().parent.parent.parent
+    BACKEND_DIR = Path(__file__).resolve().parent.parent
+    DATA_DIR = BASE_DIR / "data"
+    DOCS_DIR = BACKEND_DIR / "app" / "static" / "docs"
+    QUICK_USE_DIR = BACKEND_DIR / "app" / "static" / "quick_use"
+    
+    # Ensure directories exist
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    DOCS_DIR.mkdir(parents=True, exist_ok=True)
+    
+    # --- LLM Settings (Gemini) ---
+    GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+    LLM_MODEL_NAME = "gemini-1.5-flash"
+    LLM_TEMPERATURE = 0.3  # Low temperature for factual RAG
+    
+    # --- Embedding Settings (Gemma) ---
+    # Using the exact model requested
+    EMBEDDING_MODEL_NAME = "google/embeddinggemma-300m" 
+    EMBEDDING_DEVICE = "cpu" # Change to "cuda" if GPU is available
+    NORMALIZE_EMBEDDINGS = True
+    
+    # --- Vector DB Settings (Qdrant) ---
+    QDRANT_PATH = DATA_DIR / "qdrant_data"
+    COLLECTION_NAME = "reg_knowledge_base"
+    VECTOR_SIZE = 768  # Gemma-300M usually outputs 768 dimensions (need verify at runtime)
+    DISTANCE_METRIC = "Cosine"
+    
+    # --- Ingestion Settings ---
+    CHUNK_SIZE = 1000
+    CHUNK_OVERLAP = 150
+    
+    # --- Retrieval Settings ---
+    SEARCH_TYPE = "mmr"
+    FETCH_K = 20
+    K = 5
+    LAMBDA_MULT = 0.5
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "gemini")
-GEMINI_MODEL_NAME = os.getenv("GEMINI_MODEL_NAME", "gemini-2.0-flash")
-OPENAI_MODEL_NAME = os.getenv("OPENAI_MODEL_NAME", "gpt-3.5-turbo")
-
-print ("LLM: " + LLM_PROVIDER)
-
-PDF_QUICK_USE_FOLDER = os.getenv(
-    "PDF_QUICK_USE_FOLDER",
-    os.path.join(BASE_DIR, "static/quick_use")
-)
-
-PDF_INPUT_FOLDER = os.getenv(
-    "PDF_INPUT_FOLDER",
-    os.path.join(BASE_DIR, "static/docs")
-)
-
-SESSION_DIR = os.getenv(
-    "SESSION_DIR",
-    os.path.join(BASE_DIR, "../memory/session_storage")
-)
-
-PORT = int(os.getenv("PORT", 5000))
-HOST = os.getenv("HOST", "0.0.0.0")
-ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
-
-
-def debug_list_files(folder_path: str, label: str = "Files"):
-    if not os.path.exists(folder_path):
-        print(f"Folder not found: {folder_path}")
-        return
-
-    files = os.listdir(folder_path)
-    if not files:
-        print(f"{label}: No files found in {folder_path}")
-        return
-
-    print(f"{label} ({folder_path}):")
-    for f in files:
-        print(f"  - {f}")
+settings = Settings()

@@ -1,0 +1,26 @@
+fastapi
+uvicorn
+python-socketio
+python-dotenv
+python-multipart
+ffmpeg
+
+# PDF handling
+PyMuPDF
+pypdf
+pdfminer.six
+
+# LLM + Embedding
+openai
+google-generativeai
+scikit-learn
+sentence-transformers
+torch
+tqdm
+langdetect
+tiktoken
+
+# TTS / STT
+speechrecognition
+pydub
+edge-tts

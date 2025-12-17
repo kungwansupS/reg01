@@ -1,32 +1,26 @@
-fastapi>=0.110.0
-uvicorn>=0.27.0
-python-dotenv>=1.0.0
-python-multipart>=0.0.9
-aiofiles>=23.2.1
-requests>=2.31.0
+fastapi
+uvicorn
+python-socketio
+python-dotenv
+python-multipart
+ffmpeg
 
-# LangChain Ecosystem
-langchain>=0.2.0
-langchain-community>=0.2.0
-langchain-core>=0.2.0
-langchain-huggingface>=0.0.1
-langchain-google-genai>=1.0.3
-langchain-qdrant>=0.1.0
+# PDF handling
+PyMuPDF
+pypdf
+pdfminer.six
 
-# Vector Database
-qdrant-client>=1.9.0
+# LLM + Embedding
+openai
+google-generativeai
+scikit-learn
+sentence-transformers
+torch
+tqdm
+langdetect
+tiktoken
 
-# AI/ML & Embeddings
-sentence-transformers>=2.7.0
-torch>=2.2.0
-transformers>=4.40.0
-accelerate>=0.29.0
-
-# Document Processing
-pypdf>=4.2.0
-unstructured>=0.13.0
-markdown>=3.6
-
-# Utilities
-numpy>=1.26.0
-pandas>=2.2.0
+# TTS / STT
+speechrecognition
+pydub
+edge-tts

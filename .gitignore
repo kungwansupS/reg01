@@ -20,3 +20,4 @@ installed.txt
 /backend/memory/__pycache__
 /backend/retriever/__pycache__
 /backend/app/ffmpeg/
+/.idea

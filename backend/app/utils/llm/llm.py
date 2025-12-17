@@ -7,11 +7,11 @@ from memory.memory import qa_cache, summarize_chat_history
 from memory.faq_cache import update_faq, get_faq_answer
 from memory.session import get_or_create_history, save_history
 from retriever.context_selector import retrieve_top_k_chunks
-from app.config import PDF_QUICK_USE_FOLDER, LLM_PROVIDER, OPENAI_MODEL_NAME
+from app.config import PDF_QUICK_USE_FOLDER, LLM_PROVIDER, OPENAI_MODEL_NAME, GEMINI_MODEL_NAME # เพิ่ม GEMINI_MODEL_NAME
 
 logger = logging.getLogger(__name__)
 
-async def ask_llm(msg, session_id, emit_fn=None): 
+async def ask_llm(msg, session_id, emit_fn=None):
     detected_lang = detect(msg)
     request_prompt = get_request_prompt(detected_lang)
 
@@ -64,11 +64,15 @@ async def ask_llm(msg, session_id, emit_fn=None):
     if emit_fn:
         await emit_fn("ai_status", {"status": "🔍 กำลังตรวจสอบ..."})
 
-    model = get_llm_model()
+    model = get_llm_model() # ถ้าเป็น Gemini จะได้ client กลับมา
 
     if LLM_PROVIDER == "gemini":
-        response = model.generate_content(full_prompt)
-        reply = response.text.strip()
+        # อัปเดต: การเรียกใช้ผ่าน client.models.generate_content
+        response = model.models.generate_content(
+            model=GEMINI_MODEL_NAME,
+            contents=full_prompt
+        )
+        reply = response.text.strip() if response.text else ""
     elif LLM_PROVIDER == "openai":
         response = model.chat.completions.create(
             model=OPENAI_MODEL_NAME,
@@ -90,8 +94,12 @@ async def ask_llm(msg, session_id, emit_fn=None):
         prompt_for_answer = request_prompt.format(question=search_query, context=context)
 
         if LLM_PROVIDER == "gemini":
-            response = model.generate_content(prompt_for_answer)
-            reply = response.text.strip()
+            # อัปเดต: การเรียกใช้ผ่าน client.models.generate_content สำหรับ RAG
+            response = model.models.generate_content(
+                model=GEMINI_MODEL_NAME,
+                contents=prompt_for_answer
+            )
+            reply = response.text.strip() if response.text else ""
         elif LLM_PROVIDER == "openai":
             response = model.chat.completions.create(
                 model=OPENAI_MODEL_NAME,
@@ -121,4 +129,3 @@ async def ask_llm(msg, session_id, emit_fn=None):
         "text": reply,
         "from_faq": bool(faq_answer)
     }
-

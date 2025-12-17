@@ -1,16 +1,16 @@
 import os
 import openai
-import google.generativeai as genai
+from google import genai
 from app.config import GEMINI_API_KEY, GEMINI_MODEL_NAME, OPENAI_API_KEY, OPENAI_MODEL_NAME, LLM_PROVIDER
 
 openai.api_key = OPENAI_API_KEY
 
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
-
 def get_llm_model():
     if LLM_PROVIDER == "gemini":
-        return genai.GenerativeModel(GEMINI_MODEL_NAME)
+        # อัปเดต: คืนค่าเป็น Client ของ google-genai
+        if not GEMINI_API_KEY:
+            raise ValueError("❌ ไม่พบ GEMINI_API_KEY ใน Environment Variables")
+        return genai.Client(api_key=GEMINI_API_KEY)
     elif LLM_PROVIDER == "openai":
         return openai
     else:
@@ -18,13 +18,15 @@ def get_llm_model():
 
 def log_llm_usage(response, context="", model_name=None):
     if LLM_PROVIDER == "gemini":
+        # อัปเดต: การดึง usage จาก response ของ SDK ใหม่ (ถ้ามี)
         usage = getattr(response, "usage_metadata", None)
         if usage:
-            prompt_tokens = usage.prompt_token_count
-            completion_tokens = usage.candidates_token_count
-            total_tokens = usage.total_token_count
+            # ตรวจสอบ attribute ที่ถูกต้องของ SDK ใหม่ (อาจแตกต่างกันไปตามเวอร์ชันย่อย)
+            prompt_tokens = getattr(usage, "prompt_token_count", 0)
+            completion_tokens = getattr(usage, "candidates_token_count", 0)
+            total_tokens = getattr(usage, "total_token_count", 0)
         else:
-            print(f"❌ ไม่มี usage metadata ({context})")
+            # กรณีไม่มีข้อมูล usage ให้แสดงเป็น 0
             prompt_tokens = completion_tokens = total_tokens = 0
 
     elif LLM_PROVIDER == "openai":

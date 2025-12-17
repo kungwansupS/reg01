@@ -2,10 +2,10 @@ qa_cache = {}
 
 import tiktoken
 from app.config import LLM_PROVIDER, GEMINI_API_KEY, GEMINI_MODEL_NAME, OPENAI_API_KEY, OPENAI_MODEL_NAME
-import google.generativeai as genai
+from google import genai # เปลี่ยนจาก google.generativeai
 import openai
 
-ENCODING = tiktoken.encoding_for_model(OPENAI_MODEL_NAME)
+ENCODING = tiktoken.encoding_for_model("gpt-3.5-turbo") # ใช้ชื่อ model string ตรงๆ กัน error ถ้าตัวแปร config ไม่มี
 MAX_OUTPUT_TOKENS = 300
 
 def count_tokens(text):
@@ -34,29 +34,43 @@ def summarize_chat_history(history):
     prompt = prompt_header + truncated_dialogue
 
     if LLM_PROVIDER == "gemini":
-        genai.configure(api_key=GEMINI_API_KEY)
-        model = genai.GenerativeModel(GEMINI_MODEL_NAME)
-        response = model.generate_content(prompt)
-        result = response.text.strip()
-        token_used = count_tokens(result)
-        print(f"[Gemini] summary used {token_used} tokens.")
-        return result
+        # อัปเดต: ใช้ Client ของ google-genai
+        if not GEMINI_API_KEY:
+            print("❌ GEMINI_API_KEY missing")
+            return "(ไม่สามารถสรุปได้: ไม่มี API KEY)"
+
+        client = genai.Client(api_key=GEMINI_API_KEY)
+        try:
+            response = client.models.generate_content(
+                model=GEMINI_MODEL_NAME,
+                contents=prompt
+            )
+            result = response.text.strip() if response.text else ""
+            token_used = count_tokens(result)
+            print(f"[Gemini] summary used {token_used} tokens.")
+            return result
+        except Exception as e:
+            print(f"❌ Gemini Error: {e}")
+            return "(Error summarization)"
 
     elif LLM_PROVIDER == "openai":
         openai.api_key = OPENAI_API_KEY
-        response = openai.ChatCompletion.create(
-            model=OPENAI_MODEL_NAME,
-            messages=[
-                {"role": "system", "content": f"สรุปใจความสำคัญของบทสนทนาให้อยู่ภายใต้ {MAX_OUTPUT_TOKENS} token"},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.3,
-            max_tokens=MAX_OUTPUT_TOKENS
-        )
-        result = response.choices[0].message["content"].strip()
-        prompt_tokens = response.usage.prompt_tokens
-        completion_tokens = response.usage.completion_tokens
-        print(f"[OpenAI] prompt: {prompt_tokens} tokens, completion: {completion_tokens} tokens, total: {prompt_tokens + completion_tokens}")
-        return result
+        try:
+            response = openai.chat.completions.create( # อัปเดต syntax openai ล่าสุดเผื่อไว้
+                model=OPENAI_MODEL_NAME,
+                messages=[
+                    {"role": "system", "content": f"สรุปใจความสำคัญของบทสนทนาให้อยู่ภายใต้ {MAX_OUTPUT_TOKENS} token"},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3,
+                max_tokens=MAX_OUTPUT_TOKENS
+            )
+            result = response.choices[0].message.content.strip()
+            # Usage access อาจต่างกันไปตาม version openai แต่โดยรวมใช้ attribute
+            # print(f"[OpenAI] usage: {response.usage}")
+            return result
+        except Exception as e:
+            print(f"❌ OpenAI Error: {e}")
+            return "(Error summarization)"
 
     return "(ไม่สามารถสรุปได้: ไม่รู้จัก LLM_PROVIDER)"

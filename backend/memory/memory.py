@@ -1,10 +1,9 @@
 import tiktoken
-# แก้ไขการ import: เอา google.generativeai ออก และเพิ่ม get_llm_model
 from app.config import LLM_PROVIDER, GEMINI_API_KEY, GEMINI_MODEL_NAME, OPENAI_API_KEY, OPENAI_MODEL_NAME
 from app.utils.llm.llm_model import get_llm_model
 import openai
 
-# ใช้ try-import เพื่อป้องกัน error หากไม่ได้ติดตั้ง library ของ google ตัวใหม่
+# Try import google genai เพื่อความปลอดภัยกรณีไม่ได้ลง lib
 try:
     from google import genai
 except ImportError:
@@ -12,8 +11,12 @@ except ImportError:
 
 qa_cache = {}
 
-# ใช้ encoding ของ gpt-3.5-turbo เป็นมาตรฐานสำหรับการนับ token
-ENCODING = tiktoken.encoding_for_model("gpt-3.5-turbo")
+# ใช้ encoding ของ gpt-3.5 เป็นมาตรฐานกลาง
+try:
+    ENCODING = tiktoken.encoding_for_model("gpt-3.5-turbo")
+except:
+    ENCODING = tiktoken.get_encoding("cl100k_base")
+
 MAX_OUTPUT_TOKENS = 300
 
 def count_tokens(text):
@@ -32,6 +35,7 @@ def summarize_chat_history(history):
     prompt_header = f"""
 สรุปบทสนทนาให้กระชับ โดยจำกัดความยาวของผลลัพธ์ไม่เกิน {MAX_OUTPUT_TOKENS} token:
 """
+    # ลด max_prompt_tokens ลงเพื่อประหยัดและกัน error
     max_prompt_tokens = 1000
     truncated_dialogue = full_dialogue
     while count_tokens(prompt_header + truncated_dialogue) > max_prompt_tokens:
@@ -41,14 +45,13 @@ def summarize_chat_history(history):
     prompt = prompt_header + truncated_dialogue
 
     try:
-        # เรียกใช้ Model กลาง (จะได้ Client ที่ถูกต้องตาม Config)
+        # เรียกใช้ Model Client กลาง
         model = get_llm_model()
 
         if LLM_PROVIDER == "gemini":
             if genai is None:
                 return "(Error: google-genai library not installed)"
 
-            # ใช้ Client ของ google-genai (SDK ใหม่)
             response = model.models.generate_content(
                 model=GEMINI_MODEL_NAME,
                 contents=prompt

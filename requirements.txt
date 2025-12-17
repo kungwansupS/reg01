@@ -10,11 +10,20 @@ PyMuPDF
 pypdf
 pdfminer.six
 
-# LLM + Embedding
+# Modern LangChain Stack (v0.3 Compatible)
+langchain>=0.3.0
+langchain-community>=0.3.0
+langchain-core>=0.3.0
+langchain-huggingface
+langchain-google-genai
+langchain-qdrant
+langchain-text-splitters
+qdrant-client
+sentence-transformers>=3.0.0
+
+# Dependencies
 openai
-google-generativeai
 scikit-learn
-sentence-transformers
 torch
 tqdm
 langdetect

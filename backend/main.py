@@ -1,7 +1,8 @@
-from fastapi import FastAPI, Request, UploadFile, Form, HTTPException
+from fastapi import FastAPI, Request, UploadFile, Form, HTTPException, Depends, Security
 from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.security.api_key import APIKeyHeader
 from starlette.middleware import Middleware
 import socketio
 import tempfile
@@ -12,6 +13,7 @@ import hmac
 import hashlib
 import httpx
 import asyncio
+import logging
 from concurrent.futures import ThreadPoolExecutor
 
 from app.tts import speak
@@ -30,18 +32,34 @@ FB_APP_SECRET = os.getenv("FB_APP_SECRET", "")
 FB_PAGE_ACCESS_TOKEN = os.getenv("FB_PAGE_ACCESS_TOKEN", "")
 GRAPH_BASE = "https://graph.facebook.com/v19.0"
 
-# Pool สำหรับงานประมวลผลที่กินทรัพยากร CPU สูง (เช่น STT)
+# Pool สำหรับงานประมวลผลที่กินทรัพยากร CPU สูง
 executor = ThreadPoolExecutor(max_workers=10)
 fb_task_queue = asyncio.Queue()
 session_locks = {}
 
 async def get_session_lock(session_id: str):
-    """
-    คืนค่า Lock ของแต่ละ Session เพื่อให้ประวัติการคุยไม่สลับกัน (Session-based Concurrency)
-    """
     if session_id not in session_locks:
         session_locks[session_id] = asyncio.Lock()
     return session_locks[session_id]
+
+# ----------------------------------------------------------------------------- #
+# SECURITY & ACCESS CONTROL
+# ----------------------------------------------------------------------------- #
+API_KEY_NAME = "X-API-Key"
+api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=False)
+
+async def verify_token(api_key: str = Depends(api_key_header)):
+    """
+    ตรวจสอบสิทธิ์การเข้าใช้งานผ่าน Header X-API-Key
+    """
+    if not api_key:
+        print(f"🔒 [Security]: Unauthorized access attempt - Missing {API_KEY_NAME} header")
+        raise HTTPException(
+            status_code=403, 
+            detail="Unauthorized: กรุณาเข้าสู่ระบบผ่าน SSO ของมหาวิทยาลัย"
+        )
+    # สำหรับการพัฒนา: ยอมรับ Token ใดๆ ที่ส่งมา (ในอนาคตจะใช้ jwt.decode)
+    return api_key
 
 # ----------------------------------------------------------------------------- #
 # FASTAPI & SOCKET.IO
@@ -71,9 +89,6 @@ async def serve_index():
 # BACKGROUND WORKER (FOR FACEBOOK)
 # ----------------------------------------------------------------------------- #
 async def fb_worker():
-    """
-    ประมวลผลข้อความจาก Facebook แบบ Async
-    """
     while True:
         task = await fb_task_queue.get()
         psid = task["psid"]
@@ -82,14 +97,9 @@ async def fb_worker():
 
         async with await get_session_lock(session_id):
             try:
-                # 1. รัน LLM (Async)
                 result = await ask_llm(user_text, session_id, emit_fn=sio.emit)
                 reply = (result.get("text") or "").replace("//", " ")
-                
-                # 2. วิเคราะห์ท่าทาง (Async) - แก้ไขจุดที่เกิด RuntimeWarning
                 motion = await suggest_pose(reply)
-
-                # 3. ส่งข้อมูลกลับ
                 await sio.emit("ai_response", {"motion": motion, "text": reply})
                 await send_fb_text(psid, reply or " ")
             except Exception as e:
@@ -99,7 +109,6 @@ async def fb_worker():
 
 @app.on_event("startup")
 async def startup_event():
-    # รัน Worker หลายตัวพร้อมกันเพื่อความรวดเร็วในการตอบกลับ
     for _ in range(5):
         asyncio.create_task(fb_worker())
 
@@ -112,6 +121,7 @@ async def handle_speech(
     text: str = Form(None),
     session_id: str = Form(None),
     audio: UploadFile = Form(None),
+    auth: str = Depends(verify_token) # ตรวจสอบสิทธิ์
 ):
     if not session_id:
         session_id = str(uuid.uuid4())
@@ -124,7 +134,6 @@ async def handle_speech(
             temp_audio.write(await audio.read())
             temp_path = temp_audio.name
 
-        # งาน STT ให้รันใน executor แยกต่างหากเพราะใช้ CPU สูง
         text = await loop.run_in_executor(executor, transcribe, temp_path)
         
         if text.startswith("✖️") or text == "❌ ไม่เข้าใจเสียง":
@@ -137,11 +146,8 @@ async def handle_speech(
         return JSONResponse(status_code=400, content={"error": "No input"})
 
     async with await get_session_lock(session_id):
-        # 1. ถาม AI แบบ Async
         result = await ask_llm(text, session_id, emit_fn=sio.emit)
         reply = result["text"]
-        
-        # 2. ถาม Pose แบบ Async
         motion = await suggest_pose(reply)
 
     await sio.emit("ai_response", {"motion": motion, "text": reply.replace("//", " ")})
@@ -150,7 +156,10 @@ async def handle_speech(
     return {"text": reply.replace("//", " "), "motion": motion}
 
 @app.post("/api/speak")
-async def handle_speak(text: str = Form(...)):
+async def handle_speak(
+    text: str = Form(...),
+    auth: str = Depends(verify_token)
+):
     async def generate():
         async for chunk in speak(text):
             yield chunk
@@ -197,5 +206,4 @@ def verify_signature(app_secret, signature_header, body):
 
 if __name__ == "__main__":
     import uvicorn
-    # รันบน port 5000 ตามการตั้งค่าเดิม
     uvicorn.run("main:asgi_app", host="0.0.0.0", port=5000, reload=False)

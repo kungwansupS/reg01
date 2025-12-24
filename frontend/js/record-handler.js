@@ -25,10 +25,19 @@ async function startRecording() {
 
     console.log("📤 ส่งเสียงไป /api/speech");
 
-    await fetch(`/api/speech`, {
-      method: "POST",
-      body: form
-    });
+    const authToken = localStorage.getItem("auth_token") || "mock-student-id-12345";
+
+    try {
+      await fetch(`/api/speech`, {
+        method: "POST",
+        body: form,
+        headers: {
+          "X-API-Key": authToken
+        }
+      });
+    } catch (err) {
+      console.error("❌ ไม่สามารถส่งไฟล์เสียง:", err);
+    }
   };
 
   mediaRecorder.start();
@@ -76,12 +85,10 @@ recordButton.addEventListener("mouseleave", () => {
 
 document.addEventListener("keydown", async (event) => {
   if (window.isTextMode) return;
-
   if ((event.code === "Space" || event.code === "Enter") && !isRecording) {
     event.preventDefault();
     await startRecording();
   }
-
   if (stopTimeout) clearTimeout(stopTimeout);
 });
 

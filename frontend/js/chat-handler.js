@@ -1,6 +1,5 @@
 document.addEventListener("DOMContentLoaded", () => {
   const socket = window.socket;
-
   const inputBox = document.getElementById("user-input");
   const sendBtn = document.getElementById("send-button");
   const recordBtn = document.getElementById("record-button");
@@ -60,18 +59,22 @@ async function sendText(inputBox, socket) {
   inputBox.value = "";
 
   const form = new FormData();
-
   const sessionId = window.session_id || localStorage.getItem("session_id") || crypto.randomUUID();
   form.append("text", text);
   form.append("session_id", sessionId);
 
+  // เตรียม Token (จำลองว่าได้มาจากระบบ Login)
+  const authToken = localStorage.getItem("auth_token") || "mock-student-id-12345";
+
   try {
     await fetch(`/api/speech`, {
       method: "POST",
-      body: form
+      body: form,
+      headers: {
+        "X-API-Key": authToken // ส่งกุญแจยืนยันตัวตน
+      }
     });
-
-    console.log("📨 ส่งข้อความแล้ว:", text);
+    console.log("📨 ส่งข้อความสำเร็จ");
   } catch (err) {
     console.error("❌ ไม่สามารถส่งข้อความ:", err);
     showPopup("เกิดข้อผิดพลาดขณะส่งข้อความ");
@@ -81,10 +84,8 @@ async function sendText(inputBox, socket) {
 function showPopup(message) {
   const popup = document.getElementById("popup-alert");
   if (!popup) return;
-
   popup.textContent = message;
   popup.classList.add("show");
-
   setTimeout(() => {
     popup.classList.remove("show");
   }, 3000);

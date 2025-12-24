@@ -14,96 +14,103 @@ from app.config import (
     LLM_PROVIDER, 
     OPENAI_MODEL_NAME, 
     GEMINI_MODEL_NAME,
-    LOCAL_MODEL_NAME
+    LOCAL_MODEL_NAME,
+    MAX_CONCURRENT_LLM_CALLS
 )
 
 logger = logging.getLogger(__name__)
 
+# Global Semaphore เพื่อจำกัด Concurrency ทั่วทั้ง Application (Web + FB)
+llm_semaphore = asyncio.Semaphore(MAX_CONCURRENT_LLM_CALLS)
+
 async def ask_llm(msg, session_id, emit_fn=None):
     """
-    ประมวลผลคำถามด้วย LLM แบบ Async (RAG-Enabled)
+    ประมวลผลคำถามด้วย LLM แบบ Async (RAG-Enabled) พร้อมระบบ Global Rate Limit
     """
+    # 1. ตรวจสอบเบื้องต้น (นอก Semaphore เพื่อความเร็ว)
     # ตรวจสอบภาษา (รันใน thread เพื่อป้องกันการ block CPU)
     detected_lang = await asyncio.to_thread(detect, msg)
     request_prompt = get_request_prompt(detected_lang)
 
-    if emit_fn:
-        await emit_fn("ai_status", {"status": "🧠 พี่เร็กกำลังประมวลผล..."})
-
-    # 1. FAQ และ Cache
+    # FAQ และ Cache (ถ้ามีใน Cache ไม่ต้องรอคิว Semaphore)
     faq_answer = get_faq_answer(msg)
     faq_context = f"\n[FAQ] {faq_answer}" if faq_answer else ""
     if msg in qa_cache:
         logger.info(f"💡 [Cache Hit]: {msg}")
         return {"text": qa_cache[msg], "from_faq": False}
 
-    # 2. History & Memory Management
-    history = get_or_create_history(session_id)
-    if not (history and history[-1]["parts"][0]["text"] == msg):
-        history.append({"role": "user", "parts": [{"text": msg}]})
-        await asyncio.to_thread(save_history, session_id, history)
+    # 2. เข้าคิวประมวลผล LLM (Semaphore Control)
+    async with llm_semaphore:
+        if emit_fn:
+            await emit_fn("ai_status", {"status": "🧠 พี่เร็กกำลังประมวลผล..."})
 
-    summary = await asyncio.to_thread(summarize_chat_history, history[:-10])
-    history_text = "\n".join([f"{t['role']}: {t['parts'][0]['text']}" for t in history[-10:]])
+        # History & Memory Management
+        history = get_or_create_history(session_id)
+        if not (history and history[-1]["parts"][0]["text"] == msg):
+            history.append({"role": "user", "parts": [{"text": msg}]})
+            await asyncio.to_thread(save_history, session_id, history)
 
-    full_prompt = f"{context_prompt}\n{summary}{faq_context}\n{history_text}\nถาม: {msg}"
+        summary = await asyncio.to_thread(summarize_chat_history, history[:-10])
+        history_text = "\n".join([f"{t['role']}: {t['parts'][0]['text']}" for t in history[-10:]])
 
-    try:
-        model = get_llm_model()
-        
-        # 3. First LLM Call
-        if LLM_PROVIDER == "gemini":
-            response = await model.aio.models.generate_content(
-                model=GEMINI_MODEL_NAME, 
-                contents=full_prompt
-            )
-            reply = response.text.strip()
-        else:
-            m_name = OPENAI_MODEL_NAME if LLM_PROVIDER == "openai" else LOCAL_MODEL_NAME
-            response = await model.chat.completions.create(
-                model=m_name, 
-                messages=[{"role": "user", "content": full_prompt}]
-            )
-            reply = response.choices[0].message.content.strip()
+        full_prompt = f"{context_prompt}\n{summary}{faq_context}\n{history_text}\nถาม: {msg}"
 
-        log_llm_usage(response, context="First Call")
-
-        # 4. RAG Logic (ถ้าต้องใช้ข้อมูลเพิ่ม)
-        if "query_request" in reply:
-            search_query = reply.split("query_request", 1)[1].strip()
-            if emit_fn:
-                await emit_fn("ai_status", {"status": "🔍 กำลังหาข้อมูลเพิ่มเติมให้นะครับ..."})
+        try:
+            model = get_llm_model()
             
-            top_chunks = await asyncio.to_thread(retrieve_top_k_chunks, search_query, k=5, folder=PDF_QUICK_USE_FOLDER)
-            context = "\n\n".join([c['chunk'] for c, _ in top_chunks])
-            prompt_rag = request_prompt.format(question=search_query, context=context)
-
+            # 3. First LLM Call
             if LLM_PROVIDER == "gemini":
                 response = await model.aio.models.generate_content(
                     model=GEMINI_MODEL_NAME, 
-                    contents=prompt_rag
+                    contents=full_prompt
                 )
                 reply = response.text.strip()
             else:
                 m_name = OPENAI_MODEL_NAME if LLM_PROVIDER == "openai" else LOCAL_MODEL_NAME
                 response = await model.chat.completions.create(
                     model=m_name, 
-                    messages=[{"role": "user", "content": prompt_rag}]
+                    messages=[{"role": "user", "content": full_prompt}]
                 )
                 reply = response.choices[0].message.content.strip()
+
+            log_llm_usage(response, context="First Call")
+
+            # 4. RAG Logic (ถ้าต้องใช้ข้อมูลเพิ่ม)
+            if "query_request" in reply:
+                search_query = reply.split("query_request", 1)[1].strip()
+                if emit_fn:
+                    await emit_fn("ai_status", {"status": "🔍 กำลังหาข้อมูลเพิ่มเติมให้นะครับ..."})
+                
+                top_chunks = await asyncio.to_thread(retrieve_top_k_chunks, search_query, k=5, folder=PDF_QUICK_USE_FOLDER)
+                context = "\n\n".join([c['chunk'] for c, _ in top_chunks])
+                prompt_rag = request_prompt.format(question=search_query, context=context)
+
+                if LLM_PROVIDER == "gemini":
+                    response = await model.aio.models.generate_content(
+                        model=GEMINI_MODEL_NAME, 
+                        contents=prompt_rag
+                    )
+                    reply = response.text.strip()
+                else:
+                    m_name = OPENAI_MODEL_NAME if LLM_PROVIDER == "openai" else LOCAL_MODEL_NAME
+                    response = await model.chat.completions.create(
+                        model=m_name, 
+                        messages=[{"role": "user", "content": prompt_rag}]
+                    )
+                    reply = response.choices[0].message.content.strip()
+                
+                log_llm_usage(response, context="RAG Call")
+
+            # บันทึกสถานะผลลัพธ์
+            qa_cache[msg] = reply
+            history.append({"role": "model", "parts": [{"text": reply}]})
+            await asyncio.to_thread(save_history, session_id, history)
             
-            log_llm_usage(response, context="RAG Call")
+            return {"text": reply, "from_faq": bool(faq_answer)}
 
-        # บันทึกสถานะผลลัพธ์
-        qa_cache[msg] = reply
-        history.append({"role": "model", "parts": [{"text": reply}]})
-        await asyncio.to_thread(save_history, session_id, history)
-        
-        return {"text": reply, "from_faq": bool(faq_answer)}
-
-    except Exception as e:
-        logger.error(f"❌ LLM Error: {e}")
-        return {
-            "text": f"❌ พี่เร็กขออภัย ระบบขัดข้องชั่วคราว: {str(e)}", 
-            "from_faq": False
-        }
+        except Exception as e:
+            logger.error(f"❌ LLM Error: {e}")
+            return {
+                "text": f"❌ พี่เร็กขออภัย ระบบขัดข้องชั่วคราว: {str(e)}", 
+                "from_faq": False
+            }

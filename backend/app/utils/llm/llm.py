@@ -1,5 +1,3 @@
-# kungwansups/reg01/kungwansupS-reg01-52371ff/backend/app/utils/llm/llm.py
-
 import logging
 import asyncio
 from langdetect import detect

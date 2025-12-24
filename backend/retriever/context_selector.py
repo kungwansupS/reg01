@@ -9,7 +9,7 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 print ("======use "+ device +" for embedding======")
 
 # intfloat/multilingual-e5-small เร็ว/พอใช้
-# BAAI/bge-m3 ช้า/แม่นสุดใน embedding_model
+# BAAI/bge-m3 ช้า/แม่น
 
 if device == 'cuda':
     model_name = "BAAI/bge-m3"

@@ -1,18 +1,16 @@
 from fastapi import FastAPI, Request, UploadFile, Form, HTTPException
-from fastapi.responses import StreamingResponse, JSONResponse, FileResponse, PlainTextResponse
+from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware import Middleware
 import socketio
 import tempfile
-import shutil
 import os
 import uuid
 import json
 import hmac
 import hashlib
 import httpx
-import time
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
@@ -22,18 +20,17 @@ from app.prompt.prompt import context_prompt
 from app.utils.llm.llm import ask_llm
 from app.utils.pose import suggest_pose
 from dotenv import load_dotenv
-from memory.session import clear_history, get_or_create_history, save_history
+from memory.session import get_or_create_history, save_history
 
 # ----------------------------------------------------------------------------- #
 # SETUP & CONCURRENCY CONFIG
 # ----------------------------------------------------------------------------- #
 load_dotenv()
-FB_VERIFY_TOKEN = os.getenv("FB_VERIFY_TOKEN", "verify123")
-FB_PAGE_ACCESS_TOKEN = os.getenv("FB_PAGE_ACCESS_TOKEN", "")
 FB_APP_SECRET = os.getenv("FB_APP_SECRET", "")
+FB_PAGE_ACCESS_TOKEN = os.getenv("FB_PAGE_ACCESS_TOKEN", "")
 GRAPH_BASE = "https://graph.facebook.com/v19.0"
 
-# กำหนด Pool สำหรับงานประมวลผลหนัก (CPU-bound)
+# กำหนด Pool สำหรับงานหนักด้าน CPU (STT)
 executor = ThreadPoolExecutor(max_workers=10)
 fb_task_queue = asyncio.Queue()
 session_locks = {}
@@ -79,15 +76,13 @@ async def fb_worker():
 
         async with await get_session_lock(session_id):
             try:
-                # ประมวลผลผ่าน LLM (ซึ่งรวม RAG และ FAQ แล้วจาก Phase 2)
+                # รันแบบ Async ได้โดยตรง ไม่ block
                 result = await ask_llm(user_text, session_id, emit_fn=sio.emit)
                 reply = (result.get("text") or "").replace("//", " ")
                 
-                # ทำนายท่าทาง (Pose) แบบขนาน
-                loop = asyncio.get_event_loop()
-                motion = await loop.run_in_executor(executor, suggest_pose, reply)
+                # ถามท่าทางแบบ Async
+                motion = await suggest_pose(reply)
 
-                # ส่งผลลัพธ์
                 await sio.emit("ai_response", {"motion": motion, "text": reply})
                 await send_fb_text(psid, reply or " ")
             except Exception as e:
@@ -97,8 +92,8 @@ async def fb_worker():
 
 @app.on_event("startup")
 async def startup_event():
-    # รัน Worker 3 ตัวพร้อมกัน
-    for _ in range(3):
+    # รัน Worker หลายตัวพร้อมกันเพื่อความรวดเร็ว
+    for _ in range(5):
         asyncio.create_task(fb_worker())
 
 # ----------------------------------------------------------------------------- #
@@ -117,14 +112,12 @@ async def handle_speech(
     loop = asyncio.get_event_loop()
 
     if audio:
-        # ส่งสถานะกำลังรับเสียง
         await sio.emit("ai_status", {"status": "👂 กำลังฟังและแปลงเสียง..."})
-        
         with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as temp_audio:
             temp_audio.write(await audio.read())
             temp_path = temp_audio.name
 
-        # รัน STT (แบบ Thread-safe จากที่แก้ใน stt.py)
+        # STT ยังเป็นงานที่กิน CPU หนัก จึงรันใน executor ต่อไป
         text = await loop.run_in_executor(executor, transcribe, temp_path)
         
         if text.startswith("✖️") or text == "❌ ไม่เข้าใจเสียง":
@@ -136,19 +129,18 @@ async def handle_speech(
     if not text:
         return JSONResponse(status_code=400, content={"error": "No input"})
 
-    # ล็อค Session เพื่อป้องกันการอัปเดต History ซ้อนกัน
     async with await get_session_lock(session_id):
-        # บันทึกฝั่ง User
+        # บันทึกประวัติ
         history = get_or_create_history(session_id, context_prompt)
         history.append({"role": "user", "parts": [{"text": text}]})
         save_history(session_id, history)
 
-        # ถาม LLM
+        # ถาม AI แบบ Async พร้อมกัน
         result = await ask_llm(text, session_id, emit_fn=sio.emit)
         reply = result["text"]
         
-        # ถาม Pose
-        motion = await loop.run_in_executor(executor, suggest_pose, reply)
+        # ถาม Pose แบบ Async
+        motion = await suggest_pose(reply)
 
     await sio.emit("ai_response", {"motion": motion, "text": reply.replace("//", " ")})
     await sio.emit("ai_status", {"status": ""})
@@ -175,7 +167,6 @@ async def fb_webhook(request: Request):
             psid = event["sender"]["id"]
             if "message" in event and "text" in event["message"] and not event["message"].get("is_echo"):
                 user_text = event["message"]["text"].strip()
-                # เข้าคิวเพื่อตอบ Facebook ให้ทันใน 2 วินาที
                 await fb_task_queue.put({
                     "psid": psid,
                     "text": user_text,
@@ -183,9 +174,6 @@ async def fb_webhook(request: Request):
                 })
     return JSONResponse({"status": "accepted"})
 
-# ----------------------------------------------------------------------------- #
-# HELPERS (FACEBOOK)
-# ----------------------------------------------------------------------------- #
 async def send_fb_text(psid: str, text: str):
     if not FB_PAGE_ACCESS_TOKEN: return
     url = f"{GRAPH_BASE}/me/messages"

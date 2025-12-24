@@ -101,7 +101,11 @@ async def fb_worker():
             try:
                 result = await ask_llm(user_text, f"fb_{psid}", emit_fn=sio.emit)
                 reply = result["text"]
-                await send_fb_text(psid, reply)
+                
+                # Filter out // for cleaner display on Messenger
+                display_reply = reply.replace("//", "")
+                await send_fb_text(psid, display_reply)
+                
                 write_audit_log(psid, "facebook", user_text, reply, time.time() - start_time)
             except Exception as e: print(f"FB Error: {e}")
             finally: fb_task_queue.task_done()
@@ -174,8 +178,11 @@ async def handle_speech(
         reply = result["text"]; motion = await suggest_pose(reply)
 
     write_audit_log(user_id, "web", text, reply, time.time() - start_time)
-    await sio.emit("ai_response", {"motion": motion, "text": reply})
-    return {"text": reply, "motion": motion}
+    
+    display_text = reply.replace("//", " ")
+    await sio.emit("ai_response", {"motion": motion, "text": display_text})
+    
+    return {"text": display_text, "motion": motion}
 
 async def send_fb_text(psid: str, text: str):
     if not FB_PAGE_ACCESS_TOKEN: return

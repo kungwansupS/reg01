@@ -13,7 +13,6 @@ import hmac
 import hashlib
 import httpx
 import asyncio
-import logging
 from concurrent.futures import ThreadPoolExecutor
 
 from app.tts import speak
@@ -32,7 +31,6 @@ FB_APP_SECRET = os.getenv("FB_APP_SECRET", "")
 FB_PAGE_ACCESS_TOKEN = os.getenv("FB_PAGE_ACCESS_TOKEN", "")
 GRAPH_BASE = "https://graph.facebook.com/v19.0"
 
-# Pool สำหรับงานประมวลผลที่กินทรัพยากร CPU สูง
 executor = ThreadPoolExecutor(max_workers=10)
 fb_task_queue = asyncio.Queue()
 session_locks = {}
@@ -43,22 +41,30 @@ async def get_session_lock(session_id: str):
     return session_locks[session_id]
 
 # ----------------------------------------------------------------------------- #
-# SECURITY & ACCESS CONTROL
+# SECURITY & ACCESS CONTROL (PHASE 2)
 # ----------------------------------------------------------------------------- #
 API_KEY_NAME = "X-API-Key"
 api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=False)
 
-async def verify_token(api_key: str = Depends(api_key_header)):
+async def verify_token(request: Request, api_key: str = Depends(api_key_header)):
     """
-    ตรวจสอบสิทธิ์การเข้าใช้งานผ่าน Header X-API-Key
+    ตรวจสอบสิทธิ์การเข้าใช้งาน
+    - หากรันบน localhost: อนุญาตให้ผ่านได้ (เพื่อความสะดวกในการพัฒนา)
+    - หากรันบน Server จริง: บังคับเช็ค X-API-Key
     """
+    client_host = request.client.host
+    
+    # 1. Bypass สำหรับการทดสอบในเครื่อง (Localhost)
+    if client_host in ["127.0.0.1", "localhost"]:
+        return api_key or "local-dev-access"
+
+    # 2. ตรวจสอบ Token สำหรับการใช้งานจริง
     if not api_key:
-        print(f"🔒 [Security]: Unauthorized access attempt - Missing {API_KEY_NAME} header")
+        print(f"🔒 [Security]: Unauthorized access attempt from {client_host}")
         raise HTTPException(
             status_code=403, 
             detail="Unauthorized: กรุณาเข้าสู่ระบบผ่าน SSO ของมหาวิทยาลัย"
         )
-    # สำหรับการพัฒนา: ยอมรับ Token ใดๆ ที่ส่งมา (ในอนาคตจะใช้ jwt.decode)
     return api_key
 
 # ----------------------------------------------------------------------------- #
@@ -113,7 +119,7 @@ async def startup_event():
         asyncio.create_task(fb_worker())
 
 # ----------------------------------------------------------------------------- #
-# API ROUTES
+# API ROUTES (PROTECTED)
 # ----------------------------------------------------------------------------- #
 @app.post("/api/speech")
 async def handle_speech(
@@ -121,7 +127,7 @@ async def handle_speech(
     text: str = Form(None),
     session_id: str = Form(None),
     audio: UploadFile = Form(None),
-    auth: str = Depends(verify_token) # ตรวจสอบสิทธิ์
+    auth: str = Depends(verify_token) # ระบบ Security
 ):
     if not session_id:
         session_id = str(uuid.uuid4())

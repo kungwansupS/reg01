@@ -5,7 +5,10 @@ document.addEventListener("DOMContentLoaded", () => {
   const recordBtn = document.getElementById("record-button");
   const toggleButton = document.getElementById("toggle-mode");
 
-  console.log("💡 session_id =", window.session_id);
+  // ตรวจสอบ Token เริ่มต้นสำหรับการพัฒนา
+  if (!localStorage.getItem("auth_token")) {
+    localStorage.setItem("auth_token", "dev-token-" + Math.random().toString(36).substr(2, 9));
+  }
 
   window.isTextMode = false;
 
@@ -63,20 +66,19 @@ async function sendText(inputBox, socket) {
   form.append("text", text);
   form.append("session_id", sessionId);
 
-  // เตรียม Token (จำลองว่าได้มาจากระบบ Login)
-  const authToken = localStorage.getItem("auth_token") || "mock-student-id-12345";
+  const authToken = localStorage.getItem("auth_token");
 
   try {
     await fetch(`/api/speech`, {
       method: "POST",
       body: form,
       headers: {
-        "X-API-Key": authToken // ส่งกุญแจยืนยันตัวตน
+        "X-API-Key": authToken
       }
     });
     console.log("📨 ส่งข้อความสำเร็จ");
   } catch (err) {
-    console.error("❌ ไม่สามารถส่งข้อความ:", err);
+    console.error("❌ Network Error:", err);
     showPopup("เกิดข้อผิดพลาดขณะส่งข้อความ");
   }
 }

@@ -30,12 +30,15 @@ FB_APP_SECRET = os.getenv("FB_APP_SECRET", "")
 FB_PAGE_ACCESS_TOKEN = os.getenv("FB_PAGE_ACCESS_TOKEN", "")
 GRAPH_BASE = "https://graph.facebook.com/v19.0"
 
-# Pool สำหรับงาน STT
+# Pool สำหรับงานประมวลผลที่กินทรัพยากร CPU สูง (เช่น STT)
 executor = ThreadPoolExecutor(max_workers=10)
 fb_task_queue = asyncio.Queue()
 session_locks = {}
 
 async def get_session_lock(session_id: str):
+    """
+    คืนค่า Lock ของแต่ละ Session เพื่อให้ประวัติการคุยไม่สลับกัน (Session-based Concurrency)
+    """
     if session_id not in session_locks:
         session_locks[session_id] = asyncio.Lock()
     return session_locks[session_id]
@@ -68,6 +71,9 @@ async def serve_index():
 # BACKGROUND WORKER (FOR FACEBOOK)
 # ----------------------------------------------------------------------------- #
 async def fb_worker():
+    """
+    ประมวลผลข้อความจาก Facebook แบบ Async
+    """
     while True:
         task = await fb_task_queue.get()
         psid = task["psid"]
@@ -76,13 +82,14 @@ async def fb_worker():
 
         async with await get_session_lock(session_id):
             try:
-                # รัน ask_llm (Async)
+                # 1. รัน LLM (Async)
                 result = await ask_llm(user_text, session_id, emit_fn=sio.emit)
                 reply = (result.get("text") or "").replace("//", " ")
                 
-                # รัน suggest_pose (Async)
+                # 2. วิเคราะห์ท่าทาง (Async) - แก้ไขจุดที่เกิด RuntimeWarning
                 motion = await suggest_pose(reply)
 
+                # 3. ส่งข้อมูลกลับ
                 await sio.emit("ai_response", {"motion": motion, "text": reply})
                 await send_fb_text(psid, reply or " ")
             except Exception as e:
@@ -92,7 +99,7 @@ async def fb_worker():
 
 @app.on_event("startup")
 async def startup_event():
-    # รัน Worker 5 ตัวเพื่อรองรับ Facebook Messages พร้อมกัน
+    # รัน Worker หลายตัวพร้อมกันเพื่อความรวดเร็วในการตอบกลับ
     for _ in range(5):
         asyncio.create_task(fb_worker())
 
@@ -112,12 +119,12 @@ async def handle_speech(
     loop = asyncio.get_event_loop()
 
     if audio:
-        await sio.emit("ai_status", {"status": "👂 กำลังแปลงเสียง..."})
+        await sio.emit("ai_status", {"status": "👂 พี่เร็กกำลังฟังอยู่ครับ..."})
         with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as temp_audio:
             temp_audio.write(await audio.read())
             temp_path = temp_audio.name
 
-        # STT ยังคงรันใน executor เพราะเป็นงานหนักด้าน CPU
+        # งาน STT ให้รันใน executor แยกต่างหากเพราะใช้ CPU สูง
         text = await loop.run_in_executor(executor, transcribe, temp_path)
         
         if text.startswith("✖️") or text == "❌ ไม่เข้าใจเสียง":
@@ -130,11 +137,11 @@ async def handle_speech(
         return JSONResponse(status_code=400, content={"error": "No input"})
 
     async with await get_session_lock(session_id):
-        # บันทึกประวัติและดึงคำตอบจาก LLM (Async)
+        # 1. ถาม AI แบบ Async
         result = await ask_llm(text, session_id, emit_fn=sio.emit)
         reply = result["text"]
         
-        # วิเคราะห์ท่าทาง (Async)
+        # 2. ถาม Pose แบบ Async
         motion = await suggest_pose(reply)
 
     await sio.emit("ai_response", {"motion": motion, "text": reply.replace("//", " ")})
@@ -190,4 +197,5 @@ def verify_signature(app_secret, signature_header, body):
 
 if __name__ == "__main__":
     import uvicorn
+    # รันบน port 5000 ตามการตั้งค่าเดิม
     uvicorn.run("main:asgi_app", host="0.0.0.0", port=5000, reload=False)

@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 def ensure_local_llm_ready():
     """
-    ตรวจสอบสถานะของ Ollama และติดตั้งโมเดลอัตโนมัติ (Blocking check)
+    ตรวจสอบและเตรียมความพร้อมสำหรับ Local LLM (Ollama)
     """
     if LLM_PROVIDER != "local":
         return
@@ -75,7 +75,7 @@ def get_llm_model():
     if LLM_PROVIDER == "gemini":
         if not GEMINI_API_KEY:
             raise ValueError("❌ ไม่พบ GEMINI_API_KEY")
-        # ใช้ google-genai SDK ตัวใหม่ ซึ่งมี .aio สำหรับ async call
+        # GenAI SDK รองรับ .aio สำหรับการเรียกใช้แบบ asynchronous
         return genai.Client(api_key=GEMINI_API_KEY)
 
     elif LLM_PROVIDER == "openai":
@@ -97,7 +97,7 @@ def get_llm_model():
 
 def log_llm_usage(response, context="", model_name=None):
     """
-    บันทึก Usage Metrics โดยรองรับทั้ง Gemini และ OpenAI Response format
+    บันทึกการใช้งาน Token ของระบบ
     """
     prompt_tokens = 0
     completion_tokens = 0
@@ -116,6 +116,6 @@ def log_llm_usage(response, context="", model_name=None):
                 completion_tokens = usage.completion_tokens
                 total_tokens = usage.total_tokens
     except Exception as e:
-        logger.warning(f"⚠️ ไม่สามารถอ่าน Usage Log ได้: {e}")
+        logger.warning(f"⚠️ ไม่สามารถบันทึก Usage Log ได้: {e}")
 
     logger.info(f"🔢 {LLM_PROVIDER.upper()} Usage ({context}) - Total: {total_tokens} tokens")

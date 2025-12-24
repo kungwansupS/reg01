@@ -21,9 +21,9 @@ logger = logging.getLogger(__name__)
 
 async def ask_llm(msg, session_id, emit_fn=None):
     """
-    ประมวลผลคำถามด้วย LLM แบบ Async รองรับ Concurrent Requests และ RAG
+    ประมวลผลคำถามด้วย LLM แบบ Async (RAG-Enabled)
     """
-    # ตรวจสอบภาษา (รันใน thread เพื่อป้องกันการ block ประโยคยาว)
+    # ตรวจสอบภาษา (รันใน thread เพื่อป้องกันการ block CPU)
     detected_lang = await asyncio.to_thread(detect, msg)
     request_prompt = get_request_prompt(detected_lang)
 
@@ -37,7 +37,7 @@ async def ask_llm(msg, session_id, emit_fn=None):
         logger.info(f"💡 [Cache Hit]: {msg}")
         return {"text": qa_cache[msg], "from_faq": False}
 
-    # 2. History & Summary (รันงานหนักใน Thread แยก)
+    # 2. History & Memory Management
     history = get_or_create_history(session_id)
     if not (history and history[-1]["parts"][0]["text"] == msg):
         history.append({"role": "user", "parts": [{"text": msg}]})
@@ -51,7 +51,7 @@ async def ask_llm(msg, session_id, emit_fn=None):
     try:
         model = get_llm_model()
         
-        # 3. First Call
+        # 3. First LLM Call
         if LLM_PROVIDER == "gemini":
             response = await model.aio.models.generate_content(
                 model=GEMINI_MODEL_NAME, 
@@ -68,13 +68,12 @@ async def ask_llm(msg, session_id, emit_fn=None):
 
         log_llm_usage(response, context="First Call")
 
-        # 4. RAG Support
+        # 4. RAG Logic (ถ้าต้องใช้ข้อมูลเพิ่ม)
         if "query_request" in reply:
             search_query = reply.split("query_request", 1)[1].strip()
             if emit_fn:
-                await emit_fn("ai_status", {"status": "🔍 กำลังค้นหาข้อมูลเพิ่มเติม..."})
+                await emit_fn("ai_status", {"status": "🔍 กำลังหาข้อมูลเพิ่มเติมให้นะครับ..."})
             
-            # รันการค้นหา (CPU-bound) ใน Thread แยก
             top_chunks = await asyncio.to_thread(retrieve_top_k_chunks, search_query, k=5, folder=PDF_QUICK_USE_FOLDER)
             context = "\n\n".join([c['chunk'] for c, _ in top_chunks])
             prompt_rag = request_prompt.format(question=search_query, context=context)
@@ -95,7 +94,7 @@ async def ask_llm(msg, session_id, emit_fn=None):
             
             log_llm_usage(response, context="RAG Call")
 
-        # บันทึกสถานะ
+        # บันทึกสถานะผลลัพธ์
         qa_cache[msg] = reply
         history.append({"role": "model", "parts": [{"text": reply}]})
         await asyncio.to_thread(save_history, session_id, history)
@@ -105,6 +104,6 @@ async def ask_llm(msg, session_id, emit_fn=None):
     except Exception as e:
         logger.error(f"❌ LLM Error: {e}")
         return {
-            "text": f"❌ พี่เร็กขออภัย ระบบขัดข้อง: {str(e)}", 
+            "text": f"❌ พี่เร็กขออภัย ระบบขัดข้องชั่วคราว: {str(e)}", 
             "from_faq": False
         }

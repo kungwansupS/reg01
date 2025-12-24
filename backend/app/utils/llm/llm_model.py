@@ -20,14 +20,14 @@ logger = logging.getLogger(__name__)
 
 def ensure_local_llm_ready():
     """
-    ตรวจสอบสถานะของ Ollama และติดตั้งโมเดลอัตโนมัติ
+    ตรวจสอบสถานะของ Ollama และติดตั้งโมเดลอัตโนมัติ (Blocking check)
     """
     if LLM_PROVIDER != "local":
         return
 
     ollama_path = shutil.which("ollama")
     if not ollama_path:
-        logger.error("❌ ไม่พบโปรแกรม 'ollama' ใน System PATH โปรดติดตั้งจาก https://ollama.com")
+        logger.error("❌ ไม่พบโปรแกรม 'ollama' ใน System PATH")
         return
 
     base_url_only = LOCAL_BASE_URL.replace("/v1", "")
@@ -62,7 +62,7 @@ def ensure_local_llm_ready():
             
             target_model = LOCAL_MODEL_NAME
             if target_model not in models and f"{target_model}:latest" not in models:
-                logger.info(f"📥 กำลังติดตั้งโมเดล {target_model} อัตโนมัติ (โปรดรอสักครู่)...")
+                logger.info(f"📥 กำลังติดตั้งโมเดล {target_model} (โปรดรอสักครู่)...")
                 subprocess.run(["ollama", "pull", target_model], shell=(os.name == 'nt'), check=True)
                 logger.info(f"✅ ติดตั้งโมเดล {target_model} สำเร็จ")
     except Exception as e:
@@ -70,12 +70,12 @@ def ensure_local_llm_ready():
 
 def get_llm_model():
     """
-    สร้างและคืนค่า Client ของ LLM (Async สำหรับ OpenAI/Local, Client สำหรับ Gemini)
+    สร้างและคืนค่า Client ของ LLM (Async สำหรับ OpenAI/Local, GenAI Client สำหรับ Gemini)
     """
     if LLM_PROVIDER == "gemini":
         if not GEMINI_API_KEY:
             raise ValueError("❌ ไม่พบ GEMINI_API_KEY")
-        # genai.Client ตัวใหม่ของ Google มี .aio attribute สำหรับงาน async
+        # ใช้ google-genai SDK ตัวใหม่ ซึ่งมี .aio สำหรับ async call
         return genai.Client(api_key=GEMINI_API_KEY)
 
     elif LLM_PROVIDER == "openai":
@@ -97,7 +97,7 @@ def get_llm_model():
 
 def log_llm_usage(response, context="", model_name=None):
     """
-    บันทึก Usage Metrics
+    บันทึก Usage Metrics โดยรองรับทั้ง Gemini และ OpenAI Response format
     """
     prompt_tokens = 0
     completion_tokens = 0
@@ -116,6 +116,6 @@ def log_llm_usage(response, context="", model_name=None):
                 completion_tokens = usage.completion_tokens
                 total_tokens = usage.total_tokens
     except Exception as e:
-        logger.warning(f"⚠️ Error reading usage logs: {e}")
+        logger.warning(f"⚠️ ไม่สามารถอ่าน Usage Log ได้: {e}")
 
     logger.info(f"🔢 {LLM_PROVIDER.upper()} Usage ({context}) - Total: {total_tokens} tokens")

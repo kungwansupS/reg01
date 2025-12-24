@@ -30,7 +30,7 @@ FB_APP_SECRET = os.getenv("FB_APP_SECRET", "")
 FB_PAGE_ACCESS_TOKEN = os.getenv("FB_PAGE_ACCESS_TOKEN", "")
 GRAPH_BASE = "https://graph.facebook.com/v19.0"
 
-# กำหนด Pool สำหรับงานหนักด้าน CPU (STT)
+# Pool สำหรับงาน STT
 executor = ThreadPoolExecutor(max_workers=10)
 fb_task_queue = asyncio.Queue()
 session_locks = {}
@@ -76,11 +76,11 @@ async def fb_worker():
 
         async with await get_session_lock(session_id):
             try:
-                # รันแบบ Async ได้โดยตรง ไม่ block
+                # รัน ask_llm (Async)
                 result = await ask_llm(user_text, session_id, emit_fn=sio.emit)
                 reply = (result.get("text") or "").replace("//", " ")
                 
-                # ถามท่าทางแบบ Async
+                # รัน suggest_pose (Async)
                 motion = await suggest_pose(reply)
 
                 await sio.emit("ai_response", {"motion": motion, "text": reply})
@@ -92,7 +92,7 @@ async def fb_worker():
 
 @app.on_event("startup")
 async def startup_event():
-    # รัน Worker หลายตัวพร้อมกันเพื่อความรวดเร็ว
+    # รัน Worker 5 ตัวเพื่อรองรับ Facebook Messages พร้อมกัน
     for _ in range(5):
         asyncio.create_task(fb_worker())
 
@@ -112,12 +112,12 @@ async def handle_speech(
     loop = asyncio.get_event_loop()
 
     if audio:
-        await sio.emit("ai_status", {"status": "👂 กำลังฟังและแปลงเสียง..."})
+        await sio.emit("ai_status", {"status": "👂 กำลังแปลงเสียง..."})
         with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as temp_audio:
             temp_audio.write(await audio.read())
             temp_path = temp_audio.name
 
-        # STT ยังเป็นงานที่กิน CPU หนัก จึงรันใน executor ต่อไป
+        # STT ยังคงรันใน executor เพราะเป็นงานหนักด้าน CPU
         text = await loop.run_in_executor(executor, transcribe, temp_path)
         
         if text.startswith("✖️") or text == "❌ ไม่เข้าใจเสียง":
@@ -130,16 +130,11 @@ async def handle_speech(
         return JSONResponse(status_code=400, content={"error": "No input"})
 
     async with await get_session_lock(session_id):
-        # บันทึกประวัติ
-        history = get_or_create_history(session_id, context_prompt)
-        history.append({"role": "user", "parts": [{"text": text}]})
-        save_history(session_id, history)
-
-        # ถาม AI แบบ Async พร้อมกัน
+        # บันทึกประวัติและดึงคำตอบจาก LLM (Async)
         result = await ask_llm(text, session_id, emit_fn=sio.emit)
         reply = result["text"]
         
-        # ถาม Pose แบบ Async
+        # วิเคราะห์ท่าทาง (Async)
         motion = await suggest_pose(reply)
 
     await sio.emit("ai_response", {"motion": motion, "text": reply.replace("//", " ")})

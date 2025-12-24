@@ -12,14 +12,14 @@ logger = logging.getLogger(__name__)
 
 async def suggest_pose(text: str) -> str:
     """
-    รับข้อความ แล้วให้ LLM แนะนำท่าทางที่เหมาะสม (Async Version)
+    วิเคราะห์ข้อความแล้วแนะนำท่าทาง (Async Version)
     """
     try:
         prompt = motion_prompt.format(text=text)
         model = get_llm_model()
 
         if LLM_PROVIDER == "gemini":
-            # ใช้ .aio สำหรับ Google GenAI SDK (Async)
+            # เรียกใช้ผ่าน .aio (Async Client ของ GenAI SDK)
             response = await model.aio.models.generate_content(
                 model=GEMINI_MODEL_NAME, 
                 contents=prompt
@@ -28,7 +28,7 @@ async def suggest_pose(text: str) -> str:
 
         elif LLM_PROVIDER in ["openai", "local"]:
             m_name = OPENAI_MODEL_NAME if LLM_PROVIDER == "openai" else LOCAL_MODEL_NAME
-            # ต้อง await เพื่อรอผลลัพธ์จาก AsyncOpenAI
+            # ต้อง await เนื่องจาก model เป็น AsyncOpenAI
             response = await model.chat.completions.create(
                 model=m_name,
                 messages=[{"role": "user", "content": prompt}],

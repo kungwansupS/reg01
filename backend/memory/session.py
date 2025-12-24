@@ -1,5 +1,6 @@
 import os
 import json
+import time
 from app.config import SESSION_DIR
 from memory.memory import summarize_chat_history
 
@@ -20,9 +21,11 @@ def get_or_create_history(session_id, context=""):
     if os.path.exists(path):
         try:
             with open(path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            return []
+                data = json.load(f)
+                if isinstance(data, list):
+                    return data
+        except (json.JSONDecodeError, Exception):
+            pass # หากไฟล์เสียจะสร้างใหม่
 
     history = [{"role": "user", "parts": [{"text": context}]}] if context else []
     with open(path, "w", encoding="utf-8") as f:
@@ -38,9 +41,7 @@ def save_history(session_id, history):
     if len(deduped_history) > MAX_HISTORY_LENGTH:
         to_summarize = deduped_history[:-NUM_RECENT_TO_KEEP]
         recent = deduped_history[-NUM_RECENT_TO_KEEP:]
-
         summary_text = summarize_chat_history(to_summarize)
-
         deduped_history = [{
             "role": "system",
             "parts": [{"text": f"สรุปบทสนทนาก่อนหน้านี้:\n{summary_text}"}]
@@ -50,13 +51,22 @@ def save_history(session_id, history):
     with open(path, "w", encoding="utf-8") as f:
         json.dump(deduped_history, f, ensure_ascii=False, indent=2)
 
-def append_to_history(session_id, new_entry):
-    history = get_or_create_history(session_id)
-    if history and history[-1]["role"] == new_entry["role"] and \
-       history[-1]["parts"][0]["text"] == new_entry["parts"][0]["text"]:
-        return
-    history.append(new_entry)
-    save_history(session_id, history)
+def cleanup_old_sessions(days=7):
+    """ลบไฟล์ session ที่ไม่มีการเคลื่อนไหวเกินกำหนด"""
+    try:
+        now = time.time()
+        cutoff = now - (days * 86400)
+        count = 0
+        for filename in os.listdir(SESSION_DIR):
+            if filename.endswith(".json"):
+                path = os.path.join(SESSION_DIR, filename)
+                if os.path.getmtime(path) < cutoff:
+                    os.remove(path)
+                    count += 1
+        return count
+    except Exception as e:
+        print(f"Cleanup Error: {e}")
+        return 0
 
 def clear_history(session_id):
     path = get_session_path(session_id)

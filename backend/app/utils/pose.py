@@ -1,26 +1,36 @@
 import logging
 from app.utils.llm.llm_model import get_llm_model, log_llm_usage
 from app.prompt.motion_prompt import motion_prompt
-from app.config import LLM_PROVIDER
+from app.config import (
+    LLM_PROVIDER, 
+    GEMINI_MODEL_NAME, 
+    OPENAI_MODEL_NAME, 
+    LOCAL_MODEL_NAME
+)
 
 logger = logging.getLogger(__name__)
 
 def suggest_pose(text: str) -> str:
     """
-    รับข้อความ แล้วให้ LLM แนะนำท่าทางที่เหมาะสม
+    รับข้อความ แล้วให้ LLM แนะนำท่าทางที่เหมาะสม (รองรับ Gemini, OpenAI, และ Local)
     """
     try:
         prompt = motion_prompt.format(text=text)
         model = get_llm_model()
 
         if LLM_PROVIDER == "gemini":
-            response = model.generate_content(prompt)
+            # ใช้ Google GenAI SDK (New)
+            response = model.models.generate_content(
+                model=GEMINI_MODEL_NAME, 
+                contents=prompt
+            )
             reply = response.text.strip().replace('"', '')
 
-        elif LLM_PROVIDER == "openai":
-            from app.config import OPENAI_MODEL_NAME
+        elif LLM_PROVIDER in ["openai", "local"]:
+            # ใช้ OpenAI Client (รวมถึงกรณี Local ที่ใช้มาตรฐานเดียวกัน)
+            m_name = OPENAI_MODEL_NAME if LLM_PROVIDER == "openai" else LOCAL_MODEL_NAME
             response = model.chat.completions.create(
-                model=OPENAI_MODEL_NAME,
+                model=m_name,
                 messages=[{"role": "user", "content": prompt}],
             )
             reply = response.choices[0].message.content.strip().replace('"', '')
@@ -33,6 +43,5 @@ def suggest_pose(text: str) -> str:
         return reply
 
     except Exception as e:
-        logger.exception("Gemini Error in suggest_pose")
+        logger.error(f"❌ Error in suggest_pose: {e}")
         return "none"
-

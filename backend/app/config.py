@@ -14,7 +14,7 @@ OPENAI_MODEL_NAME = os.getenv("OPENAI_MODEL_NAME", "gpt-3.5-turbo")
 # [สำคัญ] รองรับ Groq หรือ Local LLM ผ่าน OpenAI Standard
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
 
-# การตั้งค่าสำหรับ Local Thai LLM (Chinda-Qwen3-4b)
+# การตั้งค่าสำหรับ Local Thai LLM (เช่น Chinda-Qwen3-4b)
 LOCAL_API_KEY = os.getenv("LOCAL_API_KEY", "ollama")
 LOCAL_MODEL_NAME = os.getenv("LOCAL_MODEL_NAME", "chinda-qwen3-4b")
 LOCAL_BASE_URL = os.getenv("LOCAL_BASE_URL", "http://localhost:11434/v1")

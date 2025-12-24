@@ -20,15 +20,15 @@ logger = logging.getLogger(__name__)
 
 def ensure_local_llm_ready():
     """
-    ตรวจสอบสถานะของ Ollama และติดตั้งโมเดลอัตโนมัติ (แก้ไข WinError 2)
+    ตรวจสอบสถานะของ Ollama และติดตั้งโมเดลอัตโนมัติ
     """
     if LLM_PROVIDER != "local":
         return
 
-    # 1. ตรวจสอบว่าโปรแกรม Ollama ติดตั้งอยู่ในเครื่องหรือไม่
+    # 1. ตรวจสอบว่ามีโปรแกรม Ollama ในเครื่องหรือไม่ (ป้องกัน WinError 2)
     ollama_path = shutil.which("ollama")
     if not ollama_path:
-        logger.error("❌ ไม่พบโปรแกรม 'ollama' ใน System PATH โปรดดาวน์โหลดและติดตั้งจาก https://ollama.com")
+        logger.error("❌ ไม่พบโปรแกรม 'ollama' ใน System PATH โปรดติดตั้งจาก https://ollama.com")
         return
 
     base_url_only = LOCAL_BASE_URL.replace("/v1", "")
@@ -45,41 +45,59 @@ def ensure_local_llm_ready():
             else: # Linux/Mac
                 subprocess.Popen(["ollama", "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             
-            time.sleep(3) # รอให้ Service ตั้งตัว
+            # รอ Service เริ่มทำงาน (สูงสุด 10 วินาที)
+            for _ in range(10):
+                time.sleep(1)
+                try:
+                    with httpx.Client() as client:
+                        if client.get(base_url_only).status_code == 200:
+                            break
+                except:
+                    continue
         except Exception as e:
             logger.error(f"❌ ไม่สามารถเปิด Ollama อัตโนมัติได้: {e}")
             return
 
-    # 3. ตรวจสอบและ Pull โมเดล
+    # 3. ตรวจสอบและดาวน์โหลดโมเดลอัตโนมัติ
     try:
         with httpx.Client(timeout=10.0) as client:
-            tags_res = client.get(f"{base_url_only}/api/tags")
-            models = [m['name'] for m in tags_res.json().get('models', [])]
+            tags_response = client.get(f"{base_url_only}/api/tags")
+            models = [m['name'] for m in tags_response.json().get('models', [])]
             
-            if LOCAL_MODEL_NAME not in models and f"{LOCAL_MODEL_NAME}:latest" not in models:
-                logger.info(f"📥 กำลังดาวน์โหลดโมเดล {LOCAL_MODEL_NAME} (อาจใช้เวลาหลายนาที)...")
-                # ใช้ shell=True เฉพาะ Windows เพื่อความชัวร์ในการหา Path
-                subprocess.run(["ollama", "pull", LOCAL_MODEL_NAME], shell=(os.name == 'nt'), check=True)
-                logger.info(f"✅ ติดตั้งโมเดล {LOCAL_MODEL_NAME} สำเร็จ")
+            target_model = LOCAL_MODEL_NAME
+            if target_model not in models and f"{target_model}:latest" not in models:
+                logger.info(f"📥 กำลังติดตั้งโมเดล {target_model} อัตโนมัติ (โปรดรอสักครู่)...")
+                subprocess.run(["ollama", "pull", target_model], shell=(os.name == 'nt'), check=True)
+                logger.info(f"✅ ติดตั้งโมเดล {target_model} สำเร็จ")
     except Exception as e:
         logger.warning(f"⚠️ การ Pull โมเดลขัดข้อง: {e}")
 
 def get_llm_model():
+    """
+    สร้างและคืนค่า Client ของ LLM ตาม Provider ที่เลือก
+    """
     if LLM_PROVIDER == "gemini":
         if not GEMINI_API_KEY:
-            raise ValueError("❌ ไม่พบ GEMINI_API_KEY")
+            raise ValueError("❌ ไม่พบ GEMINI_API_KEY ใน Environment Variables")
         return genai.Client(api_key=GEMINI_API_KEY)
 
     elif LLM_PROVIDER == "openai":
         if not OPENAI_API_KEY:
             raise ValueError("❌ ไม่พบ OPENAI_API_KEY")
-        return openai.OpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL)
+        return openai.OpenAI(
+            api_key=OPENAI_API_KEY,
+            base_url=OPENAI_BASE_URL
+        )
 
     elif LLM_PROVIDER == "local":
+        # ตรวจสอบความพร้อมก่อนสร้าง Client
         ensure_local_llm_ready()
-        return openai.OpenAI(api_key=LOCAL_API_KEY, base_url=LOCAL_BASE_URL)
-    
-    raise ValueError(f"❌ ไม่รู้จัก LLM_PROVIDER: {LLM_PROVIDER}")
+        return openai.OpenAI(
+            api_key=LOCAL_API_KEY,
+            base_url=LOCAL_BASE_URL
+        )
+    else:
+        raise ValueError(f"❌ ไม่รู้จัก LLM_PROVIDER: {LLM_PROVIDER}")
 
 def log_llm_usage(response, context="", model_name=None):
     prompt_tokens = 0
@@ -100,4 +118,5 @@ def log_llm_usage(response, context="", model_name=None):
                 total_tokens = usage.total_tokens
     except Exception as e:
         print(f"⚠️ Error reading usage logs: {e}")
+
     print(f"🔢 {LLM_PROVIDER.capitalize()} usage ({context}) - Total: {total_tokens}")

@@ -26,12 +26,13 @@ async def ask_llm(msg, session_id, emit_fn=None):
     if emit_fn:
         await emit_fn("ai_status", {"status": "🧠 กำลังคิด..."})
 
+    # 1. FAQ และ Cache
     faq_answer = get_faq_answer(msg)
-    faq_context_section = f"\n[FAQ] {faq_answer}" if faq_answer else ""
-
+    faq_context = f"\n[FAQ] {faq_answer}" if faq_answer else ""
     if msg in qa_cache:
         return {"text": qa_cache[msg], "from_faq": False}
 
+    # 2. History
     history = get_or_create_history(session_id)
     if not (history and history[-1]["parts"][0]["text"] == msg):
         history.append({"role": "user", "parts": [{"text": msg}]})
@@ -40,11 +41,12 @@ async def ask_llm(msg, session_id, emit_fn=None):
     summary = summarize_chat_history(history[:-10])
     history_text = "\n".join([f"{t['role']}: {t['parts'][0]['text']}" for t in history[-10:]])
 
-    full_prompt = f"{context_prompt}\n{summary}\n{faq_context_section}\n{history_text}\nถาม: {msg}"
+    full_prompt = f"{context_prompt}\n{summary}{faq_context}\n{history_text}\nถาม: {msg}"
 
     try:
         model = get_llm_model()
         
+        # 3. First Call
         if LLM_PROVIDER == "gemini":
             response = model.models.generate_content(model=GEMINI_MODEL_NAME, contents=full_prompt)
             reply = response.text.strip()
@@ -53,6 +55,7 @@ async def ask_llm(msg, session_id, emit_fn=None):
             response = model.chat.completions.create(model=m_name, messages=[{"role": "user", "content": full_prompt}])
             reply = response.choices[0].message.content.strip()
 
+        # 4. RAG Support
         if "query_request" in reply:
             search_query = reply.split("query_request", 1)[1].strip()
             top_chunks = await asyncio.to_thread(retrieve_top_k_chunks, search_query, k=5, folder=PDF_QUICK_USE_FOLDER)
@@ -74,4 +77,4 @@ async def ask_llm(msg, session_id, emit_fn=None):
 
     except Exception as e:
         logger.error(f"❌ LLM Error: {e}")
-        return {"text": f"❌ ระบบขัดข้อง: {str(e)}", "from_faq": False}
+        return {"text": f"❌ ระบบขัดข้อง (Local LLM อาจกำลังเตรียมตัว): {str(e)}", "from_faq": False}

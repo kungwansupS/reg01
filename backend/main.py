@@ -13,6 +13,9 @@ import hmac
 import hashlib
 import httpx
 import asyncio
+import time
+import datetime
+from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 
 from app.tts import speak
@@ -41,30 +44,45 @@ async def get_session_lock(session_id: str):
     return session_locks[session_id]
 
 # ----------------------------------------------------------------------------- #
-# SECURITY & ACCESS CONTROL (PHASE 2)
+# RATE LIMIT & AUDIT LOG SYSTEM
+# ----------------------------------------------------------------------------- #
+user_request_history = defaultdict(list)
+RATE_LIMIT_COUNT = 10  
+RATE_LIMIT_WINDOW = 60 
+
+def is_rate_limited(user_id: str) -> bool:
+    now = time.time()
+    user_request_history[user_id] = [t for t in user_request_history[user_id] if now - t < RATE_LIMIT_WINDOW]
+    if len(user_request_history[user_id]) >= RATE_LIMIT_COUNT:
+        return True
+    user_request_history[user_id].append(now)
+    return False
+
+def write_audit_log(user_id: str, platform: str, user_input: str, ai_response: str):
+    log_entry = {
+        "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "user_id": user_id,
+        "platform": platform,
+        "input": user_input[:500],  # ตัดสั้นเพื่อประหยัดพื้นที่ log
+        "output": ai_response[:500]
+    }
+    os.makedirs("logs", exist_ok=True)
+    with open("logs/user_audit.log", "a", encoding="utf-8") as f:
+        f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
+
+# ----------------------------------------------------------------------------- #
+# SECURITY & ACCESS CONTROL
 # ----------------------------------------------------------------------------- #
 API_KEY_NAME = "X-API-Key"
 api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=False)
 
 async def verify_token(request: Request, api_key: str = Depends(api_key_header)):
-    """
-    ตรวจสอบสิทธิ์การเข้าใช้งาน
-    - หากรันบน localhost: อนุญาตให้ผ่านได้ (เพื่อความสะดวกในการพัฒนา)
-    - หากรันบน Server จริง: บังคับเช็ค X-API-Key
-    """
     client_host = request.client.host
-    
-    # 1. Bypass สำหรับการทดสอบในเครื่อง (Localhost)
     if client_host in ["127.0.0.1", "localhost"]:
-        return api_key or "local-dev-access"
-
-    # 2. ตรวจสอบ Token สำหรับการใช้งานจริง
+        return api_key or "local-dev-user"
     if not api_key:
         print(f"🔒 [Security]: Unauthorized access attempt from {client_host}")
-        raise HTTPException(
-            status_code=403, 
-            detail="Unauthorized: กรุณาเข้าสู่ระบบผ่าน SSO ของมหาวิทยาลัย"
-        )
+        raise HTTPException(status_code=403, detail="Unauthorized: กรุณาเข้าสู่ระบบ")
     return api_key
 
 # ----------------------------------------------------------------------------- #
@@ -99,15 +117,25 @@ async def fb_worker():
         task = await fb_task_queue.get()
         psid = task["psid"]
         user_text = task["text"]
-        session_id = task["session_id"]
+        session_id = f"fb_{psid}"
+
+        # Check Rate Limit for FB User
+        if is_rate_limited(psid):
+            await send_fb_text(psid, "⚠️ คุณส่งข้อความบ่อยเกินไป โปรดรอสักครู่ครับ")
+            fb_task_queue.task_done()
+            continue
 
         async with await get_session_lock(session_id):
             try:
                 result = await ask_llm(user_text, session_id, emit_fn=sio.emit)
                 reply = (result.get("text") or "").replace("//", " ")
                 motion = await suggest_pose(reply)
+                
                 await sio.emit("ai_response", {"motion": motion, "text": reply})
                 await send_fb_text(psid, reply or " ")
+                
+                # Write Audit Log
+                write_audit_log(psid, "facebook", user_text, reply)
             except Exception as e:
                 print(f"Worker Error: {e}")
             finally:
@@ -119,7 +147,7 @@ async def startup_event():
         asyncio.create_task(fb_worker())
 
 # ----------------------------------------------------------------------------- #
-# API ROUTES (PROTECTED)
+# API ROUTES
 # ----------------------------------------------------------------------------- #
 @app.post("/api/speech")
 async def handle_speech(
@@ -127,38 +155,40 @@ async def handle_speech(
     text: str = Form(None),
     session_id: str = Form(None),
     audio: UploadFile = Form(None),
-    auth: str = Depends(verify_token) # ระบบ Security
+    auth: str = Depends(verify_token)
 ):
-    if not session_id:
-        session_id = str(uuid.uuid4())
-    
-    loop = asyncio.get_event_loop()
+    # 1. Identity: ใช้ auth (API Key/SSO ID) เป็น session_id หลัก
+    final_session_id = auth if auth != "local-dev-user" else (session_id or str(uuid.uuid4()))
 
+    # 2. Rate Limit Check
+    if is_rate_limited(final_session_id):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded: กรุณาลองใหม่ในอีก 1 นาที")
+
+    loop = asyncio.get_event_loop()
     if audio:
         await sio.emit("ai_status", {"status": "👂 พี่เร็กกำลังฟังอยู่ครับ..."})
         with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as temp_audio:
             temp_audio.write(await audio.read())
             temp_path = temp_audio.name
-
         text = await loop.run_in_executor(executor, transcribe, temp_path)
-        
         if text.startswith("✖️") or text == "❌ ไม่เข้าใจเสียง":
             await sio.emit("ai_status", {"status": text})
             return {"text": text, "motion": "none"}
-            
         await sio.emit("subtitle", {"speaker": "user", "text": text.replace("//", " ")})
 
     if not text:
         return JSONResponse(status_code=400, content={"error": "No input"})
 
-    async with await get_session_lock(session_id):
-        result = await ask_llm(text, session_id, emit_fn=sio.emit)
+    async with await get_session_lock(final_session_id):
+        result = await ask_llm(text, final_session_id, emit_fn=sio.emit)
         reply = result["text"]
         motion = await suggest_pose(reply)
 
+    # 3. Audit Logging
+    write_audit_log(final_session_id, "web", text, reply)
+
     await sio.emit("ai_response", {"motion": motion, "text": reply.replace("//", " ")})
     await sio.emit("ai_status", {"status": ""})
-    
     return {"text": reply.replace("//", " "), "motion": motion}
 
 @app.post("/api/speak")
@@ -186,8 +216,7 @@ async def fb_webhook(request: Request):
                 user_text = event["message"]["text"].strip()
                 await fb_task_queue.put({
                     "psid": psid,
-                    "text": user_text,
-                    "session_id": f"fb:{psid}"
+                    "text": user_text
                 })
     return JSONResponse({"status": "accepted"})
 

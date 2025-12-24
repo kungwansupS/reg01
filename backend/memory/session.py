@@ -3,19 +3,26 @@ import json
 from app.config import SESSION_DIR
 from memory.memory import summarize_chat_history
 
+# สร้างโฟลเดอร์เก็บ Session และ Logs หากยังไม่มี
 os.makedirs(SESSION_DIR, exist_ok=True)
+os.makedirs("logs", exist_ok=True)
 
 MAX_HISTORY_LENGTH = 30
 NUM_RECENT_TO_KEEP = 10
 
 def get_session_path(session_id):
-    return os.path.join(SESSION_DIR, f"{session_id}.json")
+    # ปรับให้ปลอดภัยต่อการตั้งชื่อไฟล์ (รองรับ id ที่มีอักขระพิเศษ)
+    safe_id = "".join([c for c in str(session_id) if c.isalnum() or c in ("-", "_")])
+    return os.path.join(SESSION_DIR, f"{safe_id}.json")
 
 def get_or_create_history(session_id, context=""):
     path = get_session_path(session_id)
     if os.path.exists(path):
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return []
 
     history = [{"role": "user", "parts": [{"text": context}]}] if context else []
     with open(path, "w", encoding="utf-8") as f:
@@ -45,11 +52,9 @@ def save_history(session_id, history):
 
 def append_to_history(session_id, new_entry):
     history = get_or_create_history(session_id)
-
     if history and history[-1]["role"] == new_entry["role"] and \
        history[-1]["parts"][0]["text"] == new_entry["parts"][0]["text"]:
         return
-
     history.append(new_entry)
     save_history(session_id, history)
 

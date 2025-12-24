@@ -19,7 +19,7 @@ def get_installed_packages():
 
 def parse_requirements():
     reqs = {}
-    with open(REQUIREMENTS, "r") as f:
+    with open(REQUIREMENTS, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line or line.startswith("#"):
@@ -46,25 +46,51 @@ def get_latest_version(package):
         return None
 
 def has_cuda_support():
-    """ตรวจสอบว่าเครื่องมี GPU NVIDIA ที่ใช้ได้กับ CUDA หรือไม่"""
+    """ตรวจสอบว่าเครื่องมี NVIDIA GPU + CUDA"""
     if shutil.which("nvidia-smi") is None:
         return False
     try:
-        result = subprocess.run(["nvidia-smi"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+        result = subprocess.run(
+            ["nvidia-smi"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True
+        )
         return "CUDA Version" in result.stdout
     except:
         return False
 
+def torch_is_cpu_only():
+    """ตรวจว่า torch ที่ติดตั้งเป็น CPU หรือไม่"""
+    try:
+        import torch
+        return not torch.cuda.is_available()
+    except:
+        return False
+
+def uninstall_torch():
+    print("🧹 Removing existing PyTorch (CPU)")
+    run_command([
+        sys.executable, "-m", "pip", "uninstall", "-y",
+        "torch", "torchvision", "torchaudio"
+    ])
+
 def install_pytorch():
-    if has_cuda_support():
-        print("⚡ พบ CUDA: ติดตั้ง PyTorch พร้อม CUDA 12.8")
+    cuda = has_cuda_support()
+
+    if cuda:
+        print("⚡ พบ CUDA")
+        if torch_is_cpu_only():
+            uninstall_torch()
+
+        print("🚀 Installing PyTorch with CUDA 12.8")
         run_command([
             sys.executable, "-m", "pip", "install",
             "torch", "torchvision", "torchaudio",
             "--index-url", "https://download.pytorch.org/whl/cu128"
         ])
     else:
-        print("🖥️ ไม่พบ CUDA: ติดตั้ง PyTorch แบบ CPU")
+        print("🖥️ ไม่พบ CUDA → ใช้ PyTorch แบบ CPU")
         run_command([
             sys.executable, "-m", "pip", "install",
             "torch", "torchvision", "torchaudio"
@@ -87,7 +113,7 @@ for pkg, (op, ver) in required.items():
         if current_ver != ver:
             to_uninstall.append(pkg)
             to_install.append(f"{pkg}=={ver}")
-    elif op is None:
+    else:
         latest_ver = get_latest_version(pkg)
         if current_ver is None or (latest_ver and current_ver != latest_ver):
             to_uninstall.append(pkg)

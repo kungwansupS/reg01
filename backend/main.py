@@ -24,13 +24,15 @@ from app.utils.llm.llm import ask_llm
 from app.utils.pose import suggest_pose
 from dotenv import load_dotenv
 from memory.session import get_or_create_history, save_history, cleanup_old_sessions
+from memory.faq_cache import get_faq_analytics
 
 # ----------------------------------------------------------------------------- #
-# SETUP & CONFIG
+# SETUP & CONFIGURATION
 # ----------------------------------------------------------------------------- #
 load_dotenv()
 FB_APP_SECRET = os.getenv("FB_APP_SECRET", "")
 FB_PAGE_ACCESS_TOKEN = os.getenv("FB_PAGE_ACCESS_TOKEN", "")
+ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "super-secret-admin-key")
 GRAPH_BASE = "https://graph.facebook.com/v19.0"
 
 executor = ThreadPoolExecutor(max_workers=10)
@@ -43,14 +45,14 @@ async def get_session_lock(session_id: str):
     return session_locks[session_id]
 
 # ----------------------------------------------------------------------------- #
-# SECURITY, PRIVACY & LOGGING
+# SECURITY, PRIVACY & LOGGING SYSTEM
 # ----------------------------------------------------------------------------- #
 user_request_history = defaultdict(list)
-RATE_LIMIT_COUNT = 10  
+RATE_LIMIT_COUNT = 15  
 RATE_LIMIT_WINDOW = 60 
 
 def hash_id(user_id: str) -> str:
-    """เข้ารหัส User ID เพื่อความเป็นส่วนตัวใน Log"""
+    """ปกป้องตัวตนผู้ใช้ใน Log (PDPA Compliance)"""
     return hashlib.sha256(user_id.encode()).hexdigest()[:16]
 
 def is_rate_limited(user_id: str) -> bool:
@@ -61,31 +63,57 @@ def is_rate_limited(user_id: str) -> bool:
     user_request_history[user_id].append(now)
     return False
 
-def write_audit_log(user_id: str, platform: str, user_input: str, ai_response: str, latency: float):
+def write_audit_log(user_id: str, platform: str, user_input: str, ai_response: str, latency: float, rating: str = "none"):
     log_entry = {
         "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "anon_id": hash_id(user_id),
         "platform": platform,
         "input": user_input[:500],
         "output": ai_response[:500],
-        "latency_sec": round(latency, 3)
+        "latency_sec": round(latency, 3),
+        "rating": rating
     }
     os.makedirs("logs", exist_ok=True)
     with open("logs/user_audit.log", "a", encoding="utf-8") as f:
         f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
 
 # ----------------------------------------------------------------------------- #
-# BACKGROUND TASKS (MAINTENANCE & WORKERS)
+# FASTAPI & SOCKET.IO INITIALIZATION
 # ----------------------------------------------------------------------------- #
-async def system_maintenance_task():
-    """รันทุก 24 ชม. เพื่อล้างไฟล์ขยะ"""
+sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins="*")
+app = FastAPI(
+    middleware=[
+        Middleware(
+            CORSMiddleware,
+            allow_origins=["*"],
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+    ]
+)
+asgi_app = socketio.ASGIApp(sio, app)
+
+# Static Files Mounting
+app.mount("/static", StaticFiles(directory="frontend", html=False), name="static")
+app.mount("/assets", StaticFiles(directory="frontend/assets"), name="assets")
+
+# Security Dependency
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+# ----------------------------------------------------------------------------- #
+# BACKGROUND WORKERS & MAINTENANCE
+# ----------------------------------------------------------------------------- #
+async def maintenance_worker():
+    """รันระบบบำรุงรักษาทุก 24 ชม."""
     while True:
-        deleted_count = cleanup_old_sessions(days=7)
-        if deleted_count > 0:
-            print(f"🧹 [Maintenance]: Cleaned up {deleted_count} old session files.")
+        deleted = cleanup_old_sessions(days=7)
+        if deleted > 0:
+            print(f"🧹 [Maintenance]: Cleaned up {deleted} session files.")
         await asyncio.sleep(86400)
 
 async def fb_worker():
+    """ประมวลผลข้อความจาก Facebook แบบ Queue"""
     while True:
         task = await fb_task_queue.get()
         psid = task["psid"]
@@ -110,55 +138,34 @@ async def fb_worker():
                 write_audit_log(psid, "facebook", user_text, reply, time.time() - start_time)
             except Exception as e:
                 print(f"❌ [FB Worker Error]: {e}")
-                await send_fb_text(psid, "ขออภัยครับ พี่เร็กติดธุระด่วน กรุณาลองใหม่ภายหลัง")
+                await send_fb_text(psid, "พี่เร็กติดขัดเล็กน้อย กรุณาลองใหม่ภายหลังครับ")
             finally:
                 fb_task_queue.task_done()
 
-# ----------------------------------------------------------------------------- #
-# FASTAPI SETUP
-# ----------------------------------------------------------------------------- #
-sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins="*")
-app = FastAPI(
-    middleware=[
-        Middleware(
-            CORSMiddleware,
-            allow_origins=["*"],
-            allow_credentials=True,
-            allow_methods=["*"],
-            allow_headers=["*"],
-        )
-    ]
-)
-asgi_app = socketio.ASGIApp(sio, app)
-
-app.mount("/static", StaticFiles(directory="frontend", html=False), name="static")
-app.mount("/assets", StaticFiles(directory="frontend/assets"), name="assets")
-
 @app.on_event("startup")
 async def startup_event():
-    # Start Maintenance Task
-    asyncio.create_task(system_maintenance_task())
-    # Start FB Workers
+    asyncio.create_task(maintenance_worker())
     for _ in range(5):
         asyncio.create_task(fb_worker())
 
+# ----------------------------------------------------------------------------- #
+# MAIN API ENDPOINTS
+# ----------------------------------------------------------------------------- #
 @app.get("/")
 async def serve_index():
     return FileResponse("frontend/index.html")
 
-# ----------------------------------------------------------------------------- #
-# API ENDPOINTS
-# ----------------------------------------------------------------------------- #
 @app.post("/api/speech")
 async def handle_speech(
     request: Request,
     text: str = Form(None),
     session_id: str = Form(None),
     audio: UploadFile = Form(None),
-    auth: str = Depends(APIKeyHeader(name="X-API-Key", auto_error=False))
+    auth: str = Depends(api_key_header)
 ):
     start_time = time.time()
     user_id = auth or "anonymous"
+    # Identity: ใช้ auth (API Key/SSO ID) หรือ session_id ที่ส่งมา
     final_session_id = user_id if user_id != "local-dev-user" else (session_id or str(uuid.uuid4()))
 
     if is_rate_limited(user_id):
@@ -205,6 +212,38 @@ async def handle_speak(text: str = Form(...)):
         await sio.emit("speech_done")
     return StreamingResponse(generate(), media_type="audio/mpeg")
 
+@app.post("/api/feedback")
+async def record_feedback(session_id: str = Form(...), rating: str = Form(...)):
+    """บันทึกความพึงพอใจ: 'like' หรือ 'dislike'"""
+    write_audit_log(session_id, "feedback", "rating_update", "none", 0, rating)
+    return {"status": "success"}
+
+@app.get("/api/admin/stats")
+async def get_system_stats(token: str):
+    """Admin Analytics: ดูสถิติและความฉลาดของระบบ"""
+    if token != ADMIN_TOKEN:
+        raise HTTPException(status_code=403, detail="Invalid admin token")
+    
+    faq_stats = get_faq_analytics()
+    latencies = []
+    try:
+        if os.path.exists("logs/user_audit.log"):
+            with open("logs/user_audit.log", "r", encoding="utf-8") as f:
+                lines = f.readlines()[-100:]
+                for line in lines:
+                    data = json.loads(line)
+                    if "latency_sec" in data: latencies.append(data["latency_sec"])
+    except: pass
+
+    return {
+        "status": "online",
+        "avg_latency_last_100": round(sum(latencies)/len(latencies), 3) if latencies else 0,
+        "knowledge_stats": faq_stats
+    }
+
+# ----------------------------------------------------------------------------- #
+# FACEBOOK WEBHOOK & HELPERS
+# ----------------------------------------------------------------------------- #
 @app.post("/webhook")
 async def fb_webhook(request: Request):
     raw = await request.body()
@@ -228,10 +267,15 @@ async def send_fb_text(psid: str, text: str):
 
 def verify_signature(app_secret, signature_header, body):
     if not app_secret or not signature_header: return True
-    algo, their_hex = signature_header.split("=", 1)
-    digest = hmac.new(app_secret.encode(), body, hashlib.sha256).hexdigest()
-    return hmac.compare_digest(digest, their_hex)
+    try:
+        algo, their_hex = signature_header.split("=", 1)
+        digest = hmac.new(app_secret.encode(), body, hashlib.sha256).hexdigest()
+        return hmac.compare_digest(digest, their_hex)
+    except: return False
 
+# ----------------------------------------------------------------------------- #
+# MAIN RUN
+# ----------------------------------------------------------------------------- #
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:asgi_app", host="0.0.0.0", port=5000, reload=False)

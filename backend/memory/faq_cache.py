@@ -1,86 +1,68 @@
 import os
 import json
-from datetime import datetime, timedelta
+import redis
+import logging
+from datetime import datetime
 from sentence_transformers import SentenceTransformer, util
+from app.config import REDIS_URL, FAQ_CACHE_PATH
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-FAQ_FILE = os.path.join(BASE_DIR, "cache/faq_cache.json")
-
-MAX_FAQ = 200
-SIM_THRESHOLD = 0.9
-
+logger = logging.getLogger(__name__)
 model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
 
+# เชื่อมต่อ Redis
 try:
-    with open(FAQ_FILE, "r", encoding="utf-8") as f:
-        faq_cache = json.load(f)
-except FileNotFoundError:
-    faq_cache = {}
+    r_faq = redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+    r_faq.ping()
+    USE_REDIS = True
+except:
+    USE_REDIS = False
 
-def save_faq_cache():
-    os.makedirs(os.path.dirname(FAQ_FILE), exist_ok=True)
-    with open(FAQ_FILE, "w", encoding="utf-8") as f:
-        json.dump(faq_cache, f, ensure_ascii=False, indent=2)
+FAQ_REDIS_KEY = "faq_cache_data"
+SIM_THRESHOLD = 0.9
 
-def encode(text):
-    return model.encode(text, convert_to_tensor=True, show_progress_bar=False)
+def _load_local_faq():
+    if os.path.exists(FAQ_CACHE_PATH):
+        with open(FAQ_CACHE_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+def _save_local_faq(data):
+    os.makedirs(os.path.dirname(FAQ_CACHE_PATH), exist_ok=True)
+    with open(FAQ_CACHE_PATH, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
 
 def get_faq_answer(question):
-    query_vec = encode(question)
-    best_match = None
-    best_score = SIM_THRESHOLD
+    faq_cache = json.loads(r_faq.get(FAQ_REDIS_KEY)) if USE_REDIS and r_faq.get(FAQ_REDIS_KEY) else _load_local_faq()
+    if not faq_cache: return None
+
+    query_vec = model.encode(question, convert_to_tensor=True, show_progress_bar=False)
+    best_match, best_score = None, SIM_THRESHOLD
 
     for q in faq_cache:
-        score = util.cos_sim(query_vec, encode(q)).item()
+        score = util.cos_sim(query_vec, model.encode(q, convert_to_tensor=True, show_progress_bar=False)).item()
         if score > best_score:
-            best_score = score
-            best_match = q
+            best_score, best_match = score, q
 
     if best_match:
         faq_cache[best_match]["count"] += 1
-        save_faq_cache()
+        if USE_REDIS: r_faq.set(FAQ_REDIS_KEY, json.dumps(faq_cache, ensure_ascii=False))
+        else: _save_local_faq(faq_cache)
         return faq_cache[best_match]["answer"]
-
     return None
 
-def update_faq(question, answer, days=30):
-    now = datetime.utcnow().isoformat()
-    query_vec = encode(question)
+def update_faq(question, answer):
+    faq_cache = json.loads(r_faq.get(FAQ_REDIS_KEY)) if USE_REDIS and r_faq.get(FAQ_REDIS_KEY) else _load_local_faq()
+    query_vec = model.encode(question, convert_to_tensor=True, show_progress_bar=False)
 
     for q in faq_cache:
-        score = util.cos_sim(query_vec, encode(q)).item()
+        score = util.cos_sim(query_vec, model.encode(q, convert_to_tensor=True, show_progress_bar=False)).item()
         if score > SIM_THRESHOLD:
-            faq_entry = faq_cache[q]
-            faq_entry["count"] += 1
-
-            if faq_entry["answer"] != answer:
-                faq_entry["answer"] = answer
-                faq_entry["last_updated"] = now
-
-            save_faq_cache()
+            faq_cache[q]["answer"] = answer
+            faq_cache[q]["count"] += 1
+            if USE_REDIS: r_faq.set(FAQ_REDIS_KEY, json.dumps(faq_cache, ensure_ascii=False))
+            else: _save_local_faq(faq_cache)
             return
 
-    if len(faq_cache) >= MAX_FAQ:
-        sorted_faq = sorted(faq_cache.items(), key=lambda x: x[1]["count"])
-        del faq_cache[sorted_faq[0][0]]
-
-    faq_cache[question] = {
-        "answer": answer,
-        "count": 1,
-        "last_updated": now
-    }
-    save_faq_cache()
-
-def get_top_faq(limit=100):
-    return sorted(faq_cache.items(), key=lambda x: x[1]["count"], reverse=True)[:limit]
-
-def is_faq_outdated(question, days=30):
-    entry = faq_cache.get(question)
-    if not entry or "last_updated" not in entry:
-        return True
-
-    try:
-        last = datetime.fromisoformat(entry["last_updated"])
-        return datetime.utcnow() - last > timedelta(days=days)
-    except Exception:
-        return True
+    faq_cache[question] = {"answer": answer, "count": 1, "last_updated": datetime.utcnow().isoformat()}
+    if USE_REDIS: r_faq.set(FAQ_REDIS_KEY, json.dumps(faq_cache, ensure_ascii=False))
+    else: _save_local_faq(faq_cache)

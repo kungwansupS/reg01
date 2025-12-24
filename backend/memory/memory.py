@@ -1,17 +1,52 @@
 import tiktoken
-from app.config import LLM_PROVIDER, GEMINI_API_KEY, GEMINI_MODEL_NAME, OPENAI_API_KEY, OPENAI_MODEL_NAME
+import redis
+import json
+import os
+import logging
+from app.config import LLM_PROVIDER, GEMINI_MODEL_NAME, OPENAI_MODEL_NAME, REDIS_URL
 from app.utils.llm.llm_model import get_llm_model
-import openai
 
-# Try import google genai เพื่อความปลอดภัยกรณีไม่ได้ลง lib
+logger = logging.getLogger(__name__)
+
 try:
     from google import genai
 except ImportError:
     genai = None
 
-qa_cache = {}
+# ----------------------------------------------------------------------------- #
+# Hybrid QA Cache (Redis with Local Dict Fallback)
+# ----------------------------------------------------------------------------- #
+class HybridQACache:
+    def __init__(self):
+        self.local_cache = {}
+        try:
+            self.r = redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+            self.r.ping()
+            self.use_redis = True
+            logger.info("✅ Redis connected: QA Cache enabled.")
+        except:
+            self.use_redis = False
+            logger.warning("⚠️ Redis disconnected: QA Cache using Local Memory.")
 
-# ใช้ encoding ของ gpt-3.5 เป็นมาตรฐานกลาง
+    def __contains__(self, key):
+        if self.use_redis: return self.r.exists(f"qa_cache:{key}")
+        return key in self.local_cache
+
+    def __getitem__(self, key):
+        if self.use_redis: return self.r.get(f"qa_cache:{key}")
+        return self.local_cache.get(key)
+
+    def __setitem__(self, key, value):
+        if self.use_redis:
+            self.r.setex(f"qa_cache:{key}", 3600, value)
+        else:
+            self.local_cache[key] = value
+
+qa_cache = HybridQACache()
+
+# ----------------------------------------------------------------------------- #
+# Token & Summarization
+# ----------------------------------------------------------------------------- #
 try:
     ENCODING = tiktoken.encoding_for_model("gpt-3.5-turbo")
 except:
@@ -23,60 +58,21 @@ def count_tokens(text):
     return len(ENCODING.encode(text))
 
 def summarize_chat_history(history):
-    if not history:
-        return ""
-
-    full_dialogue = ""
-    for msg in history:
-        role = "ผู้ใช้" if msg["role"] == "user" else "AI"
-        text = msg["parts"][0]["text"]
-        full_dialogue += f"{role}: {text}\n"
-
-    prompt_header = f"""
-สรุปบทสนทนาให้กระชับ โดยจำกัดความยาวของผลลัพธ์ไม่เกิน {MAX_OUTPUT_TOKENS} token:
-"""
-    # ลด max_prompt_tokens ลงเพื่อประหยัดและกัน error
-    max_prompt_tokens = 1000
-    truncated_dialogue = full_dialogue
-    while count_tokens(prompt_header + truncated_dialogue) > max_prompt_tokens:
-        lines = truncated_dialogue.splitlines()[1:]
-        truncated_dialogue = "\n".join(lines)
-
-    prompt = prompt_header + truncated_dialogue
+    if not history: return ""
+    full_dialogue = "".join([f"{'ผู้ใช้' if m['role'] == 'user' else 'AI'}: {m['parts'][0]['text']}\n" for m in history])
+    prompt = f"สรุปบทสนทนาให้กระชับ ไม่เกิน {MAX_OUTPUT_TOKENS} token:\n{full_dialogue}"
 
     try:
-        # เรียกใช้ Model Client กลาง
         model = get_llm_model()
-
         if LLM_PROVIDER == "gemini":
-            if genai is None:
-                return "(Error: google-genai library not installed)"
-
-            response = model.models.generate_content(
-                model=GEMINI_MODEL_NAME,
-                contents=prompt
-            )
-            result = response.text.strip() if response.text else ""
-            print(f"[Gemini] summary done.")
-            return result
-
-        elif LLM_PROVIDER == "openai":
-            # ใช้ Client ของ OpenAI (รองรับ Groq)
-            response = model.chat.completions.create(
+            res = model.models.generate_content(model=GEMINI_MODEL_NAME, contents=prompt)
+            return res.text.strip() if res.text else ""
+        else:
+            res = model.chat.completions.create(
                 model=OPENAI_MODEL_NAME,
-                messages=[
-                    {"role": "system", "content": f"สรุปใจความสำคัญของบทสนทนาให้อยู่ภายใต้ {MAX_OUTPUT_TOKENS} token"},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.3,
-                max_tokens=MAX_OUTPUT_TOKENS
+                messages=[{"role": "system", "content": "สรุปใจความสำคัญ"}, {"role": "user", "content": prompt}]
             )
-            result = response.choices[0].message.content.strip()
-            print(f"[Groq/OpenAI] summary done.")
-            return result
-
+            return res.choices[0].message.content.strip()
     except Exception as e:
-        print(f"❌ Summarize Error: {e}")
+        logger.error(f"Summarize Error: {e}")
         return "(ไม่สามารถสรุปได้)"
-
-    return "(ไม่สามารถสรุปได้: ไม่รู้จัก LLM_PROVIDER)"

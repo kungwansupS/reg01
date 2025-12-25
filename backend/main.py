@@ -1,6 +1,6 @@
-# [PHASE 1: backend/main.py - FULLCODE ONLY]
+# [FILE: backend/main.py - FULLCODE ONLY]
 from fastapi import FastAPI, Request, UploadFile, Form, HTTPException, Depends, Response
-from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.security.api_key import APIKeyHeader
@@ -8,7 +8,6 @@ from starlette.middleware import Middleware
 import socketio
 import tempfile
 import os
-import shutil
 import uuid
 import json
 import hmac
@@ -18,20 +17,18 @@ import asyncio
 import time
 import datetime
 import logging
-from typing import List, Optional
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 
 from app.tts import speak
 from app.stt import transcribe
 from app.utils.llm.llm import ask_llm
 from app.utils.pose import suggest_pose
-from app.config import PDF_INPUT_FOLDER, PDF_QUICK_USE_FOLDER, SESSION_DIR
 from dotenv import load_dotenv
 from memory.session import get_or_create_history, save_history, cleanup_old_sessions
-from memory.faq_cache import get_faq_analytics
-from pdf_to_txt import process_pdfs
+
+# นำเข้า Admin Router
+from router.admin_router import router as admin_router
 
 # ----------------------------------------------------------------------------- #
 # SETUP & CONFIG
@@ -40,7 +37,6 @@ load_dotenv()
 FB_APP_SECRET = os.getenv("FB_APP_SECRET", "")
 FB_PAGE_ACCESS_TOKEN = os.getenv("FB_PAGE_ACCESS_TOKEN", "")
 FB_VERIFY_TOKEN = os.getenv("FB_VERIFY_TOKEN", "")
-ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "super-secret-key")
 GRAPH_BASE = "https://graph.facebook.com/v19.0"
 
 executor = ThreadPoolExecutor(max_workers=10)
@@ -48,22 +44,12 @@ fb_task_queue = asyncio.Queue()
 session_locks = {}
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("AdminBackend")
+logger = logging.getLogger("MainBackend")
 
 async def get_session_lock(session_id: str):
     if session_id not in session_locks:
         session_locks[session_id] = asyncio.Lock()
     return session_locks[session_id]
-
-# ----------------------------------------------------------------------------- #
-# SECURITY & ADMIN DEPENDENCIES
-# ----------------------------------------------------------------------------- #
-ADMIN_API_KEY_HEADER = APIKeyHeader(name="X-Admin-Token", auto_error=False)
-
-async def verify_admin(auth: str = Depends(ADMIN_API_KEY_HEADER)):
-    if auth != ADMIN_TOKEN:
-        raise HTTPException(status_code=403, detail="Forbidden: Invalid Admin Token")
-    return auth
 
 def hash_id(user_id: str) -> str:
     return hashlib.sha256(user_id.encode()).hexdigest()[:16]
@@ -87,9 +73,13 @@ def write_audit_log(user_id: str, platform: str, user_input: str, ai_response: s
 # ----------------------------------------------------------------------------- #
 sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins="*")
 app = FastAPI(middleware=[Middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])])
+
+# ติดตั้ง Admin Router
+app.include_router(admin_router)
+
 asgi_app = socketio.ASGIApp(sio, app)
 
-# มウント static folders สำหรับ frontend และ assets
+# มウント static folders
 app.mount("/static", StaticFiles(directory="frontend", html=False), name="static")
 app.mount("/assets", StaticFiles(directory="frontend/assets"), name="assets")
 
@@ -102,8 +92,7 @@ async def fb_worker():
             try:
                 result = await ask_llm(user_text, f"fb_{psid}", emit_fn=sio.emit)
                 reply = result["text"]
-                display_reply = reply.replace("//", "")
-                await send_fb_text(psid, display_reply)
+                await send_fb_text(psid, reply.replace("//", ""))
                 write_audit_log(psid, "facebook", user_text, reply, time.time() - start_time)
             except Exception as e: logger.error(f"FB Error: {e}")
             finally: fb_task_queue.task_done()
@@ -124,23 +113,18 @@ async def maintenance_loop():
 @app.get("/webhook")
 async def fb_verify(request: Request):
     params = request.query_params
-    if params.get("hub.mode") == "subscribe":
-        if params.get("hub.verify_token") == FB_VERIFY_TOKEN:
-            return Response(content=params.get("hub.challenge"), media_type="text/plain")
-        return Response(content="Verification failed", status_code=403)
-    return Response(content="Invalid mode", status_code=400)
+    if params.get("hub.mode") == "subscribe" and params.get("hub.verify_token") == FB_VERIFY_TOKEN:
+        return Response(content=params.get("hub.challenge"), media_type="text/plain")
+    return Response(content="Invalid Token", status_code=403)
 
 @app.post("/webhook")
 async def fb_webhook(request: Request):
     raw = await request.body()
-    if not verify_signature(FB_APP_SECRET, request.headers.get("X-Hub-Signature-256"), raw):
-        raise HTTPException(status_code=403, detail="Bad signature")
     payload = json.loads(raw.decode("utf-8"))
     for entry in payload.get("entry", []):
         for event in entry.get("messaging", []):
-            psid = event["sender"]["id"]
             if "message" in event and "text" in event["message"] and not event["message"].get("is_echo"):
-                await fb_task_queue.put({"psid": psid, "text": event["message"]["text"].strip()})
+                await fb_task_queue.put({"psid": event["sender"]["id"], "text": event["message"]["text"].strip()})
     return JSONResponse({"status": "accepted"})
 
 @app.post("/api/speech")
@@ -154,127 +138,30 @@ async def handle_speech(
     start_time = time.time()
     user_id = auth or "anonymous"
     final_session_id = user_id if user_id != "local-dev-user" else (session_id or str(uuid.uuid4()))
+    
     if audio:
         with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as temp:
             temp.write(await audio.read())
             temp_path = temp.name
-        try: text = await asyncio.get_event_loop().run_in_executor(executor, transcribe, temp_path)
+        try:
+            text = await asyncio.get_event_loop().run_in_executor(executor, transcribe, temp_path)
         finally:
             if os.path.exists(temp_path): os.remove(temp_path)
+
     async with await get_session_lock(final_session_id):
         result = await ask_llm(text, final_session_id, emit_fn=sio.emit)
         reply = result["text"]; motion = await suggest_pose(reply)
+        
     write_audit_log(user_id, "web", text, reply, time.time() - start_time)
     display_text = reply.replace("//", " ")
     await sio.emit("ai_response", {"motion": motion, "text": display_text})
     return {"text": display_text, "motion": motion}
 
-# ----------------------------------------------------------------------------- #
-# ADMIN ENDPOINTS
-# ----------------------------------------------------------------------------- #
-@app.get("/api/admin/stats", dependencies=[Depends(verify_admin)])
-async def get_stats():
-    """ดึงข้อมูลสถิติภาพรวม"""
-    logs = []
-    if os.path.exists("logs/user_audit.log"):
-        with open("logs/user_audit.log", "r", encoding="utf-8") as f:
-            logs = [json.loads(line) for line in f.readlines()][-100:]
-    return {"recent_logs": logs, "faq_analytics": get_faq_analytics(), "system_time": datetime.datetime.now().isoformat()}
-
-@app.get("/api/admin/files", dependencies=[Depends(verify_admin)])
-async def list_admin_files(root: str = "docs", subdir: str = ""):
-    """รายการไฟล์และโฟลเดอร์แบบ Recursive"""
-    base_path = PDF_INPUT_FOLDER if root == "docs" else PDF_QUICK_USE_FOLDER
-    clean_subdir = subdir.lstrip("/").replace("..", "")
-    target_dir = os.path.join(base_path, clean_subdir)
-    if not os.path.exists(target_dir):
-        return {"root": root, "entries": [], "current_path": clean_subdir}
-    entries = []
-    for item in os.listdir(target_dir):
-        item_path = os.path.join(target_dir, item)
-        is_dir = os.path.isdir(item_path)
-        rel_path = os.path.join(clean_subdir, item).replace("\\", "/")
-        entries.append({
-            "name": item,
-            "is_dir": is_dir,
-            "path": rel_path,
-            "ext": "".join(Path(item).suffixes).lower() if not is_dir else ""
-        })
-    return {"root": root, "current_path": clean_subdir, "entries": sorted(entries, key=lambda x: (not x["is_dir"], x["name"].lower()))}
-
-@app.get("/api/admin/view", dependencies=[Depends(verify_admin)])
-async def preview_file(root: str, path: str):
-    """ส่งคืนไฟล์เพื่อทำการ Preview (PDF หรือ TXT)"""
-    base_path = PDF_INPUT_FOLDER if root == "docs" else PDF_QUICK_USE_FOLDER
-    target = os.path.join(base_path, path.lstrip("/").replace("..", ""))
-    if not os.path.exists(target) or os.path.isdir(target):
-        raise HTTPException(status_code=404, detail="File not found")
-    mime_type = "application/pdf" if target.lower().endswith(".pdf") else "text/plain"
-    return FileResponse(target, media_type=mime_type)
-
-@app.post("/api/admin/edit", dependencies=[Depends(verify_admin)])
-async def edit_file(root: str = Form(...), path: str = Form(...), content: str = Form(...)):
-    """บันทึกการแก้ไขไฟล์ TXT"""
-    base_path = PDF_INPUT_FOLDER if root == "docs" else PDF_QUICK_USE_FOLDER
-    target = os.path.join(base_path, path.lstrip("/").replace("..", ""))
-    if not os.path.exists(target) or os.path.isdir(target): raise HTTPException(status_code=404, detail="File not found")
-    if not target.lower().endswith(".txt"): raise HTTPException(status_code=400, detail="Only TXT can be edited")
-    with open(target, "w", encoding="utf-8") as f: f.write(content)
-    return {"status": "success"}
-
-@app.post("/api/admin/upload", dependencies=[Depends(verify_admin)])
-async def upload_document(file: UploadFile, target_dir: str = Form("")):
-    """อัปโหลดไฟล์ รองรับการระบุโฟลเดอร์ปลายทาง (สำหรับ Batch/Folder Upload)"""
-    if not (file.filename.lower().endswith(".pdf") or file.filename.lower().endswith(".txt")):
-        raise HTTPException(status_code=400, detail="Only PDF or TXT allowed")
-    
-    # ทำความสะอาด path และสร้างโฟลเดอร์หากยังไม่มี
-    clean_dir = target_dir.lstrip("/").replace("..", "")
-    dest_folder = os.path.join(PDF_INPUT_FOLDER, clean_dir)
-    os.makedirs(dest_folder, exist_ok=True)
-    
-    # รักษาชื่อไฟล์เดิมแต่ล้างอักขระพิเศษเพื่อความปลอดภัย
-    safe_name = "".join([c for c in file.filename if c.isalnum() or c in ('.', '_', '-', '/')]).strip()
-    file_path = os.path.join(dest_folder, os.path.basename(safe_name))
-    
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-    return {"status": "success", "path": os.path.join(clean_dir, safe_name).replace("\\", "/")}
-
-@app.post("/api/admin/process-rag", dependencies=[Depends(verify_admin)])
-async def trigger_rag_process():
-    """สั่งให้ระบบ RAG เริ่มประมวลผลไฟล์ PDF เป็น TXT"""
-    try:
-        await asyncio.get_event_loop().run_in_executor(executor, process_pdfs)
-        return {"status": "completed"}
-    except Exception as e: raise HTTPException(status_code=500, detail=str(e))
-
-@app.delete("/api/admin/files", dependencies=[Depends(verify_admin)])
-async def delete_item(root: str, path: str):
-    """ลบไฟล์หรือโฟลเดอร์"""
-    base_path = PDF_INPUT_FOLDER if root == "docs" else PDF_QUICK_USE_FOLDER
-    target = os.path.join(base_path, path.lstrip("/").replace("..", ""))
-    if not os.path.exists(target): raise HTTPException(status_code=404, detail="Not found")
-    if os.path.isdir(target): shutil.rmtree(target)
-    else: os.remove(target)
-    return {"status": "deleted"}
-
-# ----------------------------------------------------------------------------- #
-# HELPERS
-# ----------------------------------------------------------------------------- #
 async def send_fb_text(psid: str, text: str):
     if not FB_PAGE_ACCESS_TOKEN: return
     url = f"{GRAPH_BASE}/me/messages?access_token={FB_PAGE_ACCESS_TOKEN}"
     data = {"recipient": {"id": psid}, "message": {"text": (text or "")[:1999]}}
     async with httpx.AsyncClient(timeout=15) as client: await client.post(url, json=data)
-
-def verify_signature(app_secret, signature_header, body):
-    if not app_secret or not signature_header: return True
-    try:
-        algo, their_hex = signature_header.split("=", 1)
-        digest = hmac.new(app_secret.encode(), body, hashlib.sha256).hexdigest()
-        return hmac.compare_digest(digest, their_hex)
-    except: return False
 
 @app.get("/")
 async def serve_index(): return FileResponse("frontend/index.html")

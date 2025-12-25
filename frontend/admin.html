@@ -3,37 +3,37 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Advanced Admin Dashboard | Full Management</title>
+    <title>Master Admin | RAG Control Center</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
     <style>
         body { font-family: 'Inter', sans-serif; }
         [x-cloak] { display: none !important; }
-        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background: #f1f1f1; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #888; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar { width: 5px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+        .drag-over { background-color: #f0f9ff; border: 2px dashed #0ea5e9 !important; }
     </style>
 </head>
-<body class="bg-gray-50 min-h-screen" x-data="adminPanel()" x-init="init()">
+<body class="bg-slate-50 min-h-screen text-slate-900" x-data="adminPanel()" x-init="init()">
 
     <template x-if="!isLoggedIn">
-        <div class="fixed inset-0 z-50 flex items-center justify-center bg-gray-900 bg-opacity-50 backdrop-blur-sm">
-            <div class="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-md">
-                <div class="text-center mb-6">
-                    <div class="bg-indigo-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
-                        <i data-lucide="lock" class="text-indigo-600 w-8 h-8"></i>
+        <div class="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-xl">
+            <div class="bg-white p-10 rounded-[2.5rem] shadow-2xl w-full max-w-md border border-white/20">
+                <div class="text-center mb-8">
+                    <div class="bg-indigo-600 w-24 h-24 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-2xl shadow-indigo-200">
+                        <i data-lucide="lock" class="text-white w-12 h-12"></i>
                     </div>
-                    <h2 class="text-2xl font-bold text-gray-800">Admin Login</h2>
-                    <p class="text-gray-500 text-sm">ระบุ Admin Token เพื่อจัดการระบบ</p>
+                    <h2 class="text-3xl font-black text-slate-800 tracking-tight">Access Control</h2>
+                    <p class="text-slate-400 mt-2 font-medium">โปรดระบุ Security Token เพื่อดำเนินการ</p>
                 </div>
                 <div class="space-y-4">
                     <input type="password" x-model="tokenInput" @keyup.enter="login()"
-                        class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none transition"
-                        placeholder="Admin Token...">
+                        class="w-full px-6 py-4 rounded-2xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none transition bg-slate-50 font-bold"
+                        placeholder="••••••••••••">
                     <button @click="login()"
-                        class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 rounded-xl transition shadow-lg shadow-indigo-200">
+                        class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-black py-4 rounded-2xl transition shadow-xl shadow-indigo-100 uppercase tracking-widest">
                         เข้าสู่ระบบ
                     </button>
                 </div>
@@ -43,150 +43,186 @@
 
     <div x-show="isLoggedIn" x-cloak class="flex">
         
-        <aside class="w-64 bg-white border-r border-gray-100 h-screen sticky top-0 flex flex-col">
-            <div class="p-6 border-b border-gray-50 flex items-center space-x-3">
-                <div class="bg-indigo-600 p-2 rounded-lg"><i data-lucide="shield-check" class="text-white w-5 h-5"></i></div>
-                <span class="font-bold text-xl text-gray-800">REG-SYSTEM</span>
+        <aside class="w-80 bg-white border-r border-slate-200 h-screen sticky top-0 flex flex-col">
+            <div class="p-10 border-b border-slate-50 flex items-center space-x-4">
+                <div class="bg-indigo-600 p-3 rounded-2xl shadow-lg shadow-indigo-100"><i data-lucide="database" class="text-white w-6 h-6"></i></div>
+                <span class="font-black text-2xl tracking-tighter text-slate-800">REG-RAG</span>
             </div>
-            <nav class="flex-1 p-4 space-y-2">
-                <button @click="activeTab = 'dashboard'" :class="activeTab === 'dashboard' ? 'bg-indigo-50 text-indigo-600' : 'text-gray-500 hover:bg-gray-50'"
-                    class="w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition font-medium">
+            <nav class="flex-1 p-6 space-y-2">
+                <button @click="activeTab = 'dashboard'" :class="activeTab === 'dashboard' ? 'bg-indigo-50 text-indigo-600 shadow-sm' : 'text-slate-400 hover:bg-slate-50'"
+                    class="w-full flex items-center space-x-4 px-6 py-4 rounded-2xl transition font-black group">
                     <i data-lucide="layout-dashboard" class="w-5 h-5"></i>
                     <span>Dashboard</span>
                 </button>
-                <button @click="activeTab = 'files'" :class="activeTab === 'files' ? 'bg-indigo-50 text-indigo-600' : 'text-gray-500 hover:bg-gray-50'"
-                    class="w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition font-medium">
-                    <i data-lucide="files" class="w-5 h-5"></i>
+                <button @click="activeTab = 'files'" :class="activeTab === 'files' ? 'bg-indigo-50 text-indigo-600 shadow-sm' : 'text-slate-400 hover:bg-slate-50'"
+                    class="w-full flex items-center space-x-4 px-6 py-4 rounded-2xl transition font-black">
+                    <i data-lucide="folder-search" class="w-5 h-5"></i>
                     <span>File Explorer</span>
                 </button>
-                <button @click="activeTab = 'logs'" :class="activeTab === 'logs' ? 'bg-indigo-50 text-indigo-600' : 'text-gray-500 hover:bg-gray-50'"
-                    class="w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition font-medium">
-                    <i data-lucide="history" class="w-5 h-5"></i>
-                    <span>Audit Logs</span>
+                <button @click="activeTab = 'logs'" :class="activeTab === 'logs' ? 'bg-indigo-50 text-indigo-600 shadow-sm' : 'text-slate-400 hover:bg-slate-50'"
+                    class="w-full flex items-center space-x-4 px-6 py-4 rounded-2xl transition font-black">
+                    <i data-lucide="activity" class="w-5 h-5"></i>
+                    <span>System Logs</span>
                 </button>
             </nav>
-            <div class="p-4 border-t border-gray-100">
-                <button @click="logout()" class="w-full flex items-center space-x-3 px-4 py-3 text-red-500 hover:bg-red-50 rounded-xl transition font-medium">
+            <div class="p-6 border-t border-slate-50">
+                <button @click="logout()" class="w-full flex items-center space-x-4 px-6 py-4 text-rose-500 hover:bg-rose-50 rounded-2xl transition font-black">
                     <i data-lucide="log-out" class="w-5 h-5"></i>
-                    <span>ออกจากระบบ</span>
+                    <span>Logout</span>
                 </button>
             </div>
         </aside>
 
-        <main class="flex-1 p-8 overflow-y-auto h-screen">
+        <main class="flex-1 p-12 overflow-y-auto h-screen custom-scrollbar">
             
-            <div x-show="activeTab === 'dashboard'" class="space-y-6">
-                <h1 class="text-3xl font-bold text-gray-800">Dashboard</h1>
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-                        <p class="text-gray-400 text-xs font-bold uppercase">Total Logs</p>
-                        <h3 class="text-3xl font-bold text-gray-800 mt-1" x-text="stats.recent_logs.length">0</h3>
+            <div x-show="activeTab === 'dashboard'" class="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                <h1 class="text-5xl font-black text-slate-800 tracking-tighter">Overview</h1>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-10">
+                    <div class="bg-white p-10 rounded-[3rem] shadow-sm border border-slate-100 hover:shadow-xl hover:shadow-indigo-50 transition duration-500">
+                        <p class="text-slate-400 text-xs font-black uppercase tracking-[0.2em] mb-4">Total Activities</p>
+                        <h3 class="text-6xl font-black text-slate-800" x-text="stats.recent_logs.length">0</h3>
                     </div>
-                    <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 text-indigo-600">
-                        <p class="text-gray-400 text-xs font-bold uppercase">Avg Response Time</p>
-                        <h3 class="text-3xl font-bold mt-1" x-text="calculateAvgLatency() + 's'">0s</h3>
+                    <div class="bg-white p-10 rounded-[3rem] shadow-sm border border-slate-100 hover:shadow-xl hover:shadow-indigo-50 transition duration-500">
+                        <p class="text-slate-400 text-xs font-black uppercase tracking-[0.2em] mb-4">Avg Processing</p>
+                        <h3 class="text-6xl font-black text-indigo-600" x-text="calculateAvgLatency() + 's'">0s</h3>
                     </div>
-                    <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-                        <p class="text-gray-400 text-xs font-bold uppercase">Last Sync</p>
-                        <h3 class="text-lg font-bold text-gray-600 mt-2" x-text="new Date().toLocaleTimeString()"></h3>
+                    <div class="bg-white p-10 rounded-[3rem] shadow-sm border border-slate-100">
+                        <p class="text-slate-400 text-xs font-black uppercase tracking-[0.2em] mb-4">System Node</p>
+                        <div class="flex items-center space-x-4 mt-2">
+                            <div class="w-5 h-5 bg-emerald-500 rounded-full animate-pulse shadow-lg shadow-emerald-200 border-4 border-emerald-100"></div>
+                            <span class="font-black text-xl text-slate-700">ONLINE</span>
+                        </div>
                     </div>
                 </div>
             </div>
 
-            <div x-show="activeTab === 'files'" class="space-y-6">
-                <div class="flex justify-between items-end">
+            <div x-show="activeTab === 'files'" class="space-y-8 animate-in fade-in duration-500">
+                <div class="flex justify-between items-center">
                     <div>
-                        <h1 class="text-3xl font-bold text-gray-800">File Manager</h1>
-                        <p class="text-gray-500">View, Edit and Manage RAG content</p>
+                        <h1 class="text-5xl font-black text-slate-800 tracking-tighter">Explorer</h1>
+                        <p class="text-slate-400 mt-2 font-bold text-lg">Batch Upload & Folder Synchronization</p>
                     </div>
-                    <div class="flex space-x-2 bg-gray-200 p-1 rounded-xl">
-                        <button @click="switchRoot('docs')" :class="fileSystem.root === 'docs' ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-500'"
-                            class="px-4 py-2 rounded-lg text-sm font-bold transition">Source (PDF)</button>
-                        <button @click="switchRoot('quick_use')" :class="fileSystem.root === 'quick_use' ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-500'"
-                            class="px-4 py-2 rounded-lg text-sm font-bold transition">Processed (TXT)</button>
+                    <div class="flex space-x-2 bg-slate-200 p-2 rounded-3xl">
+                        <button @click="switchRoot('docs')" :class="fileSystem.root === 'docs' ? 'bg-white shadow-xl text-indigo-600' : 'text-slate-500'"
+                            class="px-8 py-4 rounded-2xl text-sm font-black transition">DOCS (PDF)</button>
+                        <button @click="switchRoot('quick_use')" :class="fileSystem.root === 'quick_use' ? 'bg-white shadow-xl text-indigo-600' : 'text-slate-500'"
+                            class="px-8 py-4 rounded-2xl text-sm font-black transition">RAG (TXT)</button>
                     </div>
                 </div>
 
-                <div class="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between">
-                    <nav class="flex items-center text-sm font-medium">
-                        <button @click="navigate('')" class="text-indigo-600 hover:underline font-bold">root</button>
+                <div class="bg-white p-8 rounded-[3rem] shadow-sm border border-slate-100 flex items-center justify-between">
+                    <nav class="flex items-center space-x-2 text-sm font-black">
+                        <button @click="navigate('')" class="text-indigo-600 hover:bg-indigo-50 px-4 py-2 rounded-xl transition">root</button>
                         <template x-for="(part, index) in fileSystem.current_path.split('/').filter(p => p)" :key="index">
-                            <div class="flex items-center">
-                                <span class="mx-2 text-gray-400">/</span>
-                                <button @click="navigateByParts(index)" class="text-indigo-600 hover:underline font-bold" x-text="part"></button>
+                            <div class="flex items-center space-x-2">
+                                <i data-lucide="chevron-right" class="w-4 h-4 text-slate-300"></i>
+                                <button @click="navigateByParts(index)" class="text-indigo-600 hover:bg-indigo-50 px-4 py-2 rounded-xl transition" x-text="part"></button>
                             </div>
                         </template>
                     </nav>
+                    
+                    <div class="flex space-x-4">
+                        <div class="relative flex space-x-3">
+                            <label class="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-4 rounded-2xl cursor-pointer text-sm font-black transition shadow-xl shadow-indigo-100 flex items-center">
+                                <i data-lucide="file-plus" class="w-5 h-5 mr-3"></i> อัปโหลดไฟล์
+                                <input type="file" class="hidden" multiple accept=".pdf" @change="uploadMultipleFiles($event)">
+                            </label>
+                            <label class="bg-slate-800 hover:bg-black text-white px-6 py-4 rounded-2xl cursor-pointer text-sm font-black transition shadow-xl shadow-slate-100 flex items-center">
+                                <i data-lucide="folder-plus" class="w-5 h-5 mr-3"></i> อัปโหลดโฟลเดอร์
+                                <input type="file" class="hidden" webkitdirectory directory multiple @change="uploadFolder($event)">
+                            </label>
+                        </div>
+                        <button @click="processRAG()" :disabled="processing" 
+                            class="bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white px-8 py-4 rounded-2xl text-sm font-black transition shadow-xl shadow-emerald-100 flex items-center">
+                            <i data-lucide="refresh-cw" class="w-5 h-5 mr-3" :class="processing ? 'animate-spin' : ''"></i>
+                            <span x-text="processing ? 'Processing...' : 'Sync to RAG'"></span>
+                        </button>
+                    </div>
                 </div>
 
-                <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                <div class="bg-white rounded-[3rem] shadow-sm border border-slate-100 overflow-hidden relative"
+                    :class="dragging ? 'drag-over' : ''"
+                    @dragover.prevent="dragging = true"
+                    @dragleave.prevent="dragging = false"
+                    @drop.prevent="handleDrop($event)">
+                    
+                    <div x-show="dragging" class="absolute inset-0 z-50 flex items-center justify-center bg-indigo-50/80 backdrop-blur-sm pointer-events-none">
+                        <div class="text-center">
+                            <i data-lucide="upload-cloud" class="w-20 h-20 text-indigo-600 mx-auto mb-4 animate-bounce"></i>
+                            <p class="text-2xl font-black text-indigo-600">วางไฟล์ที่นี่เพื่ออัปโหลดไปยัง /<span x-text="fileSystem.current_path || 'root'"></span></p>
+                        </div>
+                    </div>
+
                     <table class="w-full text-left">
-                        <thead class="bg-gray-50 border-b border-gray-100">
+                        <thead class="bg-slate-50 border-b border-slate-100">
                             <tr>
-                                <th class="px-6 py-4 text-xs font-bold text-gray-400 uppercase">File Name</th>
-                                <th class="px-6 py-4 text-xs font-bold text-gray-400 uppercase">Type</th>
-                                <th class="px-6 py-4 text-xs font-bold text-gray-400 uppercase text-right">Actions</th>
+                                <th class="px-10 py-6 text-xs font-black text-slate-400 uppercase tracking-widest">ชื่อรายการ</th>
+                                <th class="px-10 py-6 text-xs font-black text-slate-400 uppercase tracking-widest text-right">เครื่องมือ</th>
                             </tr>
                         </thead>
-                        <tbody class="divide-y divide-gray-50">
+                        <tbody class="divide-y divide-slate-50">
                             <template x-if="fileSystem.current_path">
-                                <tr @click="navigateUp()" class="hover:bg-gray-50 cursor-pointer transition">
-                                    <td class="px-6 py-4 flex items-center text-indigo-600 font-bold">
-                                        <i data-lucide="corner-left-up" class="w-4 h-4 mr-3"></i> Parent Directory
+                                <tr @click="navigateUp()" class="hover:bg-slate-50 cursor-pointer transition">
+                                    <td class="px-10 py-7 flex items-center text-indigo-600 font-black">
+                                        <i data-lucide="arrow-left" class="w-5 h-5 mr-4"></i> Back to Parent
                                     </td>
-                                    <td colspan="2"></td>
+                                    <td></td>
                                 </tr>
                             </template>
                             <template x-for="entry in fileSystem.entries" :key="entry.path">
-                                <tr class="hover:bg-gray-50 transition group">
-                                    <td class="px-6 py-4">
+                                <tr class="hover:bg-slate-50 transition group">
+                                    <td class="px-10 py-7">
                                         <div class="flex items-center cursor-pointer" @click="entry.is_dir ? navigate(entry.path) : previewFile(entry)">
                                             <template x-if="entry.is_dir">
-                                                <i data-lucide="folder" class="text-amber-400 w-5 h-5 mr-3 fill-current"></i>
+                                                <i data-lucide="folder" class="text-amber-400 w-7 h-7 mr-5 fill-current"></i>
                                             </template>
                                             <template x-if="!entry.is_dir">
-                                                <i data-lucide="file-text" class="text-gray-400 w-5 h-5 mr-3"></i>
+                                                <i data-lucide="file-text" class="text-slate-300 w-7 h-7 mr-5"></i>
                                             </template>
-                                            <span :class="entry.is_dir ? 'font-bold text-gray-700' : 'text-gray-600 group-hover:text-indigo-600'" x-text="entry.name"></span>
+                                            <span :class="entry.is_dir ? 'font-bold text-slate-700' : 'text-slate-600 group-hover:text-indigo-600'" class="text-xl font-bold" x-text="entry.name"></span>
                                         </div>
                                     </td>
-                                    <td class="px-6 py-4">
-                                        <span class="text-[10px] font-bold text-gray-400 uppercase border border-gray-200 px-2 py-1 rounded" x-text="entry.is_dir ? 'DIR' : entry.ext.replace('.','')"></span>
-                                    </td>
-                                    <td class="px-6 py-4 text-right flex justify-end space-x-2">
-                                        <button x-show="!entry.is_dir" @click="previewFile(entry)" class="text-gray-300 hover:text-indigo-600 transition p-2">
-                                            <i :data-lucide="entry.ext === '.txt' ? 'edit-3' : 'eye'" class="w-4 h-4"></i>
+                                    <td class="px-10 py-7 text-right flex justify-end space-x-4">
+                                        <button x-show="!entry.is_dir" @click="previewFile(entry)" class="bg-slate-100 text-slate-400 hover:bg-indigo-600 hover:text-white transition p-4 rounded-2xl">
+                                            <i :data-lucide="entry.ext === '.txt' ? 'edit-3' : 'eye'" class="w-5 h-5"></i>
                                         </button>
-                                        <button @click="deleteItem(entry)" class="text-gray-300 hover:text-red-500 transition p-2">
-                                            <i data-lucide="trash-2" class="w-4 h-4"></i>
+                                        <button @click="deleteItem(entry)" class="bg-slate-100 text-slate-400 hover:bg-rose-500 hover:text-white transition p-4 rounded-2xl">
+                                            <i data-lucide="trash-2" class="w-5 h-5"></i>
                                         </button>
                                     </td>
                                 </tr>
                             </template>
                         </tbody>
                     </table>
+                    
+                    <template x-if="fileSystem.entries.length === 0">
+                        <div class="py-32 text-center text-slate-300">
+                            <i data-lucide="inbox" class="w-24 h-24 mx-auto mb-6 opacity-20"></i>
+                            <p class="text-xl font-bold">ว่างเปล่า... ลองลากไฟล์มาวางสิ</p>
+                        </div>
+                    </template>
                 </div>
             </div>
 
-            <div x-show="activeTab === 'logs'" class="space-y-6">
-                <h1 class="text-3xl font-bold text-gray-800">History</h1>
-                <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden text-sm">
+            <div x-show="activeTab === 'logs'" class="space-y-10 animate-in fade-in duration-500">
+                <h1 class="text-5xl font-black text-slate-800 tracking-tighter">System History</h1>
+                <div class="bg-white rounded-[3rem] shadow-sm border border-slate-100 overflow-hidden">
                     <table class="w-full text-left">
-                        <thead class="bg-gray-50 border-b border-gray-100 font-bold text-gray-400 uppercase">
+                        <thead class="bg-slate-50 border-b border-slate-100 font-black text-slate-400 uppercase tracking-widest text-xs">
                             <tr>
-                                <th class="px-6 py-4">Timestamp</th>
-                                <th class="px-6 py-4">Anon ID</th>
-                                <th class="px-6 py-4">Content Preview</th>
+                                <th class="px-10 py-6">Timestamp</th>
+                                <th class="px-10 py-6">Identity</th>
+                                <th class="px-10 py-6">Conversation</th>
                             </tr>
                         </thead>
-                        <tbody class="divide-y divide-gray-50">
+                        <tbody class="divide-y divide-slate-50">
                             <template x-for="log in stats.recent_logs" :key="log.timestamp">
-                                <tr class="hover:bg-gray-50 transition">
-                                    <td class="px-6 py-4 text-xs text-gray-400" x-text="log.timestamp"></td>
-                                    <td class="px-6 py-4 font-mono text-indigo-500" x-text="log.anon_id"></td>
-                                    <td class="px-6 py-4">
-                                        <div class="font-bold text-gray-800" x-text="log.input"></div>
-                                        <div class="text-xs text-gray-400 mt-1 truncate" x-text="log.output"></div>
+                                <tr class="hover:bg-slate-50 transition">
+                                    <td class="px-10 py-8 text-slate-400 font-bold" x-text="log.timestamp"></td>
+                                    <td class="px-10 py-8 font-mono text-indigo-500 font-black" x-text="log.anon_id"></td>
+                                    <td class="px-10 py-8">
+                                        <div class="font-black text-slate-800 text-lg" x-text="log.input"></div>
+                                        <div class="text-slate-400 mt-2 font-medium" x-text="log.output"></div>
                                     </td>
                                 </tr>
                             </template>
@@ -197,45 +233,57 @@
         </main>
     </div>
 
-    <div x-show="preview.open" x-cloak class="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-gray-900 bg-opacity-80 backdrop-blur-sm" @keydown.escape.window="closePreview()">
-        <div class="bg-white w-full max-w-6xl h-[90vh] rounded-3xl shadow-2xl flex flex-col overflow-hidden" @click.away="closePreview()">
-            <div class="p-5 border-b flex justify-between items-center bg-gray-50">
-                <div class="flex items-center space-x-4">
-                    <div class="bg-indigo-100 p-2 rounded-xl"><i data-lucide="file-text" class="text-indigo-600 w-6 h-6"></i></div>
+    <div x-show="preview.open" x-cloak class="fixed inset-0 z-[200] flex items-center justify-center p-8 bg-slate-900/90 backdrop-blur-md" @keydown.escape.window="closePreview()">
+        <div class="bg-white w-full max-w-[95vw] h-[95vh] rounded-[4rem] shadow-2xl flex flex-col overflow-hidden" @click.away="closePreview()">
+            <div class="p-10 border-b flex justify-between items-center bg-white">
+                <div class="flex items-center space-x-6">
+                    <div class="bg-indigo-600 p-4 rounded-[1.5rem] shadow-xl shadow-indigo-100"><i data-lucide="file-text" class="text-white w-8 h-8"></i></div>
                     <div>
-                        <h3 class="font-bold text-gray-800 leading-none" x-text="preview.fileName"></h3>
-                        <p class="text-xs text-gray-400 mt-1" x-text="preview.type === 'pdf' ? 'Read-only Preview' : 'Text Editor Mode'"></p>
+                        <h3 class="text-3xl font-black text-slate-800 tracking-tight" x-text="preview.fileName"></h3>
+                        <p class="text-indigo-600 font-black text-xs uppercase tracking-[0.2em] mt-2" x-text="preview.type === 'pdf' ? 'Vault Preview' : 'Source Editor'"></p>
                     </div>
                 </div>
-                <div class="flex items-center space-x-3">
+                <div class="flex items-center space-x-4">
                     <template x-if="preview.type === 'txt'">
                         <button @click="saveContent()" :disabled="preview.saveLoading" 
-                            class="bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 text-white px-6 py-2 rounded-xl text-sm font-bold flex items-center transition shadow-lg shadow-indigo-100">
-                            <i data-lucide="save" class="w-4 h-4 mr-2" x-show="!preview.saveLoading"></i>
-                            <div class="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent mr-2" x-show="preview.saveLoading"></div>
-                            <span x-text="preview.saveLoading ? 'Saving...' : 'Save Changes'"></span>
+                            class="bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 text-white px-10 py-5 rounded-2xl font-black flex items-center transition shadow-2xl shadow-indigo-200">
+                            <i data-lucide="check-circle-2" class="w-6 h-6 mr-3" x-show="!preview.saveLoading"></i>
+                            <span x-text="preview.saveLoading ? 'Saving...' : 'บันทึกข้อมูล'"></span>
                         </button>
                     </template>
-                    <button @click="closePreview()" class="text-gray-400 hover:text-red-500 transition p-2 bg-gray-100 rounded-xl"><i data-lucide="x" class="w-6 h-6"></i></button>
+                    <button @click="closePreview()" class="bg-slate-100 text-slate-400 hover:bg-rose-500 hover:text-white transition p-5 rounded-2xl"><i data-lucide="x" class="w-8 h-8"></i></button>
                 </div>
             </div>
-            <div class="flex-1 overflow-hidden bg-gray-100 relative custom-scrollbar">
+            <div class="flex-1 overflow-hidden bg-slate-100 relative">
                 <template x-if="preview.type === 'pdf'">
                     <iframe :src="preview.url" class="w-full h-full border-none bg-white" frameborder="0"></iframe>
                 </template>
                 <template x-if="preview.type === 'txt'">
                     <textarea x-model="preview.content" 
-                        class="w-full h-full p-10 font-mono text-sm text-gray-800 bg-white resize-none outline-none focus:ring-2 focus:ring-indigo-500 leading-relaxed custom-scrollbar"
-                        placeholder="Start typing your content here..."></textarea>
+                        class="w-full h-full p-16 font-mono text-xl text-slate-700 bg-white resize-none outline-none leading-relaxed custom-scrollbar border-none shadow-inner"
+                        placeholder="เริ่มพิมพ์เนื้อหาของคุณ..."></textarea>
                 </template>
-                <div x-show="preview.loading" class="absolute inset-0 flex items-center justify-center bg-white bg-opacity-90">
+                <div x-show="preview.loading" class="absolute inset-0 flex items-center justify-center bg-white/95">
                     <div class="flex flex-col items-center">
-                        <div class="animate-spin rounded-full h-14 w-14 border-4 border-indigo-600 border-t-transparent mb-4"></div>
-                        <span class="text-indigo-600 font-bold">Synchronizing Data...</span>
+                        <div class="animate-spin rounded-full h-24 w-24 border-8 border-indigo-600 border-t-transparent mb-8"></div>
+                        <span class="text-indigo-600 font-black text-2xl tracking-widest animate-pulse">SYNCHRONIZING</span>
                     </div>
                 </div>
             </div>
         </div>
+    </div>
+
+    <div x-show="uploadStatus.total > 0" class="fixed bottom-10 right-10 z-[300] bg-white p-8 rounded-[2rem] shadow-2xl border border-slate-100 w-96 animate-in slide-in-from-right-10">
+        <div class="flex justify-between items-center mb-6">
+            <h4 class="font-black text-slate-800">Uploading Files...</h4>
+            <span class="text-indigo-600 font-black" x-text="`${uploadStatus.done}/${uploadStatus.total}`"></span>
+        </div>
+        <div class="w-full bg-slate-100 h-4 rounded-full overflow-hidden">
+            <div class="bg-indigo-600 h-full transition-all duration-300" :style="`width: ${(uploadStatus.done / uploadStatus.total) * 100}%`"></div>
+        </div>
+        <template x-if="uploadStatus.done === uploadStatus.total">
+            <button @click="uploadStatus.total = 0" class="mt-4 text-xs font-black text-indigo-600 uppercase">Clear</button>
+        </template>
     </div>
 
     <script>
@@ -244,22 +292,25 @@
                 isLoggedIn: false, tokenInput: '', adminToken: '', activeTab: 'dashboard', stats: { recent_logs: [] },
                 fileSystem: { root: 'docs', current_path: '', entries: [] },
                 preview: { open: false, url: '', fileName: '', type: '', content: '', loading: false, saveLoading: false, entry: null },
+                uploadStatus: { total: 0, done: 0 },
+                processing: false, dragging: false,
 
                 async init() {
                     const saved = localStorage.getItem('admin_token');
                     if (saved) { this.adminToken = saved; try { await this.refreshAll(); this.isLoggedIn = true; } catch(e) { localStorage.removeItem('admin_token'); } }
                     this.updateIcons();
                 },
-                updateIcons() { setTimeout(() => lucide.createIcons(), 50); },
-                async login() { this.adminToken = this.tokenInput; try { await this.refreshAll(); this.isLoggedIn = true; localStorage.setItem('admin_token', this.adminToken); } catch(e) { alert('Access Denied: Invalid Token'); } },
+                updateIcons() { setTimeout(() => lucide.createIcons(), 100); },
+                async login() { this.adminToken = this.tokenInput; try { await this.refreshAll(); this.isLoggedIn = true; localStorage.setItem('admin_token', this.adminToken); } catch(e) { alert('Access Denied!'); } },
                 logout() { localStorage.removeItem('admin_token'); location.reload(); },
+                
                 async apiCall(endpoint, method = 'GET', body = null) {
-                    const headers = { 'X-Admin-Token': this.adminToken };
-                    const config = { method, headers };
+                    const config = { method, headers: { 'X-Admin-Token': this.adminToken } };
                     if (body instanceof FormData) { config.body = body; }
                     const res = await fetch(endpoint, config);
-                    if (!res.ok) throw new Error('API Sync Error'); return res.json();
+                    if (!res.ok) throw new Error('API Error'); return res.json();
                 },
+
                 async refreshAll() { this.stats = await this.apiCall('/api/admin/stats'); await this.loadFiles(); this.updateIcons(); },
                 async loadFiles() {
                     const data = await this.apiCall(`/api/admin/files?root=${this.fileSystem.root}&subdir=${this.fileSystem.current_path}`);
@@ -270,13 +321,77 @@
                 navigateUp() { const parts = this.fileSystem.current_path.split('/').filter(p => p); parts.pop(); this.navigate(parts.join('/')); },
                 navigateByParts(index) { const parts = this.fileSystem.current_path.split('/').filter(p => p); this.navigate(parts.slice(0, index + 1).join('/')); },
                 
+                // Batch Upload Logic
+                async uploadMultipleFiles(e) {
+                    const files = Array.from(e.target.files);
+                    await this.executeUploadBatch(files, this.fileSystem.current_path);
+                },
+
+                async uploadFolder(e) {
+                    const files = Array.from(e.target.files);
+                    // Extract relative paths
+                    const uploads = files.map(file => {
+                        const relativePath = file.webkitRelativePath;
+                        const folderPath = relativePath.substring(0, relativePath.lastIndexOf('/'));
+                        const targetDir = this.fileSystem.current_path ? `${this.fileSystem.current_path}/${folderPath}` : folderPath;
+                        return { file, targetDir };
+                    });
+                    
+                    this.uploadStatus = { total: uploads.length, done: 0 };
+                    for (const item of uploads) {
+                        const formData = new FormData();
+                        formData.append('file', item.file);
+                        formData.append('target_dir', item.targetDir);
+                        await this.apiCall('/api/admin/upload', 'POST', formData);
+                        this.uploadStatus.done++;
+                    }
+                    await this.loadFiles();
+                },
+
+                async handleDrop(e) {
+                    this.dragging = false;
+                    const items = e.dataTransfer.items;
+                    const files = [];
+                    for (let i = 0; i < items.length; i++) {
+                        const item = items[i].webkitGetAsEntry();
+                        if (item) await this.traverseFileTree(item, "", files);
+                    }
+                    await this.executeUploadBatch(files, this.fileSystem.current_path);
+                },
+
+                async traverseFileTree(item, path, fileList) {
+                    if (item.isFile) {
+                        const file = await new Promise((res) => item.file(res));
+                        fileList.push({ file, path });
+                    } else if (item.isDirectory) {
+                        const dirReader = item.createReader();
+                        const entries = await new Promise((res) => dirReader.readEntries(res));
+                        for (const entry of entries) {
+                            await this.traverseFileTree(entry, path + item.name + "/", fileList);
+                        }
+                    }
+                },
+
+                async executeUploadBatch(uploadItems, currentPath) {
+                    this.uploadStatus = { total: uploadItems.length, done: 0 };
+                    for (const item of uploadItems) {
+                        const formData = new FormData();
+                        formData.append('file', item.file || item);
+                        // สำหรับ Drop ให้ใช้ path ที่ได้มา ถ้าเลือกไฟล์ปกติให้ใช้ currentPath
+                        const target = item.path ? (currentPath ? `${currentPath}/${item.path}` : item.path) : currentPath;
+                        formData.append('target_dir', target);
+                        await this.apiCall('/api/admin/upload', 'POST', formData);
+                        this.uploadStatus.done++;
+                    }
+                    await this.loadFiles();
+                },
+
                 async previewFile(entry) {
                     this.preview.open = true; this.preview.fileName = entry.name; this.preview.loading = true; this.preview.entry = entry;
                     this.preview.type = entry.ext === '.pdf' ? 'pdf' : 'txt';
                     const url = `/api/admin/view?root=${this.fileSystem.root}&path=${entry.path}`;
                     try {
                         const response = await fetch(url, { headers: { 'X-Admin-Token': this.adminToken } });
-                        if (!response.ok) throw new Error('Load failed');
                         const blob = await response.blob();
                         if (this.preview.type === 'pdf') {
                             if (this.preview.url) URL.revokeObjectURL(this.preview.url);
@@ -284,8 +399,7 @@
                         } else {
                             this.preview.content = await blob.text();
                         }
-                    } catch (e) { alert('Error sync: ' + e.message); this.closePreview(); }
-                    finally { this.preview.loading = false; this.updateIcons(); }
+                    } finally { this.preview.loading = false; this.updateIcons(); }
                 },
 
                 async saveContent() {
@@ -294,20 +408,23 @@
                     formData.append('root', this.fileSystem.root);
                     formData.append('path', this.preview.entry.path);
                     formData.append('content', this.preview.content);
-                    try {
-                        await this.apiCall('/api/admin/edit', 'POST', formData);
-                        alert('File updated successfully!');
-                    } catch (e) { alert('Save failed: ' + e.message); }
-                    finally { this.preview.saveLoading = false; this.updateIcons(); }
+                    try { await this.apiCall('/api/admin/edit', 'POST', formData); alert('Saved!'); } 
+                    finally { this.preview.saveLoading = false; }
                 },
 
                 closePreview() {
-                    this.preview.open = false; this.preview.content = ''; this.preview.entry = null;
-                    if (this.preview.url) { URL.revokeObjectURL(this.preview.url); this.preview.url = ''; }
+                    this.preview.open = false; 
+                    if (this.preview.url) URL.revokeObjectURL(this.preview.url);
+                },
+
+                async processRAG() {
+                    this.processing = true;
+                    try { await this.apiCall('/api/admin/process-rag', 'POST'); alert('RAG Sync Completed!'); await this.loadFiles(); } 
+                    finally { this.processing = false; }
                 },
 
                 async deleteItem(entry) {
-                    if (confirm(`Permanent delete ${entry.name}?`)) {
+                    if (confirm(`Delete ${entry.name}?`)) {
                         await fetch(`/api/admin/files?root=${this.fileSystem.root}&path=${entry.path}`, { method: 'DELETE', headers: { 'X-Admin-Token': this.adminToken } });
                         await this.loadFiles();
                     }

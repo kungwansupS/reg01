@@ -1,3 +1,4 @@
+# [PHASE 1: backend/main.py - FULLCODE ONLY]
 from fastapi import FastAPI, Request, UploadFile, Form, HTTPException, Depends, Response
 from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -57,8 +58,6 @@ async def get_session_lock(session_id: str):
 # ----------------------------------------------------------------------------- #
 # SECURITY & ADMIN DEPENDENCIES
 # ----------------------------------------------------------------------------- #
-user_request_history = defaultdict(list)
-RATE_LIMIT_COUNT = 15 
 ADMIN_API_KEY_HEADER = APIKeyHeader(name="X-Admin-Token", auto_error=False)
 
 async def verify_admin(auth: str = Depends(ADMIN_API_KEY_HEADER)):
@@ -68,14 +67,6 @@ async def verify_admin(auth: str = Depends(ADMIN_API_KEY_HEADER)):
 
 def hash_id(user_id: str) -> str:
     return hashlib.sha256(user_id.encode()).hexdigest()[:16]
-
-def is_rate_limited(user_id: str) -> bool:
-    now = time.time()
-    user_request_history[user_id] = [t for t in user_request_history[user_id] if now - t < 60]
-    if len(user_request_history[user_id]) >= RATE_LIMIT_COUNT:
-        return True
-    user_request_history[user_id].append(now)
-    return False
 
 def write_audit_log(user_id: str, platform: str, user_input: str, ai_response: str, latency: float, rating: str = "none"):
     log_entry = {
@@ -98,6 +89,7 @@ sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins="*")
 app = FastAPI(middleware=[Middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])])
 asgi_app = socketio.ASGIApp(sio, app)
 
+# มウント static folders สำหรับ frontend และ assets
 app.mount("/static", StaticFiles(directory="frontend", html=False), name="static")
 app.mount("/assets", StaticFiles(directory="frontend/assets"), name="assets")
 
@@ -106,9 +98,6 @@ async def fb_worker():
         task = await fb_task_queue.get()
         psid = task["psid"]; user_text = task["text"]
         start_time = time.time()
-        if is_rate_limited(psid):
-            await send_fb_text(psid, "⚠️ คุณส่งข้อความบ่อยเกินไป โปรดรอสักครู่")
-            fb_task_queue.task_done(); continue
         async with await get_session_lock(f"fb_{psid}"):
             try:
                 result = await ask_llm(user_text, f"fb_{psid}", emit_fn=sio.emit)
@@ -165,7 +154,6 @@ async def handle_speech(
     start_time = time.time()
     user_id = auth or "anonymous"
     final_session_id = user_id if user_id != "local-dev-user" else (session_id or str(uuid.uuid4()))
-    if is_rate_limited(user_id): raise HTTPException(status_code=429, detail="Rate limit exceeded")
     if audio:
         with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as temp:
             temp.write(await audio.read())
@@ -186,6 +174,7 @@ async def handle_speech(
 # ----------------------------------------------------------------------------- #
 @app.get("/api/admin/stats", dependencies=[Depends(verify_admin)])
 async def get_stats():
+    """ดึงข้อมูลสถิติภาพรวม"""
     logs = []
     if os.path.exists("logs/user_audit.log"):
         with open("logs/user_audit.log", "r", encoding="utf-8") as f:
@@ -194,6 +183,7 @@ async def get_stats():
 
 @app.get("/api/admin/files", dependencies=[Depends(verify_admin)])
 async def list_admin_files(root: str = "docs", subdir: str = ""):
+    """รายการไฟล์และโฟลเดอร์แบบ Recursive"""
     base_path = PDF_INPUT_FOLDER if root == "docs" else PDF_QUICK_USE_FOLDER
     clean_subdir = subdir.lstrip("/").replace("..", "")
     target_dir = os.path.join(base_path, clean_subdir)
@@ -214,6 +204,7 @@ async def list_admin_files(root: str = "docs", subdir: str = ""):
 
 @app.get("/api/admin/view", dependencies=[Depends(verify_admin)])
 async def preview_file(root: str, path: str):
+    """ส่งคืนไฟล์เพื่อทำการ Preview (PDF หรือ TXT)"""
     base_path = PDF_INPUT_FOLDER if root == "docs" else PDF_QUICK_USE_FOLDER
     target = os.path.join(base_path, path.lstrip("/").replace("..", ""))
     if not os.path.exists(target) or os.path.isdir(target):
@@ -223,38 +214,36 @@ async def preview_file(root: str, path: str):
 
 @app.post("/api/admin/edit", dependencies=[Depends(verify_admin)])
 async def edit_file(root: str = Form(...), path: str = Form(...), content: str = Form(...)):
-    """แก้ไขเนื้อหาไฟล์ TXT"""
+    """บันทึกการแก้ไขไฟล์ TXT"""
     base_path = PDF_INPUT_FOLDER if root == "docs" else PDF_QUICK_USE_FOLDER
     target = os.path.join(base_path, path.lstrip("/").replace("..", ""))
-    
-    if not os.path.exists(target) or os.path.isdir(target):
-        raise HTTPException(status_code=404, detail="File not found")
-    
-    if not target.lower().endswith(".txt"):
-        raise HTTPException(status_code=400, detail="Only TXT files can be edited")
-        
-    try:
-        with open(target, "w", encoding="utf-8") as f:
-            f.write(content)
-        return {"status": "success"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    if not os.path.exists(target) or os.path.isdir(target): raise HTTPException(status_code=404, detail="File not found")
+    if not target.lower().endswith(".txt"): raise HTTPException(status_code=400, detail="Only TXT can be edited")
+    with open(target, "w", encoding="utf-8") as f: f.write(content)
+    return {"status": "success"}
 
 @app.post("/api/admin/upload", dependencies=[Depends(verify_admin)])
 async def upload_document(file: UploadFile, target_dir: str = Form("")):
-    if not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="Only PDF allowed")
+    """อัปโหลดไฟล์ รองรับการระบุโฟลเดอร์ปลายทาง (สำหรับ Batch/Folder Upload)"""
+    if not (file.filename.lower().endswith(".pdf") or file.filename.lower().endswith(".txt")):
+        raise HTTPException(status_code=400, detail="Only PDF or TXT allowed")
+    
+    # ทำความสะอาด path และสร้างโฟลเดอร์หากยังไม่มี
     clean_dir = target_dir.lstrip("/").replace("..", "")
     dest_folder = os.path.join(PDF_INPUT_FOLDER, clean_dir)
     os.makedirs(dest_folder, exist_ok=True)
-    safe_name = "".join([c for c in file.filename if c.isalnum() or c in ('.', '_', '-')]).strip()
-    file_path = os.path.join(dest_folder, safe_name)
+    
+    # รักษาชื่อไฟล์เดิมแต่ล้างอักขระพิเศษเพื่อความปลอดภัย
+    safe_name = "".join([c for c in file.filename if c.isalnum() or c in ('.', '_', '-', '/')]).strip()
+    file_path = os.path.join(dest_folder, os.path.basename(safe_name))
+    
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
     return {"status": "success", "path": os.path.join(clean_dir, safe_name).replace("\\", "/")}
 
 @app.post("/api/admin/process-rag", dependencies=[Depends(verify_admin)])
 async def trigger_rag_process():
+    """สั่งให้ระบบ RAG เริ่มประมวลผลไฟล์ PDF เป็น TXT"""
     try:
         await asyncio.get_event_loop().run_in_executor(executor, process_pdfs)
         return {"status": "completed"}
@@ -262,14 +251,17 @@ async def trigger_rag_process():
 
 @app.delete("/api/admin/files", dependencies=[Depends(verify_admin)])
 async def delete_item(root: str, path: str):
+    """ลบไฟล์หรือโฟลเดอร์"""
     base_path = PDF_INPUT_FOLDER if root == "docs" else PDF_QUICK_USE_FOLDER
     target = os.path.join(base_path, path.lstrip("/").replace("..", ""))
-    if not os.path.exists(target):
-        raise HTTPException(status_code=404, detail="Not found")
+    if not os.path.exists(target): raise HTTPException(status_code=404, detail="Not found")
     if os.path.isdir(target): shutil.rmtree(target)
     else: os.remove(target)
     return {"status": "deleted"}
 
+# ----------------------------------------------------------------------------- #
+# HELPERS
+# ----------------------------------------------------------------------------- #
 async def send_fb_text(psid: str, text: str):
     if not FB_PAGE_ACCESS_TOKEN: return
     url = f"{GRAPH_BASE}/me/messages?access_token={FB_PAGE_ACCESS_TOKEN}"

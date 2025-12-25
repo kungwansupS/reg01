@@ -15,6 +15,7 @@ from concurrent.futures import ThreadPoolExecutor
 # Import Config จากระบบ
 from app.config import PDF_INPUT_FOLDER, PDF_QUICK_USE_FOLDER, BOT_SETTINGS_FILE, SESSION_DIR
 from memory.faq_cache import get_faq_analytics
+from memory.session import get_bot_enabled, set_bot_enabled  # ✅ เพิ่ม import
 from pdf_to_txt import process_pdfs
 
 # สร้าง Router สำหรับ Admin
@@ -39,6 +40,7 @@ async def verify_admin(auth: str = Depends(ADMIN_API_KEY_HEADER)):
     return auth
 
 def get_bot_settings():
+    """❌ เก็บไว้เพื่อ backward compatibility แต่ไม่ใช้แล้ว"""
     if not os.path.exists(BOT_SETTINGS_FILE):
         default = {"facebook": True, "line": True, "web": True}
         with open(BOT_SETTINGS_FILE, "w") as f: json.dump(default, f)
@@ -48,6 +50,7 @@ def get_bot_settings():
         except: return {"facebook": True, "line": True, "web": True}
 
 def save_bot_settings(settings):
+    """❌ เก็บไว้เพื่อ backward compatibility แต่ไม่ใช้แล้ว"""
     with open(BOT_SETTINGS_FILE, "w") as f:
         json.dump(settings, f)
 
@@ -90,7 +93,7 @@ async def get_stats():
     return {
         "recent_logs": logs,
         "faq_analytics": get_faq_analytics(),
-        "bot_settings": get_bot_settings(),
+        "bot_settings": get_bot_settings(),  # ✅ เก็บไว้เพื่อ backward compatibility
         "system_time": datetime.datetime.now().isoformat()
     }
 
@@ -184,18 +187,44 @@ async def delete_items(root: str, paths: str):
     return {"status": "deleted"}
 
 # ----------------------------------------------------------------------------- #
-# CHAT & BOT CONTROL ENDPOINTS
+# CHAT & BOT CONTROL ENDPOINTS (✅ NEW VERSION)
 # ----------------------------------------------------------------------------- #
 
 @router.post("/bot-toggle", dependencies=[Depends(verify_admin)])
-async def toggle_bot(platform: str = Form(...), status: bool = Form(...)):
-    """สลับสถานะเปิด/ปิด Bot"""
-    logger.info(f"🔄 Toggling bot for {platform}: {status}")
-    settings = get_bot_settings()
-    settings[platform] = status
-    save_bot_settings(settings)
-    logger.info(f"✅ Bot settings updated: {settings}")
-    return {"status": "success", "settings": settings}
+async def toggle_bot(session_id: str = Form(...), status: bool = Form(...)):
+    """✅ สลับสถานะเปิด/ปิด Bot สำหรับ Session นี้"""
+    logger.info(f"🔄 Toggling bot for session {session_id}: {status}")
+    
+    success = set_bot_enabled(session_id, status)
+    
+    if success:
+        logger.info(f"✅ Bot status updated for {session_id}: {status}")
+        return {"status": "success", "session_id": session_id, "bot_enabled": status}
+    else:
+        logger.error(f"❌ Failed to update bot status for {session_id}")
+        raise HTTPException(status_code=500, detail="Failed to update bot status")
+
+@router.post("/bot-toggle-all", dependencies=[Depends(verify_admin)])
+async def toggle_all_bots(status: bool = Form(...)):
+    """✅ เปิด/ปิด Bot ทั้งหมดทุก Session"""
+    logger.info(f"🔄 Toggling ALL bots: {status}")
+    
+    if not os.path.exists(SESSION_DIR):
+        return {"status": "success", "updated_count": 0}
+    
+    updated_count = 0
+    try:
+        for filename in os.listdir(SESSION_DIR):
+            if filename.endswith(".json"):
+                session_id = filename.replace(".json", "")
+                if set_bot_enabled(session_id, status):
+                    updated_count += 1
+        
+        logger.info(f"✅ Updated {updated_count} sessions")
+        return {"status": "success", "updated_count": updated_count, "bot_enabled": status}
+    except Exception as e:
+        logger.error(f"❌ Failed to toggle all bots: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/chat/sessions", dependencies=[Depends(verify_admin)])
 async def get_chat_sessions():
@@ -227,6 +256,9 @@ async def get_chat_sessions():
                     session_id = filename.replace(".json", "")
                     logger.debug(f"  [{file_count}/{len(files)}] Processing: {session_id}")
                     
+                    # ✅ ดึง bot_enabled จาก session
+                    bot_enabled = data.get("bot_enabled", True)
+                    
                     # ตรวจสอบรูปแบบข้อมูล
                     if isinstance(data, dict) and "user_info" in data:
                         # รูปแบบใหม่ (มี metadata)
@@ -240,9 +272,10 @@ async def get_chat_sessions():
                                 "name": info.get("name", f"User {session_id[:8]}"),
                                 "picture": info.get("picture", "https://www.gravatar.com/avatar/?d=mp")
                             },
+                            "bot_enabled": bot_enabled,  # ✅ เพิ่ม field นี้
                             "last_active": mtime
                         })
-                        logger.debug(f"    ✅ Valid session: {info.get('name')} ({len(history)} messages)")
+                        logger.debug(f"    ✅ Valid session: {info.get('name')} (Bot: {bot_enabled})")
                         
                     elif isinstance(data, list):
                         # รูปแบบเก่า (เป็น array ของ messages)
@@ -255,6 +288,7 @@ async def get_chat_sessions():
                                 "name": f"User {session_id[:8]}",
                                 "picture": "https://www.gravatar.com/avatar/?d=mp"
                             },
+                            "bot_enabled": True,  # ✅ Default สำหรับ session เก่า
                             "last_active": mtime
                         })
                         logger.debug(f"    ⚠️ Old format (migrating): {session_id}")
@@ -277,7 +311,7 @@ async def get_chat_sessions():
         if sessions:
             logger.info("📋 Recent sessions:")
             for i, s in enumerate(sessions[:5], 1):
-                logger.info(f"  {i}. {s['profile']['name']} ({s['platform']}) - {s['id']}")
+                logger.info(f"  {i}. {s['profile']['name']} ({s['platform']}) - Bot: {s['bot_enabled']}")
         
         return sessions
         

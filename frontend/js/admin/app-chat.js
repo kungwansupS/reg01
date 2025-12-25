@@ -4,7 +4,6 @@ function adminChat() {
         currentSession: null,
         messages: [],
         newMessage: '',
-        botSettings: {},
         socket: null,
         searchQuery: '',
         loading: false,
@@ -13,20 +12,11 @@ function adminChat() {
         async init() {
             console.log('🚀 Initializing Unified Chat...');
             
-            // โหลด Bot Settings จาก $root.stats ถ้ามี
-            this.botSettings = this.$root.stats?.bot_settings || {};
-            console.log('Bot Settings:', this.botSettings);
-
             // เชื่อมต่อ Socket.IO
             this.initSocket();
 
             // โหลด Sessions ครั้งแรก
             await this.refreshSessions();
-
-            // Watch for bot settings changes
-            this.$watch('$root.stats.bot_settings', (val) => {
-                this.botSettings = val || {};
-            });
 
             console.log('✅ Unified Chat initialized');
         },
@@ -71,7 +61,6 @@ function adminChat() {
             try {
                 console.log('🔄 Refreshing sessions...');
                 
-                // ✅ ใช้ fetch โดยตรง
                 const token = localStorage.getItem('adminToken');
                 const response = await fetch('/api/admin/chat/sessions', {
                     headers: {
@@ -133,7 +122,6 @@ function adminChat() {
             try {
                 console.log(`📖 Loading history for ${session.platform}/${session.id}`);
                 
-                // ✅ ใช้ fetch โดยตรง
                 const token = localStorage.getItem('adminToken');
                 const response = await fetch(
                     `/api/admin/chat/history/${session.platform}/${session.id}`,
@@ -204,10 +192,10 @@ function adminChat() {
                 return;
             }
             
-            // ตรวจสอบสถานะ Bot
-            if (this.botSettings[this.currentSession.platform]) {
-                console.warn('⚠️ Bot is enabled for', this.currentSession.platform);
-                alert('กรุณาปิด Auto Bot ของแพลตฟอร์มนี้ก่อนตอบกลับ');
+            // ✅ ตรวจสอบสถานะ Bot ของ Session นี้
+            if (this.currentSession.bot_enabled) {
+                console.warn('⚠️ Bot is enabled for session:', this.currentSession.id);
+                alert('กรุณาปิด Auto Bot ของ Session นี้ก่อนตอบกลับ');
                 return;
             }
 
@@ -227,18 +215,17 @@ function adminChat() {
             });
         },
 
-        async toggleBot(platform) {
-            const currentStatus = this.botSettings[platform];
+        async toggleBot(session) {
+            const currentStatus = session.bot_enabled;
             const nextStatus = !currentStatus;
             
-            console.log(`🔄 Toggling bot for ${platform}: ${currentStatus} → ${nextStatus}`);
+            console.log(`🔄 Toggling bot for ${session.id}: ${currentStatus} → ${nextStatus}`);
             
             const formData = new FormData();
-            formData.append('platform', platform);
+            formData.append('session_id', session.id);
             formData.append('status', nextStatus);
 
             try {
-                // ✅ ใช้ fetch โดยตรง
                 const token = localStorage.getItem('adminToken');
                 const response = await fetch('/api/admin/bot-toggle', {
                     method: 'POST',
@@ -255,16 +242,71 @@ function adminChat() {
                 const res = await response.json();
                 
                 if (res.status === 'success') {
-                    this.botSettings = res.settings;
-                    if (this.$root.stats) {
-                        this.$root.stats.bot_settings = res.settings;
+                    // ✅ อัปเดต session ใน list
+                    session.bot_enabled = nextStatus;
+                    
+                    // ✅ อัปเดต currentSession ถ้าเป็น session เดียวกัน
+                    if (this.currentSession && this.currentSession.id === session.id) {
+                        this.currentSession.bot_enabled = nextStatus;
                     }
-                    console.log('✅ Bot status updated:', res.settings);
+                    
+                    console.log('✅ Bot status updated:', res);
                 } else {
                     console.error('❌ Unexpected response:', res);
                 }
             } catch (e) { 
                 console.error('❌ Failed to toggle bot:', e);
+                alert('ไม่สามารถสลับสถานะ Bot ได้'); 
+            }
+        },
+
+        async toggleAllBots(status) {
+            const action = status ? 'เปิด' : 'ปิด';
+            
+            if (!confirm(`ต้องการ${action} Auto Bot ทั้งหมดทุก Session หรือไม่?`)) {
+                return;
+            }
+            
+            console.log(`🔄 Toggling ALL bots: ${status}`);
+            
+            const formData = new FormData();
+            formData.append('status', status);
+
+            try {
+                const token = localStorage.getItem('adminToken');
+                const response = await fetch('/api/admin/bot-toggle-all', {
+                    method: 'POST',
+                    headers: {
+                        'X-Admin-Token': token
+                    },
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const res = await response.json();
+                
+                if (res.status === 'success') {
+                    console.log(`✅ Updated ${res.updated_count} sessions`);
+                    
+                    // ✅ อัปเดตทุก session ใน list
+                    this.sessions.forEach(s => {
+                        s.bot_enabled = status;
+                    });
+                    
+                    // ✅ อัปเดต currentSession ถ้ามี
+                    if (this.currentSession) {
+                        this.currentSession.bot_enabled = status;
+                    }
+                    
+                    alert(`${action} Auto Bot ทั้งหมดสำเร็จ (${res.updated_count} sessions)`);
+                } else {
+                    console.error('❌ Unexpected response:', res);
+                }
+            } catch (e) { 
+                console.error('❌ Failed to toggle all bots:', e);
                 alert('ไม่สามารถสลับสถานะ Bot ได้'); 
             }
         },
@@ -295,7 +337,8 @@ function adminChat() {
                     profile: {
                         name: data.user_name || `${data.platform} User`,
                         picture: data.user_pic || 'https://www.gravatar.com/avatar/?d=mp'
-                    }
+                    },
+                    bot_enabled: true  // ✅ Default เปิด
                 };
                 this.sessions.unshift(newSession);
                 console.log('✨ Created new session:', newSession);

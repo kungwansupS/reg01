@@ -25,7 +25,13 @@ from app.utils.llm.llm import ask_llm
 from app.utils.pose import suggest_pose
 from app.config import BOT_SETTINGS_FILE
 from dotenv import load_dotenv
-from memory.session import get_or_create_history, save_history, cleanup_old_sessions
+from memory.session import (
+    get_or_create_history, 
+    save_history, 
+    cleanup_old_sessions,
+    get_bot_enabled,  # ✅ เพิ่ม import
+    set_bot_enabled   # ✅ เพิ่ม import
+)
 
 # นำเข้า Admin Router
 from router.admin_router import router as admin_router
@@ -72,13 +78,7 @@ def write_audit_log(user_id: str, platform: str, user_input: str, ai_response: s
     with open("logs/user_audit.log", "a", encoding="utf-8") as f:
         f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
 
-def is_bot_enabled(platform: str) -> bool:
-    if not os.path.exists(BOT_SETTINGS_FILE): return True
-    try:
-        with open(BOT_SETTINGS_FILE, "r") as f:
-            settings = json.load(f)
-            return settings.get(platform, True)
-    except: return True
+# ❌ ลบฟังก์ชัน is_bot_enabled เก่าออก (ไม่ใช้แล้ว)
 
 # ----------------------------------------------------------------------------- #
 # APP & WORKERS
@@ -136,9 +136,11 @@ async def fb_worker():
         })
         logger.info(f"   📤 Sent to admin: {session_id}")
         
-        # จัดการการตอบกลับ
-        if not is_bot_enabled("facebook"):
-            logger.info(f"   🤖 Bot disabled for facebook")
+        # ✅ ตรวจสอบ Bot Status จาก Session นี้
+        bot_enabled = get_bot_enabled(session_id)
+        
+        if not bot_enabled:
+            logger.info(f"   🤖 Bot disabled for session: {session_id}")
             history = get_or_create_history(session_id, user_name=user_name, user_picture=user_pic, platform="facebook")
             history.append({"role": "user", "parts": [{"text": user_text}]})
             save_history(session_id, history, user_name=user_name, user_picture=user_pic, platform="facebook")
@@ -152,13 +154,16 @@ async def fb_worker():
                 
                 result = await ask_llm(user_text, session_id, emit_fn=sio.emit)
                 reply = result["text"]
-                await send_fb_text(psid, reply.replace("//", ""))
                 
-                # ✅ ส่งคำตอบ Bot กลับไปให้ Admin
+                # ✅ เพิ่ม [Bot พี่เร็ก] นำหน้าข้อความที่ส่งไปยัง Facebook
+                fb_message = f"[Bot พี่เร็ก] {reply.replace('//', '')}"
+                await send_fb_text(psid, fb_message)
+                
+                # ✅ ส่งคำตอบ Bot กลับไปให้ Admin (พร้อม prefix)
                 await sio.emit("admin_bot_reply", {
                     "platform": "facebook", 
                     "uid": session_id,  # ส่ง fb_PSID
-                    "text": reply
+                    "text": fb_message
                 })
                 
                 write_audit_log(psid, "facebook", user_text, reply, time.time() - start_time)
@@ -252,8 +257,11 @@ async def handle_speech(
         "user_pic": final_user_pic
     })
 
-    if not is_bot_enabled("web"):
-        logger.info(f"   🤖 Bot disabled for web")
+    # ✅ ตรวจสอบ Bot Status จาก Session นี้
+    bot_enabled = get_bot_enabled(final_session_id)
+    
+    if not bot_enabled:
+        logger.info(f"   🤖 Bot disabled for session: {final_session_id}")
         history = get_or_create_history(final_session_id, user_name=final_user_name, user_picture=final_user_pic, platform="web")
         history.append({"role": "user", "parts": [{"text": text}]})
         save_history(final_session_id, history, user_name=final_user_name, user_picture=final_user_pic, platform="web")
@@ -266,7 +274,9 @@ async def handle_speech(
         motion = await suggest_pose(reply)
         
     write_audit_log(user_id, "web", text, reply, time.time() - start_time)
-    display_text = reply.replace("//", " ")
+    
+    # ✅ เพิ่ม [Bot พี่เร็ก] นำหน้าข้อความที่ส่งไปยัง Web
+    display_text = f"[Bot พี่เร็ก] {reply.replace('//', ' ')}"
     
     await sio.emit("admin_bot_reply", {
         "platform": "web", 
@@ -295,10 +305,13 @@ async def handle_admin_reply(sid, data):
     
     logger.info(f"👨‍💼 Admin manual reply to {platform}/{uid}")
     
-    if is_bot_enabled(platform):
-        logger.warning(f"   ⚠️ Bot is still enabled for {platform}")
+    # ✅ ตรวจสอบ Bot Status ของ Session นี้
+    bot_enabled = get_bot_enabled(uid)
+    
+    if bot_enabled:
+        logger.warning(f"   ⚠️ Bot is still enabled for session: {uid}")
         await sio.emit("admin_error", {
-            "message": f"กรุณาปิด Auto Bot ของ {platform} ก่อนส่งข้อความ"
+            "message": f"กรุณาปิด Auto Bot ของ Session นี้ก่อนส่งข้อความ"
         }, room=sid)
         return
 

@@ -303,8 +303,8 @@
 
         /* Messenger Specific Styles */
         .chat-bubble-user { 
-            background-color: #E4E6EB; 
-            color: black; 
+            background-color: var(--bg-tertiary); 
+            color: var(--text-primary); 
             border-radius: 18px; 
             padding: 10px 16px; 
             max-width: 80%; 
@@ -329,10 +329,6 @@
             max-width: 80%; 
             align-self: flex-end; 
             font-style: italic; 
-        }
-        .dark-mode .chat-bubble-user { 
-            background-color: #3E4042; 
-            color: white; 
         }
         .btn-disabled {
             opacity: 0.5;
@@ -543,35 +539,56 @@
                             <h1 class="text-4xl md:text-5xl font-black gradient-text-cmu mb-2">Unified Chat</h1>
                             <p class="font-medium" style="color: var(--text-secondary);">จัดการบทสนทนาจากทุกช่องทาง Facebook & Web ได้ในที่เดียว</p>
                         </div>
+                        
+                        <!-- ✅ ปุ่มเปิด/ปิด Bot ทั้งหมด -->
+                        <div class="flex items-center gap-2">
+                            <button @click="toggleAllBots(true)" 
+                                    class="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-sm transition-all shadow-lg flex items-center gap-2">
+                                <i data-lucide="power" class="w-4 h-4"></i>
+                                <span>เปิด Bot ทั้งหมด</span>
+                            </button>
+                            <button @click="toggleAllBots(false)" 
+                                    class="px-4 py-2 rounded-xl bg-gray-500 hover:bg-gray-600 text-white font-bold text-sm transition-all shadow-lg flex items-center gap-2">
+                                <i data-lucide="power-off" class="w-4 h-4"></i>
+                                <span>ปิด Bot ทั้งหมด</span>
+                            </button>
+                        </div>
                     </div>
 
-                    <div class="flex-1 card-enterprise rounded-3xl overflow-hidden flex shadow-2xl bg-white dark:bg-zinc-900 border-none min-h-[500px]">
-                        <div class="w-80 border-r border-gray-100 dark:border-zinc-800 flex flex-col bg-gray-50/50 dark:bg-zinc-900/50">
-                            <div class="p-4 border-b dark:border-zinc-800">
+                    <div class="flex-1 card-enterprise rounded-3xl overflow-hidden flex shadow-2xl border-none min-h-[500px]">
+                        <div class="w-80 border-r flex flex-col" style="background-color: var(--bg-tertiary); border-color: var(--border-primary);">
+                            <div class="p-4 border-b" style="border-color: var(--border-primary);">
                                 <div class="relative">
-                                    <i data-lucide="search" class="absolute left-3 top-2.5 w-4 h-4 text-gray-400"></i>
+                                    <i data-lucide="search" class="absolute left-3 top-2.5 w-4 h-4" style="color: var(--text-tertiary);"></i>
                                     <input type="text" 
                                            x-model="searchQuery"
                                            placeholder="Search customer name..." 
-                                           class="w-full pl-10 pr-4 py-2 rounded-xl bg-white dark:bg-zinc-800 border-none text-sm shadow-inner focus:ring-2 focus:ring-purple-500 outline-none">
+                                           class="w-full pl-10 pr-4 py-2 rounded-xl border-none text-sm shadow-inner focus:ring-2 focus:ring-purple-500 outline-none"
+                                           style="background-color: var(--bg-secondary); color: var(--text-primary);">
                                 </div>
                             </div>
                             <div class="flex-1 overflow-y-auto custom-scrollbar px-2 pt-2">
                                 <template x-for="session in filteredSessions" :key="session.id">
                                     <div @click="selectSession(session)" 
-                                         :class="currentSession?.id === session.id ? 'bg-white dark:bg-zinc-800 shadow-md scale-[1.02] border-l-4 border-purple-600' : 'hover:bg-white/50 dark:hover:bg-zinc-800/50 opacity-70'"
-                                         class="p-4 flex items-center gap-4 cursor-pointer transition-all rounded-2xl mb-2">
+                                         :class="currentSession?.id === session.id ? 'shadow-md scale-[1.02] border-l-4 border-purple-600' : 'opacity-70'"
+                                         class="p-4 flex items-center gap-4 cursor-pointer transition-all rounded-2xl mb-2"
+                                         :style="currentSession?.id === session.id ? 'background-color: var(--bg-secondary);' : ''">
                                         <div class="relative">
-                                            <img :src="session.profile.picture" class="w-12 h-12 rounded-full object-cover border-2 border-white shadow-sm">
+                                            <img :src="session.profile.picture" class="w-12 h-12 rounded-full object-cover border-2 shadow-sm" style="border-color: var(--bg-secondary);">
                                             <div :class="session.platform === 'facebook' ? 'bg-blue-500' : 'bg-green-500'" 
-                                                 class="absolute -top-1 -right-1 w-5 h-5 border-2 border-white rounded-full flex items-center justify-center shadow-sm">
+                                                 class="absolute -top-1 -right-1 w-5 h-5 border-2 rounded-full flex items-center justify-center shadow-sm"
+                                                 style="border-color: var(--bg-secondary);">
                                                 <i :data-lucide="session.platform === 'facebook' ? 'facebook' : 'globe'" class="w-2.5 h-2.5 text-white"></i>
                                             </div>
                                         </div>
                                         <div class="flex-1 min-w-0">
-                                            <p class="font-bold truncate text-sm" x-text="session.profile.name"></p>
-                                            <div class="flex items-center gap-1 opacity-60">
-                                                <span class="text-[9px] uppercase font-black tracking-widest" x-text="session.platform"></span>
+                                            <p class="font-bold truncate text-sm" style="color: var(--text-primary);" x-text="session.profile.name"></p>
+                                            <div class="flex items-center gap-1">
+                                                <span class="text-[9px] uppercase font-black tracking-widest" style="color: var(--text-tertiary);" x-text="session.platform"></span>
+                                                <!-- ✅ แสดง Bot Status -->
+                                                <span class="ml-2 text-[9px] font-black px-2 py-0.5 rounded-full"
+                                                      :class="session.bot_enabled ? 'bg-emerald-500/20 text-emerald-600' : 'bg-gray-400/20 text-gray-600'"
+                                                      x-text="session.bot_enabled ? '🤖 ON' : '⛔ OFF'"></span>
                                             </div>
                                         </div>
                                     </div>
@@ -579,66 +596,74 @@
                             </div>
                         </div>
 
-                        <div class="flex-1 flex flex-col bg-white dark:bg-zinc-900 relative">
+                        <div class="flex-1 flex flex-col relative" style="background-color: var(--bg-secondary);">
                             <template x-if="currentSession">
                                 <div class="h-full flex flex-col">
-                                    <div class="p-5 border-b dark:border-zinc-800 flex items-center justify-between bg-white dark:bg-zinc-900 z-10 shadow-sm">
+                                    <div class="p-5 border-b flex items-center justify-between z-10 shadow-sm" style="border-color: var(--border-primary); background-color: var(--bg-secondary);">
                                         <div class="flex items-center gap-4">
-                                            <img :src="currentSession.profile.picture" class="w-10 h-10 rounded-full border shadow-sm">
+                                            <img :src="currentSession.profile.picture" class="w-10 h-10 rounded-full border shadow-sm" style="border-color: var(--border-primary);">
                                             <div>
-                                                <h3 class="font-black text-lg leading-tight" x-text="currentSession.profile.name"></h3>
+                                                <h3 class="font-black text-lg leading-tight" style="color: var(--text-primary);" x-text="currentSession.profile.name"></h3>
                                                 <p class="text-[10px] text-emerald-500 font-bold uppercase tracking-widest">Connected via <span x-text="currentSession.platform"></span></p>
                                             </div>
                                         </div>
                                         
-                                        <div class="flex items-center gap-4 bg-gray-100 dark:bg-zinc-800 px-5 py-2 rounded-2xl border dark:border-zinc-700">
+                                        <!-- ✅ สลับ Bot ต่อ Session -->
+                                        <div class="flex items-center gap-4 px-5 py-2 rounded-2xl border" style="background-color: var(--bg-tertiary); border-color: var(--border-primary);">
                                             <div class="flex flex-col items-end">
-                                                <span class="text-[10px] font-black uppercase text-gray-400">Auto Bot System</span>
-                                                <span :class="botSettings[currentSession.platform] ? 'text-emerald-500' : 'text-gray-400'" 
-                                                      class="text-xs font-bold" x-text="botSettings[currentSession.platform] ? 'ACTIVE' : 'DISABLED'"></span>
+                                                <span class="text-[10px] font-black uppercase" style="color: var(--text-tertiary);">Auto Bot System</span>
+                                                <span :class="currentSession.bot_enabled ? 'text-emerald-500' : ''" 
+                                                      :style="!currentSession.bot_enabled ? 'color: var(--text-tertiary);' : ''"
+                                                      class="text-xs font-bold" x-text="currentSession.bot_enabled ? 'ACTIVE' : 'DISABLED'"></span>
                                             </div>
-                                            <button @click="toggleBot(currentSession.platform)" 
-                                                :class="botSettings[currentSession.platform] ? 'bg-emerald-500' : 'bg-gray-300 dark:bg-zinc-700'"
+                                            <button @click="toggleBot(currentSession)" 
+                                                :class="currentSession.bot_enabled ? 'bg-emerald-500' : ''"
+                                                :style="!currentSession.bot_enabled ? 'background-color: var(--border-primary);' : ''"
                                                 class="w-12 h-6 rounded-full relative transition-all duration-300">
-                                                <div :class="botSettings[currentSession.platform] ? 'translate-x-6' : 'translate-x-1'" 
+                                                <div :class="currentSession.bot_enabled ? 'translate-x-6' : 'translate-x-1'" 
                                                      class="absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm transition-transform duration-300"></div>
                                             </button>
                                         </div>
                                     </div>
 
-                                    <div id="message-container" class="flex-1 p-6 overflow-y-auto flex flex-col gap-4 custom-scrollbar bg-gray-50/30 dark:bg-zinc-900/30">
+                                    <div id="message-container" class="flex-1 p-6 overflow-y-auto flex flex-col gap-4 custom-scrollbar" style="background-color: var(--bg-tertiary);">
                                         <template x-for="msg in messages">
                                             <div :class="msg.role === 'user' ? 'self-start' : 'self-end'" class="flex flex-col max-w-[80%]">
                                                 <div :class="msg.role === 'user' ? 'chat-bubble-user' : (msg.parts[0].text.startsWith('[Admin]') ? 'chat-bubble-admin' : 'chat-bubble-bot')">
                                                     <span class="text-sm font-medium leading-relaxed" x-text="msg.parts[0].text.replace('[Admin]: ', '')"></span>
                                                 </div>
-                                                <span class="text-[9px] mt-1 opacity-40 font-bold uppercase" 
+                                                <span class="text-[9px] mt-1 font-bold uppercase" 
                                                       :class="msg.role === 'user' ? 'text-left' : 'text-right'"
+                                                      style="color: var(--text-tertiary);"
                                                       x-text="msg.role === 'user' ? 'Customer' : (msg.parts[0].text.startsWith('[Admin]') ? 'Admin' : 'Bot พี่เร็ก')"></span>
                                             </div>
                                         </template>
                                     </div>
 
-                                    <div class="p-5 border-t dark:border-zinc-800 bg-white dark:bg-zinc-900">
-                                        <div x-show="botSettings[currentSession.platform]" 
-                                             class="mb-3 px-4 py-2 bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 text-xs font-bold rounded-xl flex items-center gap-2 border border-amber-100 dark:border-amber-900/30">
+                                    <div class="p-5 border-t" style="border-color: var(--border-primary); background-color: var(--bg-secondary);">
+                                        <div x-show="currentSession.bot_enabled" 
+                                             class="mb-3 px-4 py-2 text-xs font-bold rounded-xl flex items-center gap-2"
+                                             style="background-color: rgba(255, 149, 0, 0.1); color: var(--warning); border: 1px solid rgba(255, 149, 0, 0.2);">
                                             <i data-lucide="alert-triangle" class="w-4 h-4"></i>
                                             <span>กรุณาปิด Auto Bot ด้านบนก่อนเพื่อสลับมาโหมดตอบด้วยตนเอง</span>
                                         </div>
 
                                         <div class="flex items-center gap-3">
-                                            <button class="p-2 hover:bg-gray-100 dark:hover:bg-zinc-800 rounded-full transition-colors text-purple-600">
+                                            <button class="p-2 rounded-full transition-colors" 
+                                                    style="color: var(--cmu-purple);"
+                                                    :style="'background-color: ' + (currentSession.bot_enabled ? 'var(--bg-tertiary)' : 'transparent')">
                                                 <i data-lucide="plus-circle" class="w-6 h-6"></i>
                                             </button>
                                             <input type="text" x-model="newMessage" @keyup.enter="sendMessage()" 
-                                                   :disabled="botSettings[currentSession.platform]"
-                                                   :placeholder="botSettings[currentSession.platform] ? 'โหมดบอททำงานอยู่...' : 'พิมพ์ข้อความตอบกลับผู้ใช้...'" 
-                                                   :class="botSettings[currentSession.platform] ? 'bg-gray-200 dark:bg-zinc-800 opacity-50 cursor-not-allowed' : 'bg-gray-100 dark:bg-zinc-800'"
-                                                   class="flex-1 px-6 py-3 rounded-full border-none focus:ring-2 focus:ring-purple-500 outline-none text-sm font-medium transition-all">
+                                                   :disabled="currentSession.bot_enabled"
+                                                   :placeholder="currentSession.bot_enabled ? 'โหมดบอททำงานอยู่...' : 'พิมพ์ข้อความตอบกลับผู้ใช้...'" 
+                                                   class="flex-1 px-6 py-3 rounded-full border-none focus:ring-2 focus:ring-purple-500 outline-none text-sm font-medium transition-all"
+                                                   :class="currentSession.bot_enabled ? 'opacity-50 cursor-not-allowed' : ''"
+                                                   style="background-color: var(--bg-tertiary); color: var(--text-primary);">
                                             
                                             <button @click="sendMessage()" 
-                                                    :disabled="botSettings[currentSession.platform]"
-                                                    :class="botSettings[currentSession.platform] ? 'btn-disabled bg-gray-400' : 'bg-purple-600 hover:bg-purple-700 shadow-lg hover:shadow-purple-500/30'"
+                                                    :disabled="currentSession.bot_enabled"
+                                                    :class="currentSession.bot_enabled ? 'btn-disabled' : 'bg-purple-600 hover:bg-purple-700 shadow-lg hover:shadow-purple-500/30'"
                                                     class="text-white p-3 rounded-full transition-all">
                                                 <i data-lucide="send" class="w-6 h-6"></i>
                                             </button>
@@ -648,13 +673,13 @@
                             </template>
                             
                             <template x-if="!currentSession">
-                                <div class="h-full flex items-center justify-center bg-white dark:bg-zinc-900">
+                                <div class="h-full flex items-center justify-center" style="background-color: var(--bg-secondary);">
                                     <div class="text-center animate-in">
-                                        <div class="w-24 h-24 bg-gray-50 dark:bg-zinc-800 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner">
-                                            <i data-lucide="message-circle" class="w-12 h-12 text-gray-300"></i>
+                                        <div class="w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner" style="background-color: var(--bg-tertiary);">
+                                            <i data-lucide="message-circle" class="w-12 h-12" style="color: var(--border-primary);"></i>
                                         </div>
-                                        <h3 class="text-xl font-black opacity-40 mb-2">No Conversation Selected</h3>
-                                        <p class="text-sm text-gray-400 font-medium">เลือกรายชื่อผู้สนทนาจากรายการด้านซ้ายเพื่อเริ่มต้น</p>
+                                        <h3 class="text-xl font-black mb-2" style="color: var(--text-tertiary);">No Conversation Selected</h3>
+                                        <p class="text-sm font-medium" style="color: var(--text-tertiary);">เลือกรายชื่อผู้สนทนาจากรายการด้านซ้ายเพื่อเริ่มต้น</p>
                                     </div>
                                 </div>
                             </template>

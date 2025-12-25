@@ -44,6 +44,7 @@ def get_or_create_history(session_id, context="", user_name=None, user_picture=N
                             "picture": final_pic,
                             "platform": detected_platform
                         },
+                        "bot_enabled": True,  # ✅ Default เปิด Bot
                         "history": data
                     }
                     data_to_save = data
@@ -51,6 +52,11 @@ def get_or_create_history(session_id, context="", user_name=None, user_picture=N
                 # อัปเดต Metadata หากมีข้อมูลใหม่ส่งเข้ามา
                 if "user_info" not in data:
                     data["user_info"] = {"name": default_name, "picture": final_pic, "platform": detected_platform}
+                    data_to_save = data
+                
+                # ✅ เพิ่ม bot_enabled ถ้ายังไม่มี (Default = True)
+                if "bot_enabled" not in data:
+                    data["bot_enabled"] = True
                     data_to_save = data
                 
                 if user_name and data["user_info"].get("name") != user_name:
@@ -77,6 +83,7 @@ def get_or_create_history(session_id, context="", user_name=None, user_picture=N
             "picture": final_pic,
             "platform": detected_platform
         },
+        "bot_enabled": True,  # ✅ Default เปิด Bot
         "history": initial_history
     }
 
@@ -98,12 +105,15 @@ def save_history(session_id, history, user_name=None, user_picture=None, platfor
         "platform": detected_platform
     }
     
+    bot_enabled = True  # Default
+    
     if os.path.exists(path):
         try:
             with open(path, "r", encoding="utf-8") as f:
                 old_data = json.load(f)
                 if isinstance(old_data, dict):
                     user_info = old_data.get("user_info", user_info)
+                    bot_enabled = old_data.get("bot_enabled", True)  # ✅ เก็บค่าเดิม
         except: pass
 
     # อัปเดต Metadata ใหม่ถ้ามีข้อมูลส่งมา
@@ -127,11 +137,46 @@ def save_history(session_id, history, user_name=None, user_picture=None, platfor
 
     final_data = {
         "user_info": user_info,
+        "bot_enabled": bot_enabled,  # ✅ เก็บสถานะ Bot
         "history": deduped_history
     }
 
     with open(path, "w", encoding="utf-8") as f:
         json.dump(final_data, f, ensure_ascii=False, indent=2)
+
+def get_bot_enabled(session_id):
+    """✅ ฟังก์ชันใหม่: ดึงสถานะ Bot ของ Session นี้"""
+    path = get_session_path(session_id)
+    if not os.path.exists(path):
+        return True  # Default เปิด
+    
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return data.get("bot_enabled", True)
+    except:
+        return True
+
+def set_bot_enabled(session_id, enabled):
+    """✅ ฟังก์ชันใหม่: ตั้งค่าสถานะ Bot ของ Session นี้"""
+    path = get_session_path(session_id)
+    if not os.path.exists(path):
+        # สร้าง session ใหม่ถ้ายังไม่มี
+        get_or_create_history(session_id)
+    
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        
+        data["bot_enabled"] = enabled
+        
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        
+        return True
+    except Exception as e:
+        print(f"Error setting bot_enabled for {session_id}: {e}")
+        return False
 
 def cleanup_old_sessions(days=7):
     """ลบเซสชันที่ไม่มีความเคลื่อนไหวเกินจำนวนวันที่กำหนด"""

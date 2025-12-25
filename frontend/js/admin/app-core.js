@@ -1,8 +1,3 @@
-/**
- * Enterprise Admin Core Application Logic
- * CMU Innovation Platform - Administrative Console
- */
-
 function adminApp() {
     return {
         // Authentication State
@@ -19,7 +14,8 @@ function adminApp() {
         
         // Data State
         stats: {
-            recent_logs: []
+            recent_logs: [],
+            bot_settings: {} // เพิ่มเข้ามาใน Phase 2 เพื่อเก็บสถานะการเปิด/ปิด Bot
         },
         
         // Clock State
@@ -108,6 +104,7 @@ function adminApp() {
             } else if (tab === 'logs' && window.loadLogsTab) {
                 window.loadLogsTab();
             }
+            // หมายเหตุ: Tab 'chat' จะถูกจัดการโดยคอมโพเนนต์ adminChat ในไฟล์ app-chat.js
         },
 
         /**
@@ -222,7 +219,6 @@ function adminApp() {
          * Show Notification (Simple alert for now, can be enhanced)
          */
         showNotification(message, type = 'info') {
-            // Simple implementation - can be enhanced with toast notifications
             if (type === 'error') {
                 alert('❌ ' + message);
             } else if (type === 'success') {

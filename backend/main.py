@@ -112,6 +112,10 @@ async def fb_worker():
                 result = await ask_llm(user_text, f"fb_{psid}", emit_fn=sio.emit)
                 reply = result["text"]
                 await send_fb_text(psid, reply.replace("//", ""))
+                
+                # แจ้ง Admin ว่า Bot ตอบกลับแล้ว
+                await sio.emit("admin_bot_reply", {"platform": "facebook", "uid": psid, "text": reply})
+                
                 write_audit_log(psid, "facebook", user_text, reply, time.time() - start_time)
             except Exception as e: logger.error(f"FB Error: {e}")
             finally: fb_task_queue.task_done()

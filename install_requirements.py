@@ -4,16 +4,34 @@ import os
 import pkg_resources
 import shutil
 
+# ==========================================================
+# PATH
+# ==========================================================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 REQUIREMENTS = os.path.join(BASE_DIR, "requirements.txt")
 
+# ==========================================================
+# UTIL
+# ==========================================================
 def run_command(cmd, shell=False):
     print(f"🔹 Running: {' '.join(cmd) if isinstance(cmd, list) else cmd}")
     result = subprocess.run(cmd, shell=shell)
     if result.returncode != 0:
-        print(f"❌ Error running command: {cmd}")
+        print(f"❌ Command failed: {cmd}")
         sys.exit(1)
 
+# ==========================================================
+# PYTHON CHECK
+# ==========================================================
+def check_python_version():
+    if sys.version_info < (3, 10):
+        print("❌ Python >= 3.10 is required")
+        sys.exit(1)
+    print(f"🐍 Python {sys.version.split()[0]} OK")
+
+# ==========================================================
+# PACKAGE MANAGEMENT
+# ==========================================================
 def get_installed_packages():
     return {pkg.key: pkg.version for pkg in pkg_resources.working_set}
 
@@ -45,8 +63,10 @@ def get_latest_version(package):
     except:
         return None
 
+# ==========================================================
+# CUDA CHECK
+# ==========================================================
 def has_cuda_support():
-    """ตรวจสอบว่าเครื่องมี NVIDIA GPU + CUDA"""
     if shutil.which("nvidia-smi") is None:
         return False
     try:
@@ -60,75 +80,120 @@ def has_cuda_support():
     except:
         return False
 
-def torch_is_cpu_only():
-    """ตรวจว่า torch ที่ติดตั้งเป็น CPU หรือไม่"""
+# ==========================================================
+# TORCH CHECK
+# ==========================================================
+def torch_is_installed():
     try:
         import torch
-        return not torch.cuda.is_available()
+        return True
+    except ImportError:
+        return False
+
+def torch_has_cuda():
+    try:
+        import torch
+        return torch.cuda.is_available()
     except:
         return False
 
 def uninstall_torch():
-    print("🧹 Removing existing PyTorch (CPU)")
+    print("🧹 Removing existing PyTorch")
     run_command([
         sys.executable, "-m", "pip", "uninstall", "-y",
         "torch", "torchvision", "torchaudio"
     ])
 
 def install_pytorch():
-    cuda = has_cuda_support()
+    cuda_available = has_cuda_support()
+    torch_installed = torch_is_installed()
+    torch_cuda = torch_has_cuda()
 
-    if cuda:
-        print("⚡ พบ CUDA")
-        if torch_is_cpu_only():
+    # -----------------------------------------
+    # CASE 1: CUDA OK + Torch CUDA OK
+    # -----------------------------------------
+    if cuda_available and torch_installed and torch_cuda:
+        print("✅ PyTorch CUDA already installed → skip")
+        return
+
+    # -----------------------------------------
+    # CASE 2: CUDA OK but Torch CPU
+    # -----------------------------------------
+    if cuda_available:
+        print("⚡ CUDA detected")
+
+        if torch_installed and not torch_cuda:
+            print("⚠️ Torch is CPU-only → upgrading to CUDA")
             uninstall_torch()
 
-        print("🚀 Installing PyTorch with CUDA 12.8")
+        print("🚀 Installing PyTorch CUDA (cu128)")
         run_command([
             sys.executable, "-m", "pip", "install",
             "torch", "torchvision", "torchaudio",
             "--index-url", "https://download.pytorch.org/whl/cu128"
         ])
+        return
+
+    # -----------------------------------------
+    # CASE 3: No CUDA
+    # -----------------------------------------
+    print("🖥️ No CUDA detected")
+
+    if torch_installed:
+        print("✅ CPU PyTorch already installed → skip")
+        return
+
+    print("📦 Installing CPU-only PyTorch")
+    run_command([
+        sys.executable, "-m", "pip", "install",
+        "torch", "torchvision", "torchaudio"
+    ])
+
+# ==========================================================
+# MAIN
+# ==========================================================
+def main():
+    print("=" * 60)
+    print("🚀 REG-01 Production Installer")
+    print("=" * 60)
+
+    check_python_version()
+
+    installed = get_installed_packages()
+    required = parse_requirements()
+
+    to_uninstall = []
+    to_install = []
+
+    print("🔍 Checking requirements...")
+
+    for pkg, (op, ver) in required.items():
+        current_ver = installed.get(pkg)
+
+        if op == "==":
+            if current_ver != ver:
+                to_uninstall.append(pkg)
+                to_install.append(f"{pkg}=={ver}")
+        else:
+            if current_ver is None:
+                to_install.append(pkg)
+
+    if to_uninstall:
+        print(f"🧹 Uninstalling: {', '.join(to_uninstall)}")
+        run_command([sys.executable, "-m", "pip", "uninstall", "-y"] + to_uninstall)
+
+    if to_install:
+        print(f"📥 Installing: {', '.join(to_install)}")
+        run_command([sys.executable, "-m", "pip", "install"] + to_install)
     else:
-        print("🖥️ ไม่พบ CUDA → ใช้ PyTorch แบบ CPU")
-        run_command([
-            sys.executable, "-m", "pip", "install",
-            "torch", "torchvision", "torchaudio"
-        ])
+        print("✅ Requirements OK")
 
-# =================== MAIN PROCESS ===================
+    install_pytorch()
 
-installed = get_installed_packages()
-required = parse_requirements()
+    print("=" * 60)
+    print("🎉 Installation completed successfully")
+    print("=" * 60)
 
-to_uninstall = []
-to_install = []
-
-print("🔍 Checking only required packages...")
-
-for pkg, (op, ver) in required.items():
-    current_ver = installed.get(pkg)
-
-    if op == "==":
-        if current_ver != ver:
-            to_uninstall.append(pkg)
-            to_install.append(f"{pkg}=={ver}")
-    else:
-        latest_ver = get_latest_version(pkg)
-        if current_ver is None or (latest_ver and current_ver != latest_ver):
-            to_uninstall.append(pkg)
-            to_install.append(pkg)
-
-if to_uninstall:
-    print(f"🧹 Uninstalling: {', '.join(to_uninstall)}")
-    run_command([sys.executable, "-m", "pip", "uninstall", "-y"] + to_uninstall)
-
-if to_install:
-    print(f"📥 Installing: {', '.join(to_install)}")
-    run_command([sys.executable, "-m", "pip", "install"] + to_install)
-else:
-    print("✅ All required packages are up to date.")
-
-install_pytorch()
-
-print("🎉 Done.")
+# ==========================================================
+if __name__ == "__main__":
+    main()

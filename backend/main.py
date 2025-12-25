@@ -43,7 +43,11 @@ executor = ThreadPoolExecutor(max_workers=10)
 fb_task_queue = asyncio.Queue()
 session_locks = {}
 
-logging.basicConfig(level=logging.INFO)
+# Logging Configuration
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger("MainBackend")
 
 async def get_session_lock(session_id: str):
@@ -87,15 +91,21 @@ app.include_router(admin_router)
 
 asgi_app = socketio.ASGIApp(sio, app)
 
-# มウント static folders
+# เมาท์ static folders
 app.mount("/static", StaticFiles(directory="frontend", html=False), name="static")
 app.mount("/assets", StaticFiles(directory="frontend/assets"), name="assets")
 
 async def fb_worker():
+    """Worker สำหรับประมวลผลข้อความจาก Facebook"""
     while True:
         task = await fb_task_queue.get()
-        psid = task["psid"]; user_text = task["text"]
+        psid = task["psid"]
+        user_text = task["text"]
         start_time = time.time()
+        
+        # ✅ สร้าง session_id แบบ unified (fb_PSID)
+        session_id = f"fb_{psid}"
+        logger.info(f"📩 Processing FB message: {session_id}")
         
         # ดึงข้อมูลจาก Facebook (ทั้งชื่อและรูป)
         user_name = f"FB User {psid[:5]}"
@@ -104,53 +114,70 @@ async def fb_worker():
         if FB_PAGE_ACCESS_TOKEN:
             try:
                 async with httpx.AsyncClient() as client:
-                    # ขอทั้ง name และ picture
-                    r = await client.get(f"https://graph.facebook.com/{psid}?fields=name,picture&access_token={FB_PAGE_ACCESS_TOKEN}", timeout=3)
+                    r = await client.get(
+                        f"https://graph.facebook.com/{psid}?fields=name,picture&access_token={FB_PAGE_ACCESS_TOKEN}", 
+                        timeout=3
+                    )
                     if r.status_code == 200:
                         data = r.json()
                         user_name = data.get("name", user_name)
-                        # ดึง URL รูปภาพจากโครงสร้าง Nested ของ FB
                         user_pic = data.get("picture", {}).get("data", {}).get("url", user_pic)
+                        logger.info(f"   👤 User: {user_name}")
             except Exception as e:
-                logger.error(f"Fetch FB Profile Error: {e}")
+                logger.error(f"   ❌ Fetch FB Profile Error: {e}")
 
-        # แจ้งเตือน Admin พร้อมรูปโปรไฟล์จริง
+        # ✅ แจ้งเตือน Admin ผ่าน Socket พร้อมข้อมูลโปรไฟล์
         await sio.emit("admin_new_message", {
             "platform": "facebook", 
-            "uid": psid, 
+            "uid": session_id,  # ส่ง fb_PSID
             "text": user_text, 
             "user_name": user_name,
             "user_pic": user_pic
         })
+        logger.info(f"   📤 Sent to admin: {session_id}")
         
         # จัดการการตอบกลับ
         if not is_bot_enabled("facebook"):
-            history = get_or_create_history(f"fb_{psid}", user_name=user_name, user_picture=user_pic, platform="facebook")
+            logger.info(f"   🤖 Bot disabled for facebook")
+            history = get_or_create_history(session_id, user_name=user_name, user_picture=user_pic, platform="facebook")
             history.append({"role": "user", "parts": [{"text": user_text}]})
-            save_history(f"fb_{psid}", history, user_name=user_name, user_picture=user_pic, platform="facebook")
+            save_history(session_id, history, user_name=user_name, user_picture=user_pic, platform="facebook")
             fb_task_queue.task_done()
             continue
 
-        async with await get_session_lock(f"fb_{psid}"):
+        async with await get_session_lock(session_id):
             try:
                 # บันทึกข้อมูล metadata ลง session ก่อนถาม LLM
-                get_or_create_history(f"fb_{psid}", user_name=user_name, user_picture=user_pic, platform="facebook")
+                get_or_create_history(session_id, user_name=user_name, user_picture=user_pic, platform="facebook")
                 
-                result = await ask_llm(user_text, f"fb_{psid}", emit_fn=sio.emit)
+                result = await ask_llm(user_text, session_id, emit_fn=sio.emit)
                 reply = result["text"]
                 await send_fb_text(psid, reply.replace("//", ""))
                 
-                await sio.emit("admin_bot_reply", {"platform": "facebook", "uid": psid, "text": reply})
+                # ✅ ส่งคำตอบ Bot กลับไปให้ Admin
+                await sio.emit("admin_bot_reply", {
+                    "platform": "facebook", 
+                    "uid": session_id,  # ส่ง fb_PSID
+                    "text": reply
+                })
+                
                 write_audit_log(psid, "facebook", user_text, reply, time.time() - start_time)
-            except Exception as e: logger.error(f"FB Worker Error: {e}")
-            finally: fb_task_queue.task_done()
+                logger.info(f"   ✅ Processed successfully")
+            except Exception as e: 
+                logger.error(f"   ❌ FB Worker Error: {e}")
+            finally: 
+                fb_task_queue.task_done()
 
 @app.on_event("startup")
 async def startup_event():
+    logger.info("🚀 Starting application...")
     asyncio.create_task(maintenance_loop())
-    for _ in range(5): asyncio.create_task(fb_worker())
+    for _ in range(5): 
+        asyncio.create_task(fb_worker())
+    logger.info("✅ Application started")
 
 async def maintenance_loop():
+    """งานบำรุงรักษาระบบ"""
     while True:
         cleanup_old_sessions(days=7)
         await asyncio.sleep(86400)
@@ -160,21 +187,29 @@ async def maintenance_loop():
 # ----------------------------------------------------------------------------- #
 @app.get("/webhook")
 async def fb_verify(request: Request):
+    """Webhook Verification สำหรับ Facebook"""
     params = request.query_params
     if params.get("hub.mode") == "subscribe" and params.get("hub.verify_token") == FB_VERIFY_TOKEN:
+        logger.info("✅ Facebook webhook verified")
         return Response(content=params.get("hub.challenge"), media_type="text/plain")
+    logger.warning("❌ Invalid verification token")
     return Response(content="Invalid Token", status_code=403)
 
 @app.post("/webhook")
 async def fb_webhook(request: Request):
+    """รับข้อความจาก Facebook Messenger"""
     raw = await request.body()
     try:
         payload = json.loads(raw.decode("utf-8"))
         for entry in payload.get("entry", []):
             for event in entry.get("messaging", []):
                 if "message" in event and "text" in event["message"] and not event["message"].get("is_echo"):
-                    await fb_task_queue.put({"psid": event["sender"]["id"], "text": event["message"]["text"].strip()})
-    except: pass
+                    psid = event["sender"]["id"]
+                    text = event["message"]["text"].strip()
+                    logger.info(f"📨 Received FB message from {psid}")
+                    await fb_task_queue.put({"psid": psid, "text": text})
+    except Exception as e:
+        logger.error(f"❌ Webhook error: {e}")
     return JSONResponse({"status": "accepted"})
 
 @app.post("/api/speech")
@@ -187,11 +222,14 @@ async def handle_speech(
     audio: UploadFile = Form(None),
     auth: str = Depends(APIKeyHeader(name="X-API-Key", auto_error=False))
 ):
+    """จัดการข้อความจาก Web Interface"""
     start_time = time.time()
     user_id = auth or "anonymous"
     final_session_id = session_id if session_id else (user_id if user_id != "local-dev-user" else str(uuid.uuid4()))
     final_user_name = user_name or f"Web User {final_session_id[:5]}"
     final_user_pic = user_pic or "https://www.gravatar.com/avatar/?d=mp"
+    
+    logger.info(f"🌐 Web request from session: {final_session_id}")
     
     if audio:
         with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as temp:
@@ -205,6 +243,7 @@ async def handle_speech(
     if not text:
         return {"text": "", "motion": "Idle"}
 
+    # ✅ แจ้งเตือน Admin
     await sio.emit("admin_new_message", {
         "platform": "web", 
         "uid": final_session_id, 
@@ -214,66 +253,88 @@ async def handle_speech(
     })
 
     if not is_bot_enabled("web"):
-         history = get_or_create_history(final_session_id, user_name=final_user_name, user_picture=final_user_pic, platform="web")
-         history.append({"role": "user", "parts": [{"text": text}]})
-         save_history(final_session_id, history, user_name=final_user_name, user_picture=final_user_pic, platform="web")
-         return {"text": "ขณะนี้ Bot ปิดให้บริการ (Admin กำลังดูแลคุณ)", "motion": "Idle"}
+        logger.info(f"   🤖 Bot disabled for web")
+        history = get_or_create_history(final_session_id, user_name=final_user_name, user_picture=final_user_pic, platform="web")
+        history.append({"role": "user", "parts": [{"text": text}]})
+        save_history(final_session_id, history, user_name=final_user_name, user_picture=final_user_pic, platform="web")
+        return {"text": "ขณะนี้ Bot ปิดให้บริการ (Admin กำลังดูแลคุณ)", "motion": "Idle"}
 
     async with await get_session_lock(final_session_id):
         get_or_create_history(final_session_id, user_name=final_user_name, user_picture=final_user_pic, platform="web")
         result = await ask_llm(text, final_session_id, emit_fn=sio.emit)
-        reply = result["text"]; motion = await suggest_pose(reply)
+        reply = result["text"]
+        motion = await suggest_pose(reply)
         
     write_audit_log(user_id, "web", text, reply, time.time() - start_time)
     display_text = reply.replace("//", " ")
-    await sio.emit("admin_bot_reply", {"platform": "web", "uid": final_session_id, "text": display_text})
+    
+    await sio.emit("admin_bot_reply", {
+        "platform": "web", 
+        "uid": final_session_id, 
+        "text": display_text
+    })
     await sio.emit("ai_response", {"motion": motion, "text": display_text})
+    
+    logger.info(f"   ✅ Web request processed")
     return {"text": display_text, "motion": motion}
 
 async def send_fb_text(psid: str, text: str):
+    """ส่งข้อความกลับไปยัง Facebook"""
     if not FB_PAGE_ACCESS_TOKEN: return
     url = f"{GRAPH_BASE}/me/messages?access_token={FB_PAGE_ACCESS_TOKEN}"
     data = {"recipient": {"id": psid}, "message": {"text": (text or "")[:1999]}}
-    async with httpx.AsyncClient(timeout=15) as client: await client.post(url, json=data)
+    async with httpx.AsyncClient(timeout=15) as client: 
+        await client.post(url, json=data)
 
 @sio.on("admin_manual_reply")
 async def handle_admin_reply(sid, data):
-    """จัดการเมื่อ Admin ตอบกลับด้วยตนเองผ่าน UI แชท"""
+    """จัดการข้อความที่ Admin ส่งกลับ"""
     uid = data.get("uid")
     text = data.get("text")
     platform = data.get("platform")
     
+    logger.info(f"👨‍💼 Admin manual reply to {platform}/{uid}")
+    
     if is_bot_enabled(platform):
-        await sio.emit("admin_error", {"message": f"กรุณาปิด Auto Bot ของ {platform} ก่อนส่งข้อความ"}, room=sid)
+        logger.warning(f"   ⚠️ Bot is still enabled for {platform}")
+        await sio.emit("admin_error", {
+            "message": f"กรุณาปิด Auto Bot ของ {platform} ก่อนส่งข้อความ"
+        }, room=sid)
         return
 
-    admin_display_text = f"[Admin]: {text}"
+    formatted_msg = f"[Admin]: {text}"
 
+    # ✅ ส่งข้อความไปยังผู้ใช้
     if platform == "facebook":
-        await send_fb_text(uid, text)
-        session_key = f"fb_{uid}"
+        # ตัด fb_ ออกเพื่อส่งไปยัง Facebook API (ต้องการแค่ PSID)
+        clean_psid = uid.replace("fb_", "")
+        await send_fb_text(clean_psid, text)
+        logger.info(f"   📤 Sent to Facebook: {clean_psid}")
     else:
-        # สำหรับ Web แพลตฟอร์ม ให้ส่งไปยังหน้า User ด้วย
         await sio.emit("ai_response", {"motion": "Happy", "text": text})
-        session_key = uid
+        logger.info(f"   📤 Sent to Web client")
 
-    # บันทึกลง History โดยใช้ฟังก์ชันมาตรฐาน
-    history = get_or_create_history(session_key)
-    history.append({"role": "model", "parts": [{"text": admin_display_text}]})
-    save_history(session_key, history)
+    # ✅ บันทึกลง session (ใช้ uid ตรงๆ)
+    history = get_or_create_history(uid)
+    history.append({"role": "model", "parts": [{"text": formatted_msg}]})
+    save_history(uid, history)
     
-    # Broadcast แจ้ง Admin ทุกคน (รวมคนส่งด้วยเพื่อให้ UI Sync กัน)
+    # ✅ แจ้งกลับไปยัง Admin UI
     await sio.emit("admin_bot_reply", {
         "platform": platform, 
         "uid": uid, 
-        "text": admin_display_text
+        "text": formatted_msg
     })
+    
+    logger.info(f"   ✅ Admin reply processed")
 
 @app.get("/")
-async def serve_index(): return FileResponse("frontend/index.html")
+async def serve_index(): 
+    return FileResponse("frontend/index.html")
 
 @app.get("/admin")
-async def serve_admin(): return FileResponse("frontend/admin.html")
+async def serve_admin(): 
+    return FileResponse("frontend/admin.html")
 
 if __name__ == "__main__":
     import uvicorn

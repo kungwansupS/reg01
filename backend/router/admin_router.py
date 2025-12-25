@@ -28,6 +28,10 @@ FB_PAGE_ACCESS_TOKEN = os.getenv("FB_PAGE_ACCESS_TOKEN", "")
 # Executor สำหรับงาน Sync หนักๆ
 admin_executor = ThreadPoolExecutor(max_workers=5)
 
+# Logging
+import logging
+logger = logging.getLogger("AdminRouter")
+
 async def verify_admin(auth: str = Depends(ADMIN_API_KEY_HEADER)):
     """ตรวจสอบสิทธิ์ Admin"""
     if auth != ADMIN_TOKEN:
@@ -186,62 +190,153 @@ async def delete_items(root: str, paths: str):
 @router.post("/bot-toggle", dependencies=[Depends(verify_admin)])
 async def toggle_bot(platform: str = Form(...), status: bool = Form(...)):
     """สลับสถานะเปิด/ปิด Bot"""
+    logger.info(f"🔄 Toggling bot for {platform}: {status}")
     settings = get_bot_settings()
     settings[platform] = status
     save_bot_settings(settings)
+    logger.info(f"✅ Bot settings updated: {settings}")
     return {"status": "success", "settings": settings}
 
 @router.get("/chat/sessions", dependencies=[Depends(verify_admin)])
 async def get_chat_sessions():
     """ดึงรายชื่อ Session การแชทล่าสุด โดยอ่าน metadata จากไฟล์โดยตรง"""
-    sessions = []
-    if not os.path.exists(SESSION_DIR): return []
+    logger.info(f"📋 Loading chat sessions from {SESSION_DIR}")
     
-    for filename in os.listdir(SESSION_DIR):
-        if filename.endswith(".json"):
+    if not os.path.exists(SESSION_DIR): 
+        logger.warning(f"⚠️ SESSION_DIR not found: {SESSION_DIR}")
+        os.makedirs(SESSION_DIR, exist_ok=True)
+        return []
+    
+    sessions = []
+    file_count = 0
+    
+    try:
+        files = [f for f in os.listdir(SESSION_DIR) if f.endswith(".json")]
+        logger.info(f"📂 Found {len(files)} session files")
+        
+        for filename in files:
+            file_count += 1
             path = os.path.join(SESSION_DIR, filename)
+            
             try:
                 mtime = os.path.getmtime(path)
+                
                 with open(path, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                    uid = filename.replace(".json", "").replace("fb_", "")
                     
-                    # ตรวจสอบโครงสร้างไฟล์ (New: Dict with user_info, Old: List)
+                    session_id = filename.replace(".json", "")
+                    logger.debug(f"  [{file_count}/{len(files)}] Processing: {session_id}")
+                    
+                    # ตรวจสอบรูปแบบข้อมูล
                     if isinstance(data, dict) and "user_info" in data:
+                        # รูปแบบใหม่ (มี metadata)
                         info = data["user_info"]
+                        history = data.get("history", [])
+                        
                         sessions.append({
-                            "id": uid, 
-                            "platform": info.get("platform", "web"), 
-                            "profile": info, 
+                            "id": session_id,
+                            "platform": info.get("platform", "web"),
+                            "profile": {
+                                "name": info.get("name", f"User {session_id[:8]}"),
+                                "picture": info.get("picture", "https://www.gravatar.com/avatar/?d=mp")
+                            },
                             "last_active": mtime
                         })
-                    else:
+                        logger.debug(f"    ✅ Valid session: {info.get('name')} ({len(history)} messages)")
+                        
+                    elif isinstance(data, list):
+                        # รูปแบบเก่า (เป็น array ของ messages)
                         is_fb = filename.startswith("fb_")
+                        
                         sessions.append({
-                            "id": uid, 
-                            "platform": "facebook" if is_fb else "web", 
-                            "profile": {"name": f"User {uid[:5]}", "picture": "https://www.gravatar.com/avatar/?d=mp"}, 
+                            "id": session_id,
+                            "platform": "facebook" if is_fb else "web",
+                            "profile": {
+                                "name": f"User {session_id[:8]}",
+                                "picture": "https://www.gravatar.com/avatar/?d=mp"
+                            },
                             "last_active": mtime
                         })
-            except: pass
-    
-    return sorted(sessions, key=lambda x: x["last_active"], reverse=True)
+                        logger.debug(f"    ⚠️ Old format (migrating): {session_id}")
+                        
+                    else:
+                        logger.warning(f"    ❌ Unknown format: {session_id}")
+                        
+            except json.JSONDecodeError as e:
+                logger.error(f"    ❌ JSON decode error in {filename}: {e}")
+                continue
+            except Exception as e:
+                logger.error(f"    ❌ Error loading {filename}: {e}")
+                continue
+        
+        # เรียงตาม last_active
+        sessions.sort(key=lambda x: x["last_active"], reverse=True)
+        logger.info(f"✅ Successfully loaded {len(sessions)}/{file_count} sessions")
+        
+        # แสดง 5 sessions แรก
+        if sessions:
+            logger.info("📋 Recent sessions:")
+            for i, s in enumerate(sessions[:5], 1):
+                logger.info(f"  {i}. {s['profile']['name']} ({s['platform']}) - {s['id']}")
+        
+        return sessions
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to load sessions: {e}")
+        return []
 
 @router.get("/chat/history/{platform}/{uid}", dependencies=[Depends(verify_admin)])
 async def get_chat_history(platform: str, uid: str):
     """ดึงประวัติการแชทรายคน"""
-    filename = f"fb_{uid}.json" if platform == "facebook" else f"{uid}.json"
+    logger.info(f"📖 Loading history for {platform}/{uid}")
+    
+    # ใช้ uid ตรงๆ เป็นชื่อไฟล์
+    filename = f"{uid}.json"
     path = os.path.join(SESSION_DIR, filename)
-    if not os.path.exists(path): return []
+    
+    logger.info(f"   Looking for: {path}")
+    
+    if not os.path.exists(path):
+        logger.warning(f"   ⚠️ History file not found: {path}")
+        return []
+    
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
-            if isinstance(data, dict):
-                return data.get("history", [])
-            return data # Case เก่าที่เป็น list
-    except: return []
+            
+            if isinstance(data, dict) and "history" in data:
+                # รูปแบบใหม่
+                history = data["history"]
+                logger.info(f"   ✅ Loaded {len(history)} messages (new format)")
+            elif isinstance(data, list):
+                # รูปแบบเก่า
+                history = data
+                logger.info(f"   ✅ Loaded {len(history)} messages (old format)")
+            else:
+                logger.error(f"   ❌ Unknown data format")
+                return []
+            
+            # กรองเฉพาะข้อความที่ถูกต้อง
+            filtered = [
+                msg for msg in history
+                if msg.get("role") in ["user", "model"]
+                and msg.get("parts")
+                and len(msg["parts"]) > 0
+                and msg["parts"][0].get("text")
+            ]
+            
+            logger.info(f"   ✅ Returning {len(filtered)} valid messages")
+            return filtered
+            
+    except json.JSONDecodeError as e:
+        logger.error(f"   ❌ JSON decode error: {e}")
+        return []
+    except Exception as e:
+        logger.error(f"   ❌ Error reading history: {e}")
+        return []
 
 @router.post("/chat/send", dependencies=[Depends(verify_admin)])
 async def admin_send_message(platform: str = Form(...), uid: str = Form(...), message: str = Form(...)):
     """Admin ส่งข้อความตอบกลับด้วยตนเอง (API Proxy)"""
+    logger.info(f"📤 Admin sending message to {platform}/{uid}")
     return {"status": "success", "platform": platform, "uid": uid}

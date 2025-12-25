@@ -6,65 +6,195 @@ function adminChat() {
         newMessage: '',
         botSettings: {},
         socket: null,
+        searchQuery: '',
+        loading: false,
+        error: null,
 
         async init() {
-            // โหลดรายการแชทและสถานะบอท
-            await this.refreshSessions();
+            console.log('🚀 Initializing Unified Chat...');
+            
+            // โหลด Bot Settings
             this.botSettings = this.$root.stats.bot_settings || {};
+            console.log('Bot Settings:', this.botSettings);
 
-            // เชื่อมต่อ Socket.io
-            this.socket = io();
-            
-            // รับเหตุการณ์เมื่อมีข้อความใหม่จากผู้ใช้
-            this.socket.on('admin_new_message', (data) => {
-                this.handleIncomingSocket(data, 'user');
-            });
+            // เชื่อมต่อ Socket.IO
+            this.initSocket();
 
-            // รับเหตุการณ์เมื่อ Bot หรือ Admin ตอบกลับ
-            this.socket.on('admin_bot_reply', (data) => {
-                this.handleIncomingSocket(data, 'model');
-            });
+            // โหลด Sessions ครั้งแรก
+            await this.refreshSessions();
 
-            // รับ Error จาก Server
-            this.socket.on('admin_error', (data) => {
-                alert(data.message);
-            });
-            
-            // ตรวจสอบการเปลี่ยนสถานะบอทจาก Dashboard
+            // Watch for bot settings changes
             this.$watch('$root.stats.bot_settings', (val) => {
                 this.botSettings = val || {};
             });
+
+            console.log('✅ Unified Chat initialized');
+        },
+
+        initSocket() {
+            try {
+                this.socket = io();
+                
+                this.socket.on('connect', () => {
+                    console.log('✅ Socket.IO connected');
+                });
+
+                this.socket.on('disconnect', () => {
+                    console.log('❌ Socket.IO disconnected');
+                });
+                
+                this.socket.on('admin_new_message', (data) => {
+                    console.log('📩 New message from user:', data);
+                    this.handleIncomingSocket(data, 'user');
+                });
+
+                this.socket.on('admin_bot_reply', (data) => {
+                    console.log('🤖 Bot reply:', data);
+                    this.handleIncomingSocket(data, 'model');
+                });
+
+                this.socket.on('admin_error', (data) => {
+                    console.error('❌ Admin error:', data);
+                    alert(data.message);
+                });
+
+                console.log('✅ Socket.IO listeners registered');
+            } catch (e) {
+                console.error('❌ Failed to initialize socket:', e);
+            }
         },
 
         async refreshSessions() {
+            this.loading = true;
+            this.error = null;
+            
             try {
-                this.sessions = await this.$root.apiCall('/api/admin/chat/sessions');
-            } catch (e) { console.error('Refresh sessions failed:', e); }
+                console.log('🔄 Refreshing sessions...');
+                const data = await this.$root.apiCall('/api/admin/chat/sessions');
+                
+                console.log('📦 Raw sessions data:', data);
+                
+                if (!Array.isArray(data)) {
+                    console.error('❌ Sessions API returned non-array:', typeof data, data);
+                    this.error = 'ข้อมูล Session ไม่ถูกต้อง';
+                    this.sessions = [];
+                    return;
+                }
+                
+                // กรองเฉพาะ Sessions ที่มีข้อมูลครบถ้วน
+                const validSessions = data.filter(s => {
+                    const isValid = s && s.id && s.platform && s.profile && s.profile.name;
+                    if (!isValid) {
+                        console.warn('⚠️ Invalid session structure:', s);
+                    }
+                    return isValid;
+                });
+                
+                this.sessions = validSessions;
+                console.log(`✅ Loaded ${this.sessions.length} valid sessions`);
+                
+                if (this.sessions.length === 0) {
+                    console.log('ℹ️ No sessions available');
+                }
+            } catch (e) { 
+                console.error('❌ Refresh sessions failed:', e); 
+                this.error = 'ไม่สามารถโหลด Sessions ได้: ' + e.message;
+                this.sessions = [];
+            } finally {
+                this.loading = false;
+            }
         },
 
         async selectSession(session) {
+            if (!session || !session.id) {
+                console.error('❌ Invalid session selected:', session);
+                return;
+            }
+
+            console.log('👆 Selecting session:', session);
             this.currentSession = session;
+            this.messages = [];
+            this.loading = true;
+            this.error = null;
+            
             try {
-                const history = await this.$root.apiCall(`/api/admin/chat/history/${session.platform}/${session.id}`);
-                // กรองข้อมูลประวัติที่ถูกต้อง
-                this.messages = history.filter(m => m.parts && m.parts[0] && m.parts[0].text);
+                console.log(`📖 Loading history for ${session.platform}/${session.id}`);
+                
+                const history = await this.$root.apiCall(
+                    `/api/admin/chat/history/${session.platform}/${session.id}`
+                );
+                
+                console.log('📦 Raw history data:', history);
+                
+                if (!Array.isArray(history)) {
+                    console.warn('⚠️ History is not an array:', typeof history, history);
+                    this.messages = [];
+                    this.error = 'ข้อมูลประวัติไม่ถูกต้อง';
+                    return;
+                }
+                
+                // กรองเฉพาะข้อความที่ถูกต้อง
+                this.messages = history.filter(m => {
+                    const isValid = m 
+                        && m.parts 
+                        && Array.isArray(m.parts) 
+                        && m.parts[0] 
+                        && m.parts[0].text
+                        && (m.role === 'user' || m.role === 'model');
+                    
+                    if (!isValid && m) {
+                        console.warn('⚠️ Invalid message structure:', m);
+                    }
+                    return isValid;
+                });
+                
+                console.log(`✅ Displaying ${this.messages.length} messages`);
+                
+                if (this.messages.length === 0) {
+                    console.log('ℹ️ No messages in this session');
+                }
+                
                 this.scrollToBottom();
-            } catch (e) { console.error('Load history failed:', e); }
+            } catch (e) { 
+                console.error('❌ Load history failed:', e); 
+                this.messages = [];
+                this.error = 'ไม่สามารถโหลดประวัติการสนทนาได้: ' + e.message;
+                alert('ไม่สามารถโหลดประวัติการสนทนาได้: ' + e.message);
+            } finally {
+                this.loading = false;
+            }
         },
 
         async sendMessage() {
             const text = this.newMessage.trim();
-            if (!text || !this.currentSession) return;
             
-            // ตรวจสอบสถานะบอทก่อนส่งในฝั่ง Client
+            if (!text) {
+                console.log('⚠️ Empty message, ignoring');
+                return;
+            }
+            
+            if (!this.currentSession) {
+                console.error('❌ No session selected');
+                alert('กรุณาเลือก Session ก่อนส่งข้อความ');
+                return;
+            }
+            
+            // ตรวจสอบสถานะ Bot
             if (this.botSettings[this.currentSession.platform]) {
+                console.warn('⚠️ Bot is enabled for', this.currentSession.platform);
                 alert('กรุณาปิด Auto Bot ของแพลตฟอร์มนี้ก่อนตอบกลับ');
                 return;
             }
 
+            console.log('📤 Sending manual reply:', {
+                uid: this.currentSession.id,
+                platform: this.currentSession.platform,
+                text: text
+            });
+
             this.newMessage = '';
 
-            // ส่งข้อมูลผ่าน Socket ไปยัง Backend
+            // ส่งข้อความผ่าน Socket
             this.socket.emit('admin_manual_reply', {
                 uid: this.currentSession.id,
                 platform: this.currentSession.platform,
@@ -76,56 +206,124 @@ function adminChat() {
             const currentStatus = this.botSettings[platform];
             const nextStatus = !currentStatus;
             
+            console.log(`🔄 Toggling bot for ${platform}: ${currentStatus} → ${nextStatus}`);
+            
             const formData = new FormData();
             formData.append('platform', platform);
             formData.append('status', nextStatus);
 
             try {
                 const res = await this.$root.apiCall('/api/admin/bot-toggle', 'POST', formData);
+                
                 if (res.status === 'success') {
                     this.botSettings = res.settings;
                     this.$root.stats.bot_settings = res.settings;
+                    console.log('✅ Bot status updated:', res.settings);
+                } else {
+                    console.error('❌ Unexpected response:', res);
                 }
-            } catch (e) { alert('ไม่สามารถสลับสถานะ Bot ได้'); }
+            } catch (e) { 
+                console.error('❌ Failed to toggle bot:', e);
+                alert('ไม่สามารถสลับสถานะ Bot ได้'); 
+            }
         },
 
         handleIncomingSocket(data, role) {
-            // ค้นหาว่า Session นี้มีอยู่ในรายการหรือไม่
-            const sessionIndex = this.sessions.findIndex(s => s.id === data.uid && s.platform === data.platform);
+            console.log(`📨 Incoming socket (${role}):`, data);
             
-            if (sessionIndex !== -1) {
-                // หากมีอยู่แล้ว ให้อัปเดตข้อมูล (เช่น ชื่อ/รูป) และย้ายขึ้นมาบนสุด
-                const existingSession = this.sessions[sessionIndex];
-                if (data.user_name) existingSession.profile.name = data.user_name;
-                if (data.user_pic) existingSession.profile.picture = data.user_pic;
-                
-                // ดัน Session นี้ขึ้นบนสุด
-                const movedSession = this.sessions.splice(sessionIndex, 1)[0];
+            if (!data || !data.uid || !data.platform) {
+                console.error('❌ Invalid socket data:', data);
+                return;
+            }
+            
+            const sessionId = data.uid;
+            
+            // อัปเดตหรือสร้าง Session ใหม่
+            const existingIndex = this.sessions.findIndex(s => s.id === sessionId);
+            
+            if (existingIndex !== -1) {
+                // ย้าย Session ไปด้านบน
+                const movedSession = this.sessions.splice(existingIndex, 1)[0];
                 this.sessions.unshift(movedSession);
+                console.log('📌 Moved session to top:', sessionId);
             } else {
-                // หากเป็น Session ใหม่ ให้ดึงรายการใหม่ทั้งหมดจาก API
-                this.refreshSessions();
+                // สร้าง Session ใหม่
+                const newSession = {
+                    id: sessionId,
+                    platform: data.platform,
+                    profile: {
+                        name: data.user_name || `${data.platform} User`,
+                        picture: data.user_pic || 'https://www.gravatar.com/avatar/?d=mp'
+                    }
+                };
+                this.sessions.unshift(newSession);
+                console.log('✨ Created new session:', newSession);
             }
 
-            // หากกำลังเปิดหน้าแชทของคนนี้อยู่ ให้อัปเดตข้อความทันที
-            if (this.currentSession && this.currentSession.id === data.uid && this.currentSession.platform === data.platform) {
-                // ป้องกันการเพิ่มข้อความซ้ำ (กรณีเป็น Echo จาก Admin เอง)
-                const isDuplicate = this.messages.some(m => m.role === role && m.parts[0].text === data.text);
+            // ถ้า Session ที่ได้รับข้อความคือ Session ที่เปิดอยู่ ให้เพิ่มข้อความเข้าไป
+            if (this.currentSession && this.currentSession.id === sessionId) {
+                // ตรวจสอบว่ามีข้อความซ้ำหรือไม่
+                const isDuplicate = this.messages.some(m => 
+                    m.role === role 
+                    && m.parts[0].text === data.text
+                    && Math.abs((m.timestamp || 0) - Date.now()) < 2000
+                );
+                
                 if (!isDuplicate) {
                     this.messages.push({
                         role: role,
-                        parts: [{ text: data.text }]
+                        parts: [{ text: data.text }],
+                        timestamp: Date.now()
                     });
+                    console.log(`✅ Added message to current session (${role})`);
                     this.scrollToBottom();
+                } else {
+                    console.log('⚠️ Duplicate message detected, skipping');
                 }
             }
         },
 
         scrollToBottom() {
-            setTimeout(() => {
-                const container = document.getElementById('message-container');
-                if (container) container.scrollTop = container.scrollHeight;
-            }, 150);
+            this.$nextTick(() => {
+                setTimeout(() => {
+                    const container = document.getElementById('message-container');
+                    if (container) {
+                        container.scrollTop = container.scrollHeight;
+                        console.log('📜 Scrolled to bottom');
+                    }
+                }, 100);
+            });
+        },
+        
+        get filteredSessions() {
+            if (!this.searchQuery.trim()) {
+                return this.sessions;
+            }
+            
+            const query = this.searchQuery.toLowerCase();
+            return this.sessions.filter(s => 
+                s.profile.name.toLowerCase().includes(query) ||
+                s.platform.toLowerCase().includes(query) ||
+                s.id.toLowerCase().includes(query)
+            );
+        },
+
+        getPlatformIcon(platform) {
+            const icons = {
+                facebook: '📘',
+                web: '🌐',
+                line: '💬'
+            };
+            return icons[platform] || '💬';
+        },
+
+        formatTimestamp(timestamp) {
+            if (!timestamp) return '';
+            const date = new Date(timestamp);
+            return date.toLocaleTimeString('th-TH', { 
+                hour: '2-digit', 
+                minute: '2-digit' 
+            });
         }
     };
 }

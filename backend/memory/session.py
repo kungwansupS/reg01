@@ -85,38 +85,37 @@ def get_or_create_history(session_id, context="", user_name=None, user_picture=N
     return new_session_data["history"]
 
 def save_history(session_id, history, user_name=None, user_picture=None, platform=None):
-    """บันทึกประวัติการแชทลงไฟล์ JSON"""
     path = get_session_path(session_id)
     
     is_fb = str(session_id).startswith("fb_")
     detected_platform = platform or ("facebook" if is_fb else "web")
     clean_uid = str(session_id).replace("fb_", "")
     
+    # ดึงข้อมูลเดิมมาตั้งต้น
     user_info = {
         "name": user_name or f"{detected_platform.capitalize()} User {clean_uid[:5]}", 
         "picture": user_picture or "https://www.gravatar.com/avatar/?d=mp", 
         "platform": detected_platform
     }
     
-    # อ่าน metadata เดิมเพื่อรักษาค่าไว้
     if os.path.exists(path):
         try:
             with open(path, "r", encoding="utf-8") as f:
                 old_data = json.load(f)
-                if isinstance(old_data, dict) and "user_info" in old_data:
-                    current_info = old_data["user_info"]
-                    user_info["name"] = user_name or current_info.get("name", user_info["name"])
-                    user_info["picture"] = user_picture or current_info.get("picture", user_info["picture"])
-                    user_info["platform"] = platform or current_info.get("platform", user_info["platform"])
+                if isinstance(old_data, dict):
+                    user_info = old_data.get("user_info", user_info)
         except: pass
 
-    # ลบข้อความที่ส่งซ้ำติดกัน
+    # อัปเดต Metadata ใหม่ถ้ามีข้อมูลส่งมา
+    if user_name: user_info["name"] = user_name
+    if user_picture: user_info["picture"] = user_picture
+    if detected_platform: user_info["platform"] = detected_platform
+
     deduped_history = []
     for entry in history:
         if not deduped_history or deduped_history[-1] != entry:
             deduped_history.append(entry)
 
-    # จัดการสรุปบทสนทนา (Summarization)
     if len(deduped_history) > MAX_HISTORY_LENGTH:
         to_summarize = deduped_history[:-NUM_RECENT_TO_KEEP]
         recent = deduped_history[-NUM_RECENT_TO_KEEP:]

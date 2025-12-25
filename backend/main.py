@@ -130,7 +130,7 @@ async def maintenance_loop():
         await asyncio.sleep(86400)
 
 # ----------------------------------------------------------------------------- #
-# ENDPOINTS
+# PUBLIC ENDPOINTS
 # ----------------------------------------------------------------------------- #
 @app.get("/webhook")
 async def fb_verify(request: Request):
@@ -182,7 +182,7 @@ async def handle_speech(
     return {"text": display_text, "motion": motion}
 
 # ----------------------------------------------------------------------------- #
-# ADMIN ENDPOINTS (BROWSER SUPPORTED)
+# ADMIN ENDPOINTS
 # ----------------------------------------------------------------------------- #
 @app.get("/api/admin/stats", dependencies=[Depends(verify_admin)])
 async def get_stats():
@@ -194,21 +194,15 @@ async def get_stats():
 
 @app.get("/api/admin/files", dependencies=[Depends(verify_admin)])
 async def list_admin_files(root: str = "docs", subdir: str = ""):
-    """เปิดดูไฟล์และโฟลเดอร์ใน static/docs หรือ static/quick_use"""
     base_path = PDF_INPUT_FOLDER if root == "docs" else PDF_QUICK_USE_FOLDER
-    
-    # Security: ป้องกันการใช้ .. เพื่อออกนอกโฟลเดอร์
     clean_subdir = subdir.lstrip("/").replace("..", "")
     target_dir = os.path.join(base_path, clean_subdir)
-    
     if not os.path.exists(target_dir):
         return {"root": root, "entries": [], "current_path": clean_subdir}
-
     entries = []
     for item in os.listdir(target_dir):
         item_path = os.path.join(target_dir, item)
         is_dir = os.path.isdir(item_path)
-        # สร้าง relative path สำหรับใช้งานต่อ
         rel_path = os.path.join(clean_subdir, item).replace("\\", "/")
         entries.append({
             "name": item,
@@ -216,25 +210,45 @@ async def list_admin_files(root: str = "docs", subdir: str = ""):
             "path": rel_path,
             "ext": "".join(Path(item).suffixes).lower() if not is_dir else ""
         })
+    return {"root": root, "current_path": clean_subdir, "entries": sorted(entries, key=lambda x: (not x["is_dir"], x["name"].lower()))}
+
+@app.get("/api/admin/view", dependencies=[Depends(verify_admin)])
+async def preview_file(root: str, path: str):
+    base_path = PDF_INPUT_FOLDER if root == "docs" else PDF_QUICK_USE_FOLDER
+    target = os.path.join(base_path, path.lstrip("/").replace("..", ""))
+    if not os.path.exists(target) or os.path.isdir(target):
+        raise HTTPException(status_code=404, detail="File not found")
+    mime_type = "application/pdf" if target.lower().endswith(".pdf") else "text/plain"
+    return FileResponse(target, media_type=mime_type)
+
+@app.post("/api/admin/edit", dependencies=[Depends(verify_admin)])
+async def edit_file(root: str = Form(...), path: str = Form(...), content: str = Form(...)):
+    """แก้ไขเนื้อหาไฟล์ TXT"""
+    base_path = PDF_INPUT_FOLDER if root == "docs" else PDF_QUICK_USE_FOLDER
+    target = os.path.join(base_path, path.lstrip("/").replace("..", ""))
     
-    return {
-        "root": root,
-        "current_path": clean_subdir,
-        "entries": sorted(entries, key=lambda x: (not x["is_dir"], x["name"].lower()))
-    }
+    if not os.path.exists(target) or os.path.isdir(target):
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    if not target.lower().endswith(".txt"):
+        raise HTTPException(status_code=400, detail="Only TXT files can be edited")
+        
+    try:
+        with open(target, "w", encoding="utf-8") as f:
+            f.write(content)
+        return {"status": "success"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/admin/upload", dependencies=[Depends(verify_admin)])
 async def upload_document(file: UploadFile, target_dir: str = Form("")):
     if not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF allowed")
-    
     clean_dir = target_dir.lstrip("/").replace("..", "")
     dest_folder = os.path.join(PDF_INPUT_FOLDER, clean_dir)
     os.makedirs(dest_folder, exist_ok=True)
-    
     safe_name = "".join([c for c in file.filename if c.isalnum() or c in ('.', '_', '-')]).strip()
     file_path = os.path.join(dest_folder, safe_name)
-    
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
     return {"status": "success", "path": os.path.join(clean_dir, safe_name).replace("\\", "/")}
@@ -248,17 +262,12 @@ async def trigger_rag_process():
 
 @app.delete("/api/admin/files", dependencies=[Depends(verify_admin)])
 async def delete_item(root: str, path: str):
-    """ลบไฟล์หรือโฟลเดอร์ตาม path ที่ระบุ"""
     base_path = PDF_INPUT_FOLDER if root == "docs" else PDF_QUICK_USE_FOLDER
     target = os.path.join(base_path, path.lstrip("/").replace("..", ""))
-    
     if not os.path.exists(target):
         raise HTTPException(status_code=404, detail="Not found")
-        
-    if os.path.isdir(target):
-        shutil.rmtree(target)
-    else:
-        os.remove(target)
+    if os.path.isdir(target): shutil.rmtree(target)
+    else: os.remove(target)
     return {"status": "deleted"}
 
 async def send_fb_text(psid: str, text: str):

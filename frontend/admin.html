@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Advanced Admin Dashboard | RAG Folder System</title>
+    <title>Advanced Admin Dashboard | Full Management</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
@@ -11,7 +11,9 @@
     <style>
         body { font-family: 'Inter', sans-serif; }
         [x-cloak] { display: none !important; }
-        .breadcrumb-item:not(:last-child)::after { content: '/'; margin: 0 0.5rem; color: #9ca3af; }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #f1f1f1; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #888; border-radius: 10px; }
     </style>
 </head>
 <body class="bg-gray-50 min-h-screen" x-data="adminPanel()" x-init="init()">
@@ -24,7 +26,7 @@
                         <i data-lucide="lock" class="text-indigo-600 w-8 h-8"></i>
                     </div>
                     <h2 class="text-2xl font-bold text-gray-800">Admin Login</h2>
-                    <p class="text-gray-500 text-sm">กรุณาระบุ Admin Token เพื่อจัดการไฟล์</p>
+                    <p class="text-gray-500 text-sm">ระบุ Admin Token เพื่อจัดการระบบ</p>
                 </div>
                 <div class="space-y-4">
                     <input type="password" x-model="tokenInput" @keyup.enter="login()"
@@ -43,10 +45,9 @@
         
         <aside class="w-64 bg-white border-r border-gray-100 h-screen sticky top-0 flex flex-col">
             <div class="p-6 border-b border-gray-50 flex items-center space-x-3">
-                <div class="bg-indigo-600 p-2 rounded-lg"><i data-lucide="folder-tree" class="text-white w-5 h-5"></i></div>
-                <span class="font-bold text-xl text-gray-800">REG-ADMIN</span>
+                <div class="bg-indigo-600 p-2 rounded-lg"><i data-lucide="shield-check" class="text-white w-5 h-5"></i></div>
+                <span class="font-bold text-xl text-gray-800">REG-SYSTEM</span>
             </div>
-            
             <nav class="flex-1 p-4 space-y-2">
                 <button @click="activeTab = 'dashboard'" :class="activeTab === 'dashboard' ? 'bg-indigo-50 text-indigo-600' : 'text-gray-500 hover:bg-gray-50'"
                     class="w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition font-medium">
@@ -64,7 +65,6 @@
                     <span>Audit Logs</span>
                 </button>
             </nav>
-
             <div class="p-4 border-t border-gray-100">
                 <button @click="logout()" class="w-full flex items-center space-x-3 px-4 py-3 text-red-500 hover:bg-red-50 rounded-xl transition font-medium">
                     <i data-lucide="log-out" class="w-5 h-5"></i>
@@ -76,31 +76,19 @@
         <main class="flex-1 p-8 overflow-y-auto h-screen">
             
             <div x-show="activeTab === 'dashboard'" class="space-y-6">
-                <h1 class="text-3xl font-bold text-gray-800">System Overview</h1>
+                <h1 class="text-3xl font-bold text-gray-800">Dashboard</h1>
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
                     <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-                        <p class="text-gray-400 text-xs font-bold uppercase">Recent Interaction</p>
+                        <p class="text-gray-400 text-xs font-bold uppercase">Total Logs</p>
                         <h3 class="text-3xl font-bold text-gray-800 mt-1" x-text="stats.recent_logs.length">0</h3>
                     </div>
-                    <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-                        <p class="text-gray-400 text-xs font-bold uppercase">Average Latency</p>
-                        <h3 class="text-3xl font-bold text-gray-800 mt-1" x-text="calculateAvgLatency() + 's'">0s</h3>
+                    <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 text-indigo-600">
+                        <p class="text-gray-400 text-xs font-bold uppercase">Avg Response Time</p>
+                        <h3 class="text-3xl font-bold mt-1" x-text="calculateAvgLatency() + 's'">0s</h3>
                     </div>
                     <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-                        <p class="text-gray-400 text-xs font-bold uppercase">Server Time</p>
-                        <h3 class="text-xl font-bold text-gray-700 mt-2" x-text="new Date(stats.system_time).toLocaleTimeString()"></h3>
-                    </div>
-                </div>
-
-                <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-                    <h2 class="text-xl font-bold text-gray-800 mb-4">FAQ Analytics</h2>
-                    <div class="space-y-3">
-                        <template x-for="(count, question) in stats.faq_analytics" :key="question">
-                            <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                                <span class="text-gray-700" x-text="question"></span>
-                                <span class="bg-indigo-100 text-indigo-700 px-3 py-1 rounded-full text-xs font-bold" x-text="count"></span>
-                            </div>
-                        </template>
+                        <p class="text-gray-400 text-xs font-bold uppercase">Last Sync</p>
+                        <h3 class="text-lg font-bold text-gray-600 mt-2" x-text="new Date().toLocaleTimeString()"></h3>
                     </div>
                 </div>
             </div>
@@ -108,8 +96,8 @@
             <div x-show="activeTab === 'files'" class="space-y-6">
                 <div class="flex justify-between items-end">
                     <div>
-                        <h1 class="text-3xl font-bold text-gray-800">File Explorer</h1>
-                        <p class="text-gray-500">จัดการโครงสร้างไฟล์ RAG ใน static folder</p>
+                        <h1 class="text-3xl font-bold text-gray-800">File Manager</h1>
+                        <p class="text-gray-500">View, Edit and Manage RAG content</p>
                     </div>
                     <div class="flex space-x-2 bg-gray-200 p-1 rounded-xl">
                         <button @click="switchRoot('docs')" :class="fileSystem.root === 'docs' ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-500'"
@@ -121,30 +109,21 @@
 
                 <div class="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between">
                     <nav class="flex items-center text-sm font-medium">
-                        <button @click="navigate('')" class="text-indigo-600 hover:underline">root</button>
+                        <button @click="navigate('')" class="text-indigo-600 hover:underline font-bold">root</button>
                         <template x-for="(part, index) in fileSystem.current_path.split('/').filter(p => p)" :key="index">
                             <div class="flex items-center">
                                 <span class="mx-2 text-gray-400">/</span>
-                                <button @click="navigateByParts(index)" class="text-indigo-600 hover:underline" x-text="part"></button>
+                                <button @click="navigateByParts(index)" class="text-indigo-600 hover:underline font-bold" x-text="part"></button>
                             </div>
                         </template>
                     </nav>
-                    <div class="flex space-x-3">
-                        <label class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg cursor-pointer text-sm font-bold transition flex items-center">
-                            <i data-lucide="upload" class="w-4 h-4 mr-2"></i> Upload
-                            <input type="file" class="hidden" accept=".pdf" @change="uploadFile($event)">
-                        </label>
-                        <button @click="processRAG()" :disabled="processing" class="bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-bold transition flex items-center">
-                            <i data-lucide="play" class="w-4 h-4 mr-2" :class="processing ? 'animate-spin' : ''"></i> Run RAG
-                        </button>
-                    </div>
                 </div>
 
                 <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
                     <table class="w-full text-left">
                         <thead class="bg-gray-50 border-b border-gray-100">
                             <tr>
-                                <th class="px-6 py-4 text-xs font-bold text-gray-400 uppercase">Name</th>
+                                <th class="px-6 py-4 text-xs font-bold text-gray-400 uppercase">File Name</th>
                                 <th class="px-6 py-4 text-xs font-bold text-gray-400 uppercase">Type</th>
                                 <th class="px-6 py-4 text-xs font-bold text-gray-400 uppercase text-right">Actions</th>
                             </tr>
@@ -153,29 +132,31 @@
                             <template x-if="fileSystem.current_path">
                                 <tr @click="navigateUp()" class="hover:bg-gray-50 cursor-pointer transition">
                                     <td class="px-6 py-4 flex items-center text-indigo-600 font-bold">
-                                        <i data-lucide="corner-left-up" class="w-4 h-4 mr-3"></i> ..
+                                        <i data-lucide="corner-left-up" class="w-4 h-4 mr-3"></i> Parent Directory
                                     </td>
                                     <td colspan="2"></td>
                                 </tr>
                             </template>
-                            
                             <template x-for="entry in fileSystem.entries" :key="entry.path">
                                 <tr class="hover:bg-gray-50 transition group">
                                     <td class="px-6 py-4">
-                                        <div class="flex items-center cursor-pointer" @click="entry.is_dir ? navigate(entry.path) : null">
+                                        <div class="flex items-center cursor-pointer" @click="entry.is_dir ? navigate(entry.path) : previewFile(entry)">
                                             <template x-if="entry.is_dir">
                                                 <i data-lucide="folder" class="text-amber-400 w-5 h-5 mr-3 fill-current"></i>
                                             </template>
                                             <template x-if="!entry.is_dir">
-                                                <i data-lucide="file" class="text-gray-400 w-5 h-5 mr-3"></i>
+                                                <i data-lucide="file-text" class="text-gray-400 w-5 h-5 mr-3"></i>
                                             </template>
-                                            <span :class="entry.is_dir ? 'font-bold text-gray-700' : 'text-gray-600'" x-text="entry.name"></span>
+                                            <span :class="entry.is_dir ? 'font-bold text-gray-700' : 'text-gray-600 group-hover:text-indigo-600'" x-text="entry.name"></span>
                                         </div>
                                     </td>
                                     <td class="px-6 py-4">
-                                        <span class="text-xs font-bold text-gray-400 uppercase" x-text="entry.is_dir ? 'Folder' : entry.ext.replace('.','')"></span>
+                                        <span class="text-[10px] font-bold text-gray-400 uppercase border border-gray-200 px-2 py-1 rounded" x-text="entry.is_dir ? 'DIR' : entry.ext.replace('.','')"></span>
                                     </td>
-                                    <td class="px-6 py-4 text-right">
+                                    <td class="px-6 py-4 text-right flex justify-end space-x-2">
+                                        <button x-show="!entry.is_dir" @click="previewFile(entry)" class="text-gray-300 hover:text-indigo-600 transition p-2">
+                                            <i :data-lucide="entry.ext === '.txt' ? 'edit-3' : 'eye'" class="w-4 h-4"></i>
+                                        </button>
                                         <button @click="deleteItem(entry)" class="text-gray-300 hover:text-red-500 transition p-2">
                                             <i data-lucide="trash-2" class="w-4 h-4"></i>
                                         </button>
@@ -184,44 +165,28 @@
                             </template>
                         </tbody>
                     </table>
-                    <template x-if="fileSystem.entries.length === 0">
-                        <div class="p-12 text-center text-gray-400">
-                            <i data-lucide="folder-open" class="w-12 h-12 mx-auto mb-3 opacity-20"></i>
-                            <p>โฟลเดอร์นี้ยังไม่มีไฟล์</p>
-                        </div>
-                    </template>
                 </div>
             </div>
 
             <div x-show="activeTab === 'logs'" class="space-y-6">
-                <h1 class="text-3xl font-bold text-gray-800">Audit Logs</h1>
-                <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                <h1 class="text-3xl font-bold text-gray-800">History</h1>
+                <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden text-sm">
                     <table class="w-full text-left">
-                        <thead class="bg-gray-50 border-b border-gray-100">
+                        <thead class="bg-gray-50 border-b border-gray-100 font-bold text-gray-400 uppercase">
                             <tr>
-                                <th class="px-6 py-4 text-xs font-bold text-gray-400 uppercase">User</th>
-                                <th class="px-6 py-4 text-xs font-bold text-gray-400 uppercase">Platform</th>
-                                <th class="px-6 py-4 text-xs font-bold text-gray-400 uppercase">Log</th>
-                                <th class="px-6 py-4 text-xs font-bold text-gray-400 uppercase">Latency</th>
+                                <th class="px-6 py-4">Timestamp</th>
+                                <th class="px-6 py-4">Anon ID</th>
+                                <th class="px-6 py-4">Content Preview</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-gray-50">
                             <template x-for="log in stats.recent_logs" :key="log.timestamp">
                                 <tr class="hover:bg-gray-50 transition">
+                                    <td class="px-6 py-4 text-xs text-gray-400" x-text="log.timestamp"></td>
+                                    <td class="px-6 py-4 font-mono text-indigo-500" x-text="log.anon_id"></td>
                                     <td class="px-6 py-4">
-                                        <div class="text-xs font-mono text-indigo-600" x-text="log.anon_id"></div>
-                                        <div class="text-[10px] text-gray-400 mt-1" x-text="log.timestamp"></div>
-                                    </td>
-                                    <td class="px-6 py-4">
-                                        <span :class="log.platform === 'facebook' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'"
-                                            class="px-2 py-1 rounded-md text-[10px] font-bold uppercase" x-text="log.platform"></span>
-                                    </td>
-                                    <td class="px-6 py-4 max-w-xs">
-                                        <div class="text-sm font-bold text-gray-800 truncate" x-text="log.input"></div>
-                                        <div class="text-xs text-gray-500 truncate mt-1" x-text="log.output"></div>
-                                    </td>
-                                    <td class="px-6 py-4">
-                                        <span class="text-sm font-bold" :class="log.latency > 5 ? 'text-red-500' : 'text-green-500'" x-text="log.latency + 's'"></span>
+                                        <div class="font-bold text-gray-800" x-text="log.input"></div>
+                                        <div class="text-xs text-gray-400 mt-1 truncate" x-text="log.output"></div>
                                     </td>
                                 </tr>
                             </template>
@@ -229,130 +194,124 @@
                     </table>
                 </div>
             </div>
-
         </main>
+    </div>
+
+    <div x-show="preview.open" x-cloak class="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-gray-900 bg-opacity-80 backdrop-blur-sm" @keydown.escape.window="closePreview()">
+        <div class="bg-white w-full max-w-6xl h-[90vh] rounded-3xl shadow-2xl flex flex-col overflow-hidden" @click.away="closePreview()">
+            <div class="p-5 border-b flex justify-between items-center bg-gray-50">
+                <div class="flex items-center space-x-4">
+                    <div class="bg-indigo-100 p-2 rounded-xl"><i data-lucide="file-text" class="text-indigo-600 w-6 h-6"></i></div>
+                    <div>
+                        <h3 class="font-bold text-gray-800 leading-none" x-text="preview.fileName"></h3>
+                        <p class="text-xs text-gray-400 mt-1" x-text="preview.type === 'pdf' ? 'Read-only Preview' : 'Text Editor Mode'"></p>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-3">
+                    <template x-if="preview.type === 'txt'">
+                        <button @click="saveContent()" :disabled="preview.saveLoading" 
+                            class="bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 text-white px-6 py-2 rounded-xl text-sm font-bold flex items-center transition shadow-lg shadow-indigo-100">
+                            <i data-lucide="save" class="w-4 h-4 mr-2" x-show="!preview.saveLoading"></i>
+                            <div class="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent mr-2" x-show="preview.saveLoading"></div>
+                            <span x-text="preview.saveLoading ? 'Saving...' : 'Save Changes'"></span>
+                        </button>
+                    </template>
+                    <button @click="closePreview()" class="text-gray-400 hover:text-red-500 transition p-2 bg-gray-100 rounded-xl"><i data-lucide="x" class="w-6 h-6"></i></button>
+                </div>
+            </div>
+            <div class="flex-1 overflow-hidden bg-gray-100 relative custom-scrollbar">
+                <template x-if="preview.type === 'pdf'">
+                    <iframe :src="preview.url" class="w-full h-full border-none bg-white" frameborder="0"></iframe>
+                </template>
+                <template x-if="preview.type === 'txt'">
+                    <textarea x-model="preview.content" 
+                        class="w-full h-full p-10 font-mono text-sm text-gray-800 bg-white resize-none outline-none focus:ring-2 focus:ring-indigo-500 leading-relaxed custom-scrollbar"
+                        placeholder="Start typing your content here..."></textarea>
+                </template>
+                <div x-show="preview.loading" class="absolute inset-0 flex items-center justify-center bg-white bg-opacity-90">
+                    <div class="flex flex-col items-center">
+                        <div class="animate-spin rounded-full h-14 w-14 border-4 border-indigo-600 border-t-transparent mb-4"></div>
+                        <span class="text-indigo-600 font-bold">Synchronizing Data...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
         function adminPanel() {
             return {
-                isLoggedIn: false,
-                tokenInput: '',
-                adminToken: '',
-                activeTab: 'dashboard',
-                processing: false,
-                stats: { recent_logs: [], faq_analytics: {}, system_time: new Date() },
+                isLoggedIn: false, tokenInput: '', adminToken: '', activeTab: 'dashboard', stats: { recent_logs: [] },
                 fileSystem: { root: 'docs', current_path: '', entries: [] },
+                preview: { open: false, url: '', fileName: '', type: '', content: '', loading: false, saveLoading: false, entry: null },
 
                 async init() {
                     const saved = localStorage.getItem('admin_token');
-                    if (saved) {
-                        this.adminToken = saved;
-                        try {
-                            await this.refreshAll();
-                            this.isLoggedIn = true;
-                        } catch(e) { localStorage.removeItem('admin_token'); }
-                    }
+                    if (saved) { this.adminToken = saved; try { await this.refreshAll(); this.isLoggedIn = true; } catch(e) { localStorage.removeItem('admin_token'); } }
                     this.updateIcons();
                 },
-
-                updateIcons() {
-                    setTimeout(() => lucide.createIcons(), 50);
-                },
-
-                async login() {
-                    this.adminToken = this.tokenInput;
-                    try {
-                        await this.refreshAll();
-                        this.isLoggedIn = true;
-                        localStorage.setItem('admin_token', this.adminToken);
-                    } catch(e) { alert('Invalid Token!'); }
-                },
-
-                logout() {
-                    localStorage.removeItem('admin_token');
-                    location.reload();
-                },
-
+                updateIcons() { setTimeout(() => lucide.createIcons(), 50); },
+                async login() { this.adminToken = this.tokenInput; try { await this.refreshAll(); this.isLoggedIn = true; localStorage.setItem('admin_token', this.adminToken); } catch(e) { alert('Access Denied: Invalid Token'); } },
+                logout() { localStorage.removeItem('admin_token'); location.reload(); },
                 async apiCall(endpoint, method = 'GET', body = null) {
                     const headers = { 'X-Admin-Token': this.adminToken };
                     const config = { method, headers };
-                    if (body && !(body instanceof FormData)) {
-                        config.headers['Content-Type'] = 'application/json';
-                        config.body = JSON.stringify(body);
-                    } else if (body) { config.body = body; }
-                    
+                    if (body instanceof FormData) { config.body = body; }
                     const res = await fetch(endpoint, config);
-                    if (!res.ok) throw new Error('API Error');
-                    return res.json();
+                    if (!res.ok) throw new Error('API Sync Error'); return res.json();
                 },
-
-                async refreshAll() {
-                    this.stats = await this.apiCall('/api/admin/stats');
-                    await this.loadFiles();
-                    this.updateIcons();
-                },
-
+                async refreshAll() { this.stats = await this.apiCall('/api/admin/stats'); await this.loadFiles(); this.updateIcons(); },
                 async loadFiles() {
                     const data = await this.apiCall(`/api/admin/files?root=${this.fileSystem.root}&subdir=${this.fileSystem.current_path}`);
-                    this.fileSystem.entries = data.entries;
-                    this.fileSystem.current_path = data.current_path;
-                    this.updateIcons();
+                    this.fileSystem.entries = data.entries; this.fileSystem.current_path = data.current_path; this.updateIcons();
                 },
-
-                async switchRoot(root) {
-                    this.fileSystem.root = root;
-                    this.fileSystem.current_path = '';
-                    await this.loadFiles();
-                },
-
-                async navigate(path) {
-                    this.fileSystem.current_path = path;
-                    await this.loadFiles();
-                },
-
-                navigateUp() {
-                    const parts = this.fileSystem.current_path.split('/').filter(p => p);
-                    parts.pop();
-                    this.navigate(parts.join('/'));
-                },
-
-                navigateByParts(index) {
-                    const parts = this.fileSystem.current_path.split('/').filter(p => p);
-                    this.navigate(parts.slice(0, index + 1).join('/'));
-                },
-
-                async uploadFile(e) {
-                    const file = e.target.files[0];
-                    if (!file) return;
-                    const formData = new FormData();
-                    formData.append('file', file);
-                    formData.append('target_dir', this.fileSystem.current_path);
+                async switchRoot(root) { this.fileSystem.root = root; this.fileSystem.current_path = ''; await this.loadFiles(); },
+                async navigate(path) { this.fileSystem.current_path = path; await this.loadFiles(); },
+                navigateUp() { const parts = this.fileSystem.current_path.split('/').filter(p => p); parts.pop(); this.navigate(parts.join('/')); },
+                navigateByParts(index) { const parts = this.fileSystem.current_path.split('/').filter(p => p); this.navigate(parts.slice(0, index + 1).join('/')); },
+                
+                async previewFile(entry) {
+                    this.preview.open = true; this.preview.fileName = entry.name; this.preview.loading = true; this.preview.entry = entry;
+                    this.preview.type = entry.ext === '.pdf' ? 'pdf' : 'txt';
+                    const url = `/api/admin/view?root=${this.fileSystem.root}&path=${entry.path}`;
                     try {
-                        await this.apiCall('/api/admin/upload', 'POST', formData);
-                        alert('อัปโหลดสำเร็จ!');
-                        await this.loadFiles();
-                    } catch (err) { alert('Upload Failed'); }
+                        const response = await fetch(url, { headers: { 'X-Admin-Token': this.adminToken } });
+                        if (!response.ok) throw new Error('Load failed');
+                        const blob = await response.blob();
+                        if (this.preview.type === 'pdf') {
+                            if (this.preview.url) URL.revokeObjectURL(this.preview.url);
+                            this.preview.url = URL.createObjectURL(blob);
+                        } else {
+                            this.preview.content = await blob.text();
+                        }
+                    } catch (e) { alert('Error sync: ' + e.message); this.closePreview(); }
+                    finally { this.preview.loading = false; this.updateIcons(); }
+                },
+
+                async saveContent() {
+                    this.preview.saveLoading = true;
+                    const formData = new FormData();
+                    formData.append('root', this.fileSystem.root);
+                    formData.append('path', this.preview.entry.path);
+                    formData.append('content', this.preview.content);
+                    try {
+                        await this.apiCall('/api/admin/edit', 'POST', formData);
+                        alert('File updated successfully!');
+                    } catch (e) { alert('Save failed: ' + e.message); }
+                    finally { this.preview.saveLoading = false; this.updateIcons(); }
+                },
+
+                closePreview() {
+                    this.preview.open = false; this.preview.content = ''; this.preview.entry = null;
+                    if (this.preview.url) { URL.revokeObjectURL(this.preview.url); this.preview.url = ''; }
                 },
 
                 async deleteItem(entry) {
-                    const msg = entry.is_dir ? `ต้องการลบโฟลเดอร์ ${entry.name} และไฟล์ทั้งหมดภายในใช่หรือไม่?` : `ต้องการลบไฟล์ ${entry.name} ใช่หรือไม่?`;
-                    if (confirm(msg)) {
-                        await this.apiCall(`/api/admin/files?root=${this.fileSystem.root}&path=${entry.path}`, 'DELETE');
+                    if (confirm(`Permanent delete ${entry.name}?`)) {
+                        await fetch(`/api/admin/files?root=${this.fileSystem.root}&path=${entry.path}`, { method: 'DELETE', headers: { 'X-Admin-Token': this.adminToken } });
                         await this.loadFiles();
                     }
                 },
-
-                async processRAG() {
-                    this.processing = true;
-                    try {
-                        await this.apiCall('/api/admin/process-rag', 'POST');
-                        alert('ประมวลผล RAG เสร็จสมบูรณ์!');
-                        await this.loadFiles();
-                    } catch(e) { alert('Error: ' + e.message); }
-                    finally { this.processing = false; }
-                },
-
                 calculateAvgLatency() {
                     if (this.stats.recent_logs.length === 0) return 0;
                     const sum = this.stats.recent_logs.reduce((a, b) => a + (b.latency || 0), 0);

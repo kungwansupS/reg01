@@ -1,36 +1,33 @@
+// [FILE: frontend/js/admin/app-chat.js - FULLCODE ONLY]
 function adminChat() {
     return {
         sessions: [],
         currentSession: null,
         messages: [],
         newMessage: '',
+        selectedPlatform: 'facebook',
         botSettings: {},
         socket: null,
 
         async init() {
-            // โหลดรายการแชทและสถานะบอท
+            // โหลดรายการแชทเริ่มต้นและสถานะ Bot
             await this.refreshSessions();
             this.botSettings = this.$root.stats.bot_settings || {};
 
             // เชื่อมต่อ Socket.io
             this.socket = io();
             
-            // รับเหตุการณ์เมื่อมีข้อความใหม่จากผู้ใช้
+            // รับเหตุการณ์เมื่อมีข้อความใหม่จากลูกค้า (ทุก Platform)
             this.socket.on('admin_new_message', (data) => {
                 this.handleIncomingSocket(data, 'user');
             });
 
-            // รับเหตุการณ์เมื่อ Bot หรือ Admin ตอบกลับ
+            // รับเหตุการณ์เมื่อ Bot ตอบกลับ หรือ Admin ตอบกลับ
             this.socket.on('admin_bot_reply', (data) => {
                 this.handleIncomingSocket(data, 'model');
             });
-
-            // รับ Error จาก Server
-            this.socket.on('admin_error', (data) => {
-                alert(data.message);
-            });
             
-            // ตรวจสอบการเปลี่ยนสถานะบอทจาก Dashboard
+            // คอยติดตามการเปลี่ยนสถานะ Bot จากหน้า Dashboard
             this.$watch('$root.stats.bot_settings', (val) => {
                 this.botSettings = val || {};
             });
@@ -46,7 +43,7 @@ function adminChat() {
             this.currentSession = session;
             try {
                 const history = await this.$root.apiCall(`/api/admin/chat/history/${session.platform}/${session.id}`);
-                // กรองข้อมูลประวัติที่ถูกต้อง
+                // กรองข้อความและป้องกันโครงสร้างข้อมูลผิดพลาด
                 this.messages = history.filter(m => m.parts && m.parts[0] && m.parts[0].text);
                 this.scrollToBottom();
             } catch (e) { console.error('Load history failed:', e); }
@@ -56,30 +53,26 @@ function adminChat() {
             const text = this.newMessage.trim();
             if (!text || !this.currentSession) return;
             
-            // ตรวจสอบสถานะบอทก่อนส่งในฝั่ง Client
-            if (this.botSettings[this.currentSession.platform]) {
-                alert('กรุณาปิด Auto Bot ของแพลตฟอร์มนี้ก่อนตอบกลับ');
-                return;
-            }
-
             this.newMessage = '';
 
-            // ส่งข้อมูลผ่าน Socket ไปยัง Backend
+            // ส่งข้อมูลผ่าน Socket ไปยัง Backend เพื่อสื่อสารไปยังผู้ใช้ตาม Platform
             this.socket.emit('admin_manual_reply', {
                 uid: this.currentSession.id,
                 platform: this.currentSession.platform,
                 text: text
             });
 
+            // หมายเหตุ: ข้อความจะถูกอัปเดตผ่าน Socket event 'admin_bot_reply' โดยอัตโนมัติ 
+            // เพื่อให้แอดมินทุกคนเห็นข้อมูลที่ตรงกัน
             this.scrollToBottom();
         },
 
-        async toggleBot(platform) {
-            const currentStatus = this.botSettings[platform];
+        async toggleBot() {
+            const currentStatus = this.botSettings[this.selectedPlatform];
             const nextStatus = !currentStatus;
             
             const formData = new FormData();
-            formData.append('platform', platform);
+            formData.append('platform', this.selectedPlatform);
             formData.append('status', nextStatus);
 
             try {
@@ -88,20 +81,21 @@ function adminChat() {
                     this.botSettings = res.settings;
                     this.$root.stats.bot_settings = res.settings;
                 }
-            } catch (e) { alert('ไม่สามารถสลับสถานะ Bot ได้'); }
+            } catch (e) { alert('ไม่สามารถเปลี่ยนสถานะ Bot ได้'); }
         },
 
         handleIncomingSocket(data, role) {
-            // อัปเดตรายการ Session เมื่อมีข้อความใหม่ (หรือถ้าเป็น Session ใหม่)
-            const exists = this.sessions.find(s => s.id === data.uid && s.platform === data.platform);
+            // อัปเดตรายการ Session ทางซ้ายมือ
+            const exists = this.sessions.some(s => s.id === data.uid && s.platform === data.platform);
             if (!exists) {
                 this.refreshSessions();
             }
 
-            // หากกำลังเปิดหน้าแชทของคนนี้อยู่ ให้อัปเดตข้อความทันที
+            // หากหน้าต่างแชทปัจจุบันตรงกับลูกค้าคนนี้ ให้อัปเดตข้อความทันที
             if (this.currentSession && this.currentSession.id === data.uid && this.currentSession.platform === data.platform) {
-                const lastMsg = this.messages.length > 0 ? this.messages[this.messages.length - 1] : null;
-                if (!lastMsg || lastMsg.parts[0].text !== data.text) {
+                // ป้องกันข้อความซ้ำในกรณีที่แอดมินพิมพ์เองและได้รับ Echo กลับมา
+                const isDuplicate = this.messages.some(m => m.parts[0].text === data.text);
+                if (!isDuplicate || role === 'user') {
                     this.messages.push({
                         role: role,
                         parts: [{ text: data.text }]
@@ -115,7 +109,7 @@ function adminChat() {
             setTimeout(() => {
                 const container = document.getElementById('message-container');
                 if (container) container.scrollTop = container.scrollHeight;
-            }, 150);
+            }, 100);
         }
     };
 }

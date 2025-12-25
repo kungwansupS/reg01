@@ -24,6 +24,7 @@ from app.tts import speak
 from app.stt import transcribe
 from app.utils.llm.llm import ask_llm
 from app.utils.pose import suggest_pose
+from app.config import BOT_SETTINGS_FILE
 from dotenv import load_dotenv
 from memory.session import get_or_create_history, save_history, cleanup_old_sessions
 
@@ -68,6 +69,14 @@ def write_audit_log(user_id: str, platform: str, user_input: str, ai_response: s
     with open("logs/user_audit.log", "a", encoding="utf-8") as f:
         f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
 
+def is_bot_enabled(platform: str) -> bool:
+    if not os.path.exists(BOT_SETTINGS_FILE): return True
+    try:
+        with open(BOT_SETTINGS_FILE, "r") as f:
+            settings = json.load(f)
+            return settings.get(platform, True)
+    except: return True
+
 # ----------------------------------------------------------------------------- #
 # APP & WORKERS
 # ----------------------------------------------------------------------------- #
@@ -88,6 +97,16 @@ async def fb_worker():
         task = await fb_task_queue.get()
         psid = task["psid"]; user_text = task["text"]
         start_time = time.time()
+        
+        # แจ้งเตือน Admin ว่ามีข้อความเข้า
+        await sio.emit("admin_new_message", {"platform": "facebook", "uid": psid, "text": user_text})
+        
+        # ตรวจสอบว่าเปิด Bot หรือไม่
+        if not is_bot_enabled("facebook"):
+            logger.info(f"Bot is disabled for Facebook. Skipping AI for {psid}")
+            fb_task_queue.task_done()
+            continue
+
         async with await get_session_lock(f"fb_{psid}"):
             try:
                 result = await ask_llm(user_text, f"fb_{psid}", emit_fn=sio.emit)
@@ -148,6 +167,10 @@ async def handle_speech(
         finally:
             if os.path.exists(temp_path): os.remove(temp_path)
 
+    # ตรวจสอบสถานะ Bot สำหรับ Web
+    if not is_bot_enabled("web"):
+         return {"text": "ขออภัย ขณะนี้ Bot ปิดให้บริการชั่วคราว", "motion": "Idle"}
+
     async with await get_session_lock(final_session_id):
         result = await ask_llm(text, final_session_id, emit_fn=sio.emit)
         reply = result["text"]; motion = await suggest_pose(reply)
@@ -162,6 +185,19 @@ async def send_fb_text(psid: str, text: str):
     url = f"{GRAPH_BASE}/me/messages?access_token={FB_PAGE_ACCESS_TOKEN}"
     data = {"recipient": {"id": psid}, "message": {"text": (text or "")[:1999]}}
     async with httpx.AsyncClient(timeout=15) as client: await client.post(url, json=data)
+
+# Socket.IO Admin Handlers
+@sio.on("admin_manual_reply")
+async def handle_admin_reply(sid, data):
+    psid = data.get("uid")
+    text = data.get("text")
+    platform = data.get("platform")
+    if platform == "facebook":
+        await send_fb_text(psid, text)
+        # บันทึกประวัติ
+        history = get_or_create_history(f"fb_{psid}")
+        history.append({"role": "model", "parts": [{"text": f"[Admin]: {text}"}]})
+        save_history(f"fb_{psid}", history)
 
 @app.get("/")
 async def serve_index(): return FileResponse("frontend/index.html")

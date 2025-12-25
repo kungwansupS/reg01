@@ -1,3 +1,4 @@
+# [FILE: backend/app/config.py - FULLCODE ONLY]
 import os
 from dotenv import load_dotenv
 
@@ -49,6 +50,9 @@ SESSION_DIR = os.getenv(
     "SESSION_DIR",
     os.path.join(BASE_DIR, "../memory/session_storage")
 )
+
+# ไฟล์เก็บการตั้งค่าสถานะ Bot
+BOT_SETTINGS_FILE = os.path.join(BASE_DIR, "../memory/bot_settings.json")
 
 # ----------------------------------------------------------------------------- #
 # SERVER & NETWORK CONFIGURATION

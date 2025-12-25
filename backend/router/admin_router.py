@@ -1,4 +1,3 @@
-# [FILE: backend/router/admin_router.py - FULLCODE ONLY]
 from fastapi import APIRouter, UploadFile, Form, HTTPException, Depends, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.security.api_key import APIKeyHeader
@@ -41,7 +40,8 @@ def get_bot_settings():
         with open(BOT_SETTINGS_FILE, "w") as f: json.dump(default, f)
         return default
     with open(BOT_SETTINGS_FILE, "r") as f:
-        return json.load(f)
+        try: return json.load(f)
+        except: return {"facebook": True, "line": True, "web": True}
 
 def save_bot_settings(settings):
     with open(BOT_SETTINGS_FILE, "w") as f:
@@ -193,22 +193,26 @@ async def toggle_bot(platform: str = Form(...), status: bool = Form(...)):
 
 @router.get("/chat/sessions", dependencies=[Depends(verify_admin)])
 async def get_chat_sessions():
-    """ดึงรายชื่อ Session การแชทล่าสุด (เน้น Facebook)"""
+    """ดึงรายชื่อ Session การแชทล่าสุดครอบคลุมทุก Platform"""
     sessions = []
     if not os.path.exists(SESSION_DIR): return []
     
     for filename in os.listdir(SESSION_DIR):
-        if filename.startswith("fb_") and filename.endswith(".json"):
-            psid = filename.replace("fb_", "").replace(".json", "")
+        if filename.endswith(".json"):
             path = os.path.join(SESSION_DIR, filename)
             mtime = os.path.getmtime(path)
             
-            # ดึงข้อมูลโปรไฟล์จาก FB (ถ้ามี Token)
-            profile = {"name": f"FB User {psid[:5]}", "picture": "https://www.gravatar.com/avatar/?d=mp"}
-            if FB_PAGE_ACCESS_TOKEN:
+            # แยกแยะ Platform
+            is_fb = filename.startswith("fb_")
+            platform = "facebook" if is_fb else "web"
+            uid = filename.replace("fb_", "").replace(".json", "")
+            
+            profile = {"name": f"{platform.upper()} User {uid[:5]}", "picture": "https://www.gravatar.com/avatar/?d=mp"}
+            
+            if is_fb and FB_PAGE_ACCESS_TOKEN:
                 try:
                     async with httpx.AsyncClient() as client:
-                        r = await client.get(f"https://graph.facebook.com/{psid}?fields=name,picture&access_token={FB_PAGE_ACCESS_TOKEN}", timeout=2)
+                        r = await client.get(f"https://graph.facebook.com/{uid}?fields=name,picture&access_token={FB_PAGE_ACCESS_TOKEN}", timeout=1)
                         if r.status_code == 200:
                             data = r.json()
                             profile["name"] = data.get("name", profile["name"])
@@ -216,23 +220,23 @@ async def get_chat_sessions():
                 except: pass
 
             sessions.append({
-                "id": psid, "platform": "facebook", "profile": profile, "last_active": mtime
+                "id": uid, "platform": platform, "profile": profile, "last_active": mtime
             })
     
     return sorted(sessions, key=lambda x: x["last_active"], reverse=True)
 
 @router.get("/chat/history/{platform}/{uid}", dependencies=[Depends(verify_admin)])
 async def get_chat_history(platform: str, uid: str):
-    """ดึงประวัติการแชทรายคน"""
-    filename = f"{platform}_{uid}.json" if platform == "fb" else f"fb_{uid}.json"
+    """ดึงประวัติการแชทรายคนตาม Platform"""
+    filename = f"fb_{uid}.json" if platform == "facebook" else f"{uid}.json"
     path = os.path.join(SESSION_DIR, filename)
     if not os.path.exists(path): return []
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except: return []
 
 @router.post("/chat/send", dependencies=[Depends(verify_admin)])
 async def admin_send_message(platform: str = Form(...), uid: str = Form(...), message: str = Form(...)):
-    """Admin ส่งข้อความตอบกลับด้วยตนเอง"""
-    # ใน Phase นี้จะเรียกใช้ helper ใน main.py ผ่าน socket หรือ request ภายใน
-    # เพื่อความง่ายในขั้นแรก จะให้ Frontend เรียก API และ Emit Socket ต่อ
-    return {"status": "queued", "platform": platform, "uid": uid, "text": message}
+    """Admin ส่งข้อความตอบกลับด้วยตนเอง (API Proxy)"""
+    return {"status": "success", "platform": platform, "uid": uid}

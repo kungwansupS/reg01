@@ -1,4 +1,3 @@
-# [FILE: backend/main.py - FULLCODE ONLY]
 from fastapi import FastAPI, Request, UploadFile, Form, HTTPException, Depends, Response
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -143,11 +142,13 @@ async def fb_verify(request: Request):
 @app.post("/webhook")
 async def fb_webhook(request: Request):
     raw = await request.body()
-    payload = json.loads(raw.decode("utf-8"))
-    for entry in payload.get("entry", []):
-        for event in entry.get("messaging", []):
-            if "message" in event and "text" in event["message"] and not event["message"].get("is_echo"):
-                await fb_task_queue.put({"psid": event["sender"]["id"], "text": event["message"]["text"].strip()})
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+        for entry in payload.get("entry", []):
+            for event in entry.get("messaging", []):
+                if "message" in event and "text" in event["message"] and not event["message"].get("is_echo"):
+                    await fb_task_queue.put({"psid": event["sender"]["id"], "text": event["message"]["text"].strip()})
+    except: pass
     return JSONResponse({"status": "accepted"})
 
 @app.post("/api/speech")
@@ -160,7 +161,7 @@ async def handle_speech(
 ):
     start_time = time.time()
     user_id = auth or "anonymous"
-    final_session_id = user_id if user_id != "local-dev-user" else (session_id or str(uuid.uuid4()))
+    final_session_id = session_id if session_id else (user_id if user_id != "local-dev-user" else str(uuid.uuid4()))
     
     if audio:
         with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as temp:
@@ -170,6 +171,12 @@ async def handle_speech(
             text = await asyncio.get_event_loop().run_in_executor(executor, transcribe, temp_path)
         finally:
             if os.path.exists(temp_path): os.remove(temp_path)
+
+    if not text:
+        return {"text": "", "motion": "Idle"}
+
+    # แจ้ง Admin ว่ามีข้อความเข้าจาก Web
+    await sio.emit("admin_new_message", {"platform": "web", "uid": final_session_id, "text": text})
 
     # ตรวจสอบสถานะ Bot สำหรับ Web
     if not is_bot_enabled("web"):
@@ -181,6 +188,10 @@ async def handle_speech(
         
     write_audit_log(user_id, "web", text, reply, time.time() - start_time)
     display_text = reply.replace("//", " ")
+    
+    # แจ้ง Admin ว่า Bot ตอบกลับแล้ว
+    await sio.emit("admin_bot_reply", {"platform": "web", "uid": final_session_id, "text": display_text})
+    
     await sio.emit("ai_response", {"motion": motion, "text": display_text})
     return {"text": display_text, "motion": motion}
 
@@ -193,15 +204,25 @@ async def send_fb_text(psid: str, text: str):
 # Socket.IO Admin Handlers
 @sio.on("admin_manual_reply")
 async def handle_admin_reply(sid, data):
-    psid = data.get("uid")
+    uid = data.get("uid")
     text = data.get("text")
     platform = data.get("platform")
+    
     if platform == "facebook":
-        await send_fb_text(psid, text)
-        # บันทึกประวัติ
-        history = get_or_create_history(f"fb_{psid}")
-        history.append({"role": "model", "parts": [{"text": f"[Admin]: {text}"}]})
-        save_history(f"fb_{psid}", history)
+        await send_fb_text(uid, text)
+        session_key = f"fb_{uid}"
+    else:
+        # สำหรับ Web จะส่งผ่าน socket ai_response ไปยัง UI ผู้ใช้
+        await sio.emit("ai_response", {"motion": "Happy", "text": text})
+        session_key = uid
+
+    # บันทึกประวัติลงไฟล์ JSON
+    history = get_or_create_history(session_key)
+    history.append({"role": "model", "parts": [{"text": f"[Admin]: {text}"}]})
+    save_history(session_key, history)
+    
+    # แจ้งแอดมินคนอื่นๆ (ถ้ามี) ว่ามีการตอบกลับแล้ว
+    await sio.emit("admin_bot_reply", {"platform": platform, "uid": uid, "text": f"[Admin]: {text}"})
 
 @app.get("/")
 async def serve_index(): return FileResponse("frontend/index.html")

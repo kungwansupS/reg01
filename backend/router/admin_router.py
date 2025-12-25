@@ -1,3 +1,4 @@
+# [FILE: backend/router/admin_router.py - FULLCODE ONLY]
 from fastapi import APIRouter, UploadFile, Form, HTTPException, Depends
 from fastapi.responses import FileResponse
 from fastapi.security.api_key import APIKeyHeader
@@ -34,7 +35,8 @@ def get_secure_path(root: str, path: str):
     """สร้าง Path ที่ปลอดภัยและตรวจสอบการพยายามออกนอก Directory"""
     base_path = PDF_INPUT_FOLDER if root == "docs" else PDF_QUICK_USE_FOLDER
     clean_path = path.lstrip("/").replace("..", "")
-    target = os.path.normpath(os.path.join(base_path, clean_path))
+    target = os.path.abspath(os.path.join(base_path, clean_path))
+    # ตรวจสอบว่า Path อยู่ภายใต้ base_path หรือไม่เพื่อป้องกัน Directory Traversal
     if not target.startswith(os.path.abspath(base_path)):
         raise HTTPException(status_code=403, detail="Access Denied: Path escape detected")
     return target
@@ -112,9 +114,14 @@ async def rename_item(root: str = Form(...), old_path: str = Form(...), new_name
 
 @router.post("/move", dependencies=[Depends(verify_admin)])
 async def move_items(root: str = Form(...), src_paths: str = Form(...), dest_dir: str = Form(...)):
-    """ย้ายไฟล์หรือโฟลเดอร์ (รองรับแบบกลุ่มผ่าน JSON string ของ list)"""
-    paths = json.loads(src_paths)
+    """ย้ายไฟล์หรือโฟลเดอร์แบบกลุ่ม"""
+    try:
+        paths = json.loads(src_paths)
+    except:
+        raise HTTPException(status_code=400, detail="Invalid JSON for src_paths")
+        
     base_dest = get_secure_path(root, dest_dir)
+    os.makedirs(base_dest, exist_ok=True)
     
     moved = []
     errors = []
@@ -149,12 +156,12 @@ async def edit_file(root: str = Form(...), path: str = Form(...), content: str =
     return {"status": "success"}
 
 @router.post("/upload", dependencies=[Depends(verify_admin)])
-async def upload_document(file: UploadFile, target_dir: str = Form("")):
-    """อัปโหลดไฟล์ใหม่"""
+async def upload_document(file: UploadFile, target_dir: str = Form(""), root: str = Form("docs")):
+    """อัปโหลดไฟล์ใหม่ รองรับ Folder Structure และ Root"""
     if not (file.filename.lower().endswith(".pdf") or file.filename.lower().endswith(".txt")):
         raise HTTPException(status_code=400, detail="Only PDF or TXT allowed")
     
-    dest_folder = get_secure_path("docs", target_dir) # อัปโหลดเข้า docs เสมอเพื่อรอ Process
+    dest_folder = get_secure_path(root, target_dir)
     os.makedirs(dest_folder, exist_ok=True)
     
     safe_name = "".join([c for c in file.filename if c.isalnum() or c in ('.', '_', '-', '/')]).strip()
@@ -176,8 +183,12 @@ async def trigger_rag_process():
 
 @router.delete("/files", dependencies=[Depends(verify_admin)])
 async def delete_items(root: str, paths: str):
-    """ลบไฟล์หรือโฟลเดอร์ (รองรับแบบกลุ่มผ่าน JSON string ของ list)"""
-    path_list = json.loads(paths)
+    """ลบไฟล์หรือโฟลเดอร์แบบกลุ่ม"""
+    try:
+        path_list = json.loads(paths)
+    except:
+        raise HTTPException(status_code=400, detail="Invalid JSON for paths")
+        
     deleted = []
     for path in path_list:
         target = get_secure_path(root, path)

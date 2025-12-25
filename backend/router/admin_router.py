@@ -1,3 +1,4 @@
+# backend/router/admin_router.py
 from fastapi import APIRouter, UploadFile, Form, HTTPException, Depends, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.security.api_key import APIKeyHeader
@@ -14,9 +15,52 @@ from concurrent.futures import ThreadPoolExecutor
 
 # Import Config จากระบบ
 from app.config import PDF_INPUT_FOLDER, PDF_QUICK_USE_FOLDER, BOT_SETTINGS_FILE, SESSION_DIR
-from memory.faq_cache import get_faq_analytics
-from memory.session import get_bot_enabled, set_bot_enabled  # ✅ เพิ่ม import
 from pdf_to_txt import process_pdfs
+
+# ========================================================================
+# 🗄️ AUTO-SWITCH: Database หรือ JSON
+# ========================================================================
+USE_DATABASE = True  # เปลี่ยนเป็น False เพื่อใช้ JSON
+
+try:
+    if USE_DATABASE:
+        from database.session_manager import get_bot_enabled, set_bot_enabled
+        from database.connection import get_db, get_database_stats
+        from database.models import User, Message
+        
+        print("✅ Admin Router: Using DATABASE mode")
+        
+        def get_faq_analytics():
+            """ดึงสถิติ FAQ จาก Database"""
+            try:
+                from database.models import FAQ
+                with get_db() as db:
+                    total_kb = db.query(FAQ).count()
+                    learned = db.query(FAQ).filter(FAQ.is_learned == True).count()
+                    top_faqs = db.query(FAQ)\
+                        .order_by(FAQ.hit_count.desc())\
+                        .limit(10)\
+                        .all()
+                    
+                    return {
+                        'total_knowledge_base': total_kb,
+                        'auto_learned_count': learned,
+                        'top_faqs': [
+                            {'question': faq.question, 'hits': faq.hit_count}
+                            for faq in top_faqs
+                        ]
+                    }
+            except:
+                return {'total_knowledge_base': 0, 'auto_learned_count': 0, 'top_faqs': []}
+    else:
+        raise ImportError("Force JSON mode")
+        
+except ImportError:
+    from memory.session import get_bot_enabled, set_bot_enabled
+    from memory.faq_cache import get_faq_analytics
+    
+    print("⚠️  Admin Router: Using JSON fallback mode")
+# ========================================================================
 
 # สร้าง Router สำหรับ Admin
 router = APIRouter(prefix="/api/admin")
@@ -38,21 +82,6 @@ async def verify_admin(auth: str = Depends(ADMIN_API_KEY_HEADER)):
     if auth != ADMIN_TOKEN:
         raise HTTPException(status_code=403, detail="Forbidden: Invalid Admin Token")
     return auth
-
-def get_bot_settings():
-    """❌ เก็บไว้เพื่อ backward compatibility แต่ไม่ใช้แล้ว"""
-    if not os.path.exists(BOT_SETTINGS_FILE):
-        default = {"facebook": True, "line": True, "web": True}
-        with open(BOT_SETTINGS_FILE, "w") as f: json.dump(default, f)
-        return default
-    with open(BOT_SETTINGS_FILE, "r") as f:
-        try: return json.load(f)
-        except: return {"facebook": True, "line": True, "web": True}
-
-def save_bot_settings(settings):
-    """❌ เก็บไว้เพื่อ backward compatibility แต่ไม่ใช้แล้ว"""
-    with open(BOT_SETTINGS_FILE, "w") as f:
-        json.dump(settings, f)
 
 def get_secure_path(root: str, path: str):
     """แมป Root และตรวจสอบความปลอดภัยของ Path"""
@@ -83,22 +112,38 @@ async def get_stats():
     """ดึงข้อมูล Dashboard Stats"""
     logs = []
     log_path = "logs/user_audit.log"
+    
+    # อ่าน logs จากไฟล์
     if os.path.exists(log_path):
         try:
             with open(log_path, "r", encoding="utf-8") as f:
                 lines = f.readlines()
                 logs = [json.loads(line) for line in lines][-100:]
-        except: logs = []
+        except: 
+            logs = []
+    
+    # ดึงสถิติ FAQ
+    faq_analytics = get_faq_analytics()
+    
+    # ดึงสถิติ Database (ถ้าใช้)
+    db_stats = {}
+    if USE_DATABASE:
+        try:
+            db_stats = get_database_stats()
+        except:
+            pass
             
     return {
         "recent_logs": logs,
-        "faq_analytics": get_faq_analytics(),
-        "bot_settings": get_bot_settings(),  # ✅ เก็บไว้เพื่อ backward compatibility
+        "faq_analytics": faq_analytics,
+        "bot_settings": {},  # Deprecated
+        "database_stats": db_stats,
         "system_time": datetime.datetime.now().isoformat()
     }
 
 @router.get("/files", dependencies=[Depends(verify_admin)])
 async def list_admin_files(root: str = "data", subdir: str = ""):
+    """แสดงรายการไฟล์"""
     if root in ["data", "docs"]: base_path = PDF_INPUT_FOLDER
     else: base_path = PDF_QUICK_USE_FOLDER
     clean_subdir = subdir.lstrip("/").replace("..", "")
@@ -187,12 +232,12 @@ async def delete_items(root: str, paths: str):
     return {"status": "deleted"}
 
 # ----------------------------------------------------------------------------- #
-# CHAT & BOT CONTROL ENDPOINTS (✅ NEW VERSION)
+# CHAT & BOT CONTROL ENDPOINTS
 # ----------------------------------------------------------------------------- #
 
 @router.post("/bot-toggle", dependencies=[Depends(verify_admin)])
 async def toggle_bot(session_id: str = Form(...), status: bool = Form(...)):
-    """✅ สลับสถานะเปิด/ปิด Bot สำหรับ Session นี้"""
+    """สลับสถานะเปิด/ปิด Bot สำหรับ Session นี้"""
     logger.info(f"🔄 Toggling bot for session {session_id}: {status}")
     
     success = set_bot_enabled(session_id, status)
@@ -206,171 +251,176 @@ async def toggle_bot(session_id: str = Form(...), status: bool = Form(...)):
 
 @router.post("/bot-toggle-all", dependencies=[Depends(verify_admin)])
 async def toggle_all_bots(status: bool = Form(...)):
-    """✅ เปิด/ปิด Bot ทั้งหมดทุก Session"""
+    """เปิด/ปิด Bot ทั้งหมดทุก Session"""
     logger.info(f"🔄 Toggling ALL bots: {status}")
     
-    if not os.path.exists(SESSION_DIR):
-        return {"status": "success", "updated_count": 0}
-    
     updated_count = 0
-    try:
-        for filename in os.listdir(SESSION_DIR):
-            if filename.endswith(".json"):
-                session_id = filename.replace(".json", "")
-                if set_bot_enabled(session_id, status):
-                    updated_count += 1
+    
+    if USE_DATABASE:
+        # ใช้ Database
+        try:
+            with get_db() as db:
+                users = db.query(User).all()
+                for user in users:
+                    user.bot_enabled = status
+                db.commit()
+                updated_count = len(users)
+        except Exception as e:
+            logger.error(f"❌ Failed to toggle all bots: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+    else:
+        # ใช้ JSON
+        if not os.path.exists(SESSION_DIR):
+            return {"status": "success", "updated_count": 0}
         
-        logger.info(f"✅ Updated {updated_count} sessions")
-        return {"status": "success", "updated_count": updated_count, "bot_enabled": status}
-    except Exception as e:
-        logger.error(f"❌ Failed to toggle all bots: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        try:
+            for filename in os.listdir(SESSION_DIR):
+                if filename.endswith(".json"):
+                    session_id = filename.replace(".json", "")
+                    if set_bot_enabled(session_id, status):
+                        updated_count += 1
+        except Exception as e:
+            logger.error(f"❌ Failed to toggle all bots: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+    
+    logger.info(f"✅ Updated {updated_count} sessions")
+    return {"status": "success", "updated_count": updated_count, "bot_enabled": status}
 
 @router.get("/chat/sessions", dependencies=[Depends(verify_admin)])
 async def get_chat_sessions():
-    """ดึงรายชื่อ Session การแชทล่าสุด โดยอ่าน metadata จากไฟล์โดยตรง"""
-    logger.info(f"📋 Loading chat sessions from {SESSION_DIR}")
-    
-    if not os.path.exists(SESSION_DIR): 
-        logger.warning(f"⚠️ SESSION_DIR not found: {SESSION_DIR}")
-        os.makedirs(SESSION_DIR, exist_ok=True)
-        return []
+    """ดึงรายชื่อ Session การแชทล่าสุด"""
+    logger.info(f"📋 Loading chat sessions...")
     
     sessions = []
-    file_count = 0
     
-    try:
-        files = [f for f in os.listdir(SESSION_DIR) if f.endswith(".json")]
-        logger.info(f"📂 Found {len(files)} session files")
-        
-        for filename in files:
-            file_count += 1
-            path = os.path.join(SESSION_DIR, filename)
-            
-            try:
-                mtime = os.path.getmtime(path)
+    if USE_DATABASE:
+        # ใช้ Database
+        try:
+            with get_db() as db:
+                users = db.query(User)\
+                    .order_by(User.last_active.desc())\
+                    .all()
                 
-                with open(path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
+                for user in users:
+                    sessions.append({
+                        'id': user.session_id,
+                        'platform': user.platform,
+                        'profile': {
+                            'name': user.name,
+                            'picture': user.picture_url
+                        },
+                        'bot_enabled': user.bot_enabled,
+                        'last_active': user.last_active.timestamp() if user.last_active else 0
+                    })
+                
+                logger.info(f"✅ Loaded {len(sessions)} sessions from database")
+        except Exception as e:
+            logger.error(f"❌ Failed to load sessions from database: {e}")
+            return []
+    else:
+        # ใช้ JSON (fallback)
+        if not os.path.exists(SESSION_DIR): 
+            logger.warning(f"⚠️ SESSION_DIR not found: {SESSION_DIR}")
+            os.makedirs(SESSION_DIR, exist_ok=True)
+            return []
+        
+        try:
+            files = [f for f in os.listdir(SESSION_DIR) if f.endswith(".json")]
+            logger.info(f"📂 Found {len(files)} session files")
+            
+            for filename in files:
+                path = os.path.join(SESSION_DIR, filename)
+                
+                try:
+                    mtime = os.path.getmtime(path)
                     
-                    session_id = filename.replace(".json", "")
-                    logger.debug(f"  [{file_count}/{len(files)}] Processing: {session_id}")
-                    
-                    # ✅ ดึง bot_enabled จาก session
-                    bot_enabled = data.get("bot_enabled", True)
-                    
-                    # ตรวจสอบรูปแบบข้อมูล
-                    if isinstance(data, dict) and "user_info" in data:
-                        # รูปแบบใหม่ (มี metadata)
-                        info = data["user_info"]
-                        history = data.get("history", [])
+                    with open(path, "r", encoding="utf-8") as f:
+                        data = json.load(f)
                         
-                        sessions.append({
-                            "id": session_id,
-                            "platform": info.get("platform", "web"),
-                            "profile": {
-                                "name": info.get("name", f"User {session_id[:8]}"),
-                                "picture": info.get("picture", "https://www.gravatar.com/avatar/?d=mp")
-                            },
-                            "bot_enabled": bot_enabled,  # ✅ เพิ่ม field นี้
-                            "last_active": mtime
-                        })
-                        logger.debug(f"    ✅ Valid session: {info.get('name')} (Bot: {bot_enabled})")
+                        session_id = filename.replace(".json", "")
                         
-                    elif isinstance(data, list):
-                        # รูปแบบเก่า (เป็น array ของ messages)
-                        is_fb = filename.startswith("fb_")
-                        
-                        sessions.append({
-                            "id": session_id,
-                            "platform": "facebook" if is_fb else "web",
-                            "profile": {
-                                "name": f"User {session_id[:8]}",
-                                "picture": "https://www.gravatar.com/avatar/?d=mp"
-                            },
-                            "bot_enabled": True,  # ✅ Default สำหรับ session เก่า
-                            "last_active": mtime
-                        })
-                        logger.debug(f"    ⚠️ Old format (migrating): {session_id}")
-                        
-                    else:
-                        logger.warning(f"    ❌ Unknown format: {session_id}")
-                        
-            except json.JSONDecodeError as e:
-                logger.error(f"    ❌ JSON decode error in {filename}: {e}")
-                continue
-            except Exception as e:
-                logger.error(f"    ❌ Error loading {filename}: {e}")
-                continue
-        
-        # เรียงตาม last_active
-        sessions.sort(key=lambda x: x["last_active"], reverse=True)
-        logger.info(f"✅ Successfully loaded {len(sessions)}/{file_count} sessions")
-        
-        # แสดง 5 sessions แรก
-        if sessions:
-            logger.info("📋 Recent sessions:")
-            for i, s in enumerate(sessions[:5], 1):
-                logger.info(f"  {i}. {s['profile']['name']} ({s['platform']}) - Bot: {s['bot_enabled']}")
-        
-        return sessions
-        
-    except Exception as e:
-        logger.error(f"❌ Failed to load sessions: {e}")
-        return []
+                        if isinstance(data, dict) and "user_info" in data:
+                            info = data["user_info"]
+                            bot_enabled = data.get("bot_enabled", True)
+                            
+                            sessions.append({
+                                "id": session_id,
+                                "platform": info.get("platform", "web"),
+                                "profile": {
+                                    "name": info.get("name", f"User {session_id[:8]}"),
+                                    "picture": info.get("picture", "https://www.gravatar.com/avatar/?d=mp")
+                                },
+                                "bot_enabled": bot_enabled,
+                                "last_active": mtime
+                            })
+                except Exception as e:
+                    logger.error(f"❌ Error loading {filename}: {e}")
+                    continue
+            
+            sessions.sort(key=lambda x: x["last_active"], reverse=True)
+            logger.info(f"✅ Loaded {len(sessions)} sessions from JSON")
+        except Exception as e:
+            logger.error(f"❌ Failed to load sessions: {e}")
+            return []
+    
+    return sessions
 
 @router.get("/chat/history/{platform}/{uid}", dependencies=[Depends(verify_admin)])
 async def get_chat_history(platform: str, uid: str):
     """ดึงประวัติการแชทรายคน"""
     logger.info(f"📖 Loading history for {platform}/{uid}")
     
-    # ใช้ uid ตรงๆ เป็นชื่อไฟล์
-    filename = f"{uid}.json"
-    path = os.path.join(SESSION_DIR, filename)
-    
-    logger.info(f"   Looking for: {path}")
-    
-    if not os.path.exists(path):
-        logger.warning(f"   ⚠️ History file not found: {path}")
-        return []
-    
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            
-            if isinstance(data, dict) and "history" in data:
-                # รูปแบบใหม่
-                history = data["history"]
-                logger.info(f"   ✅ Loaded {len(history)} messages (new format)")
-            elif isinstance(data, list):
-                # รูปแบบเก่า
-                history = data
-                logger.info(f"   ✅ Loaded {len(history)} messages (old format)")
-            else:
-                logger.error(f"   ❌ Unknown data format")
-                return []
-            
-            # กรองเฉพาะข้อความที่ถูกต้อง
-            filtered = [
-                msg for msg in history
-                if msg.get("role") in ["user", "model"]
-                and msg.get("parts")
-                and len(msg["parts"]) > 0
-                and msg["parts"][0].get("text")
-            ]
-            
-            logger.info(f"   ✅ Returning {len(filtered)} valid messages")
-            return filtered
-            
-    except json.JSONDecodeError as e:
-        logger.error(f"   ❌ JSON decode error: {e}")
-        return []
-    except Exception as e:
-        logger.error(f"   ❌ Error reading history: {e}")
-        return []
-
-@router.post("/chat/send", dependencies=[Depends(verify_admin)])
-async def admin_send_message(platform: str = Form(...), uid: str = Form(...), message: str = Form(...)):
-    """Admin ส่งข้อความตอบกลับด้วยตนเอง (API Proxy)"""
-    logger.info(f"📤 Admin sending message to {platform}/{uid}")
-    return {"status": "success", "platform": platform, "uid": uid}
+    if USE_DATABASE:
+        # ใช้ Database
+        try:
+            with get_db() as db:
+                user = db.query(User).filter(User.session_id == uid).first()
+                
+                if not user:
+                    logger.warning(f"⚠️ User not found: {uid}")
+                    return []
+                
+                messages = db.query(Message)\
+                    .filter(Message.user_id == user.id)\
+                    .order_by(Message.created_at)\
+                    .all()
+                
+                history = [msg.to_dict() for msg in messages]
+                logger.info(f"✅ Loaded {len(history)} messages from database")
+                return history
+        except Exception as e:
+            logger.error(f"❌ Failed to load history from database: {e}")
+            return []
+    else:
+        # ใช้ JSON (fallback)
+        filename = f"{uid}.json"
+        path = os.path.join(SESSION_DIR, filename)
+        
+        if not os.path.exists(path):
+            logger.warning(f"⚠️ History file not found: {path}")
+            return []
+        
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                
+                if isinstance(data, dict) and "history" in data:
+                    history = data["history"]
+                elif isinstance(data, list):
+                    history = data
+                else:
+                    return []
+                
+                filtered = [
+                    msg for msg in history
+                    if msg.get("role") in ["user", "model"]
+                    and msg.get("parts")
+                    and len(msg["parts"]) > 0
+                    and msg["parts"][0].get("text")
+                ]
+                
+                logger.info(f"✅ Loaded {len(filtered)} messages from JSON")
+                return filtered
+        except Exception as e:
+            logger.error(f"❌ Failed to load history: {e}")
+            return []

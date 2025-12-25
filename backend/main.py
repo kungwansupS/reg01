@@ -25,13 +25,39 @@ from app.utils.llm.llm import ask_llm
 from app.utils.pose import suggest_pose
 from app.config import BOT_SETTINGS_FILE
 from dotenv import load_dotenv
-from memory.session import (
-    get_or_create_history, 
-    save_history, 
-    cleanup_old_sessions,
-    get_bot_enabled,
-    set_bot_enabled
-)
+
+# ========================================================================
+# 🗄️ AUTO-SWITCH: Database หรือ JSON
+# ========================================================================
+USE_DATABASE = True  # เปลี่ยนเป็น False เพื่อใช้ JSON แบบเดิม
+
+try:
+    if USE_DATABASE:
+        # ใช้ Database
+        from database.session_manager import (
+            get_or_create_history,
+            save_history,
+            get_bot_enabled,
+            set_bot_enabled,
+            cleanup_old_sessions
+        )
+        logger = logging.getLogger("MainBackend")
+        logger.info("✅ Using DATABASE mode")
+    else:
+        raise ImportError("Force JSON mode")
+        
+except ImportError:
+    # Fallback ไปใช้ JSON
+    from memory.session import (
+        get_or_create_history, 
+        save_history,
+        get_bot_enabled,
+        set_bot_enabled,
+        cleanup_old_sessions
+    )
+    logger = logging.getLogger("MainBackend")
+    logger.warning("⚠️  Using JSON fallback mode")
+# ========================================================================
 
 # นำเข้า Admin Router
 from router.admin_router import router as admin_router
@@ -65,6 +91,9 @@ def hash_id(user_id: str) -> str:
     return hashlib.sha256(user_id.encode()).hexdigest()[:16]
 
 def write_audit_log(user_id: str, platform: str, user_input: str, ai_response: str, latency: float, rating: str = "none"):
+    """
+    บันทึก Audit Log - รองรับทั้ง Database และ JSON
+    """
     log_entry = {
         "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "anon_id": hash_id(user_id),
@@ -74,6 +103,27 @@ def write_audit_log(user_id: str, platform: str, user_input: str, ai_response: s
         "latency": round(latency, 2),
         "rating": rating
     }
+    
+    # บันทึกลง Database (ถ้าใช้)
+    if USE_DATABASE:
+        try:
+            from database.connection import get_db
+            from database.models import AuditLog
+            
+            with get_db() as db:
+                audit = AuditLog(
+                    anon_id=log_entry["anon_id"],
+                    platform=platform,
+                    user_input=user_input[:1000],
+                    ai_output=ai_response[:1000],
+                    latency=latency
+                )
+                db.add(audit)
+                db.commit()
+        except Exception as e:
+            logger.error(f"❌ Failed to save audit log to database: {e}")
+    
+    # บันทึกลง JSON (เสมอ - เป็น backup)
     os.makedirs("logs", exist_ok=True)
     with open("logs/user_audit.log", "a", encoding="utf-8") as f:
         f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
@@ -291,7 +341,6 @@ async def text_to_speech(text: str = Form(...)):
                 yield chunk
         except Exception as e:
             logger.error(f"❌ TTS Error: {e}")
-            # ส่ง silent audio กรณี error
             yield b'\x00' * 1024
     
     return StreamingResponse(

@@ -24,3 +24,13 @@ tiktoken
 speechrecognition
 pydub
 edge-tts
+
+# Database & ORM
+sqlalchemy==2.0.25
+alembic==1.13.1
+
+# SQLite (Built-in Python - ไม่ต้องติดตั้ง)
+
+# PostgreSQL (Optional - ถ้าต้องการใช้ในอนาคต)
+# psycopg2-binary==2.9.9
+# asyncpg==0.29.0  # สำหรับ async PostgreSQL

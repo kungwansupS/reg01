@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Request, UploadFile, Form, HTTPException, Depends, Response
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.security.api_key import APIKeyHeader
@@ -29,8 +29,8 @@ from memory.session import (
     get_or_create_history, 
     save_history, 
     cleanup_old_sessions,
-    get_bot_enabled,  # ✅ เพิ่ม import
-    set_bot_enabled   # ✅ เพิ่ม import
+    get_bot_enabled,
+    set_bot_enabled
 )
 
 # นำเข้า Admin Router
@@ -78,8 +78,6 @@ def write_audit_log(user_id: str, platform: str, user_input: str, ai_response: s
     with open("logs/user_audit.log", "a", encoding="utf-8") as f:
         f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
 
-# ❌ ลบฟังก์ชัน is_bot_enabled เก่าออก (ไม่ใช้แล้ว)
-
 # ----------------------------------------------------------------------------- #
 # APP & WORKERS
 # ----------------------------------------------------------------------------- #
@@ -103,7 +101,6 @@ async def fb_worker():
         user_text = task["text"]
         start_time = time.time()
         
-        # ✅ สร้าง session_id แบบ unified (fb_PSID)
         session_id = f"fb_{psid}"
         logger.info(f"📩 Processing FB message: {session_id}")
         
@@ -126,17 +123,15 @@ async def fb_worker():
             except Exception as e:
                 logger.error(f"   ❌ Fetch FB Profile Error: {e}")
 
-        # ✅ แจ้งเตือน Admin ผ่าน Socket พร้อมข้อมูลโปรไฟล์
         await sio.emit("admin_new_message", {
             "platform": "facebook", 
-            "uid": session_id,  # ส่ง fb_PSID
+            "uid": session_id,
             "text": user_text, 
             "user_name": user_name,
             "user_pic": user_pic
         })
         logger.info(f"   📤 Sent to admin: {session_id}")
         
-        # ✅ ตรวจสอบ Bot Status จาก Session นี้
         bot_enabled = get_bot_enabled(session_id)
         
         if not bot_enabled:
@@ -149,20 +144,17 @@ async def fb_worker():
 
         async with await get_session_lock(session_id):
             try:
-                # บันทึกข้อมูล metadata ลง session ก่อนถาม LLM
                 get_or_create_history(session_id, user_name=user_name, user_picture=user_pic, platform="facebook")
                 
                 result = await ask_llm(user_text, session_id, emit_fn=sio.emit)
                 reply = result["text"]
                 
-                # ✅ เพิ่ม [Bot พี่เร็ก] นำหน้าข้อความที่ส่งไปยัง Facebook
                 fb_message = f"[Bot พี่เร็ก] {reply.replace('//', '')}"
                 await send_fb_text(psid, fb_message)
                 
-                # ✅ ส่งคำตอบ Bot กลับไปให้ Admin (พร้อม prefix)
                 await sio.emit("admin_bot_reply", {
                     "platform": "facebook", 
-                    "uid": session_id,  # ส่ง fb_PSID
+                    "uid": session_id,
                     "text": fb_message
                 })
                 
@@ -248,7 +240,6 @@ async def handle_speech(
     if not text:
         return {"text": "", "motion": "Idle"}
 
-    # ✅ แจ้งเตือน Admin
     await sio.emit("admin_new_message", {
         "platform": "web", 
         "uid": final_session_id, 
@@ -257,7 +248,6 @@ async def handle_speech(
         "user_pic": final_user_pic
     })
 
-    # ✅ ตรวจสอบ Bot Status จาก Session นี้
     bot_enabled = get_bot_enabled(final_session_id)
     
     if not bot_enabled:
@@ -275,7 +265,6 @@ async def handle_speech(
         
     write_audit_log(user_id, "web", text, reply, time.time() - start_time)
     
-    # ✅ เพิ่ม [Bot พี่เร็ก] นำหน้าข้อความที่ส่งไปยัง Web
     display_text = f"[Bot พี่เร็ก] {reply.replace('//', ' ')}"
     
     await sio.emit("admin_bot_reply", {
@@ -287,6 +276,33 @@ async def handle_speech(
     
     logger.info(f"   ✅ Web request processed")
     return {"text": display_text, "motion": motion}
+
+@app.post("/api/speak")
+async def text_to_speech(text: str = Form(...)):
+    """
+    ✨ แปลงข้อความเป็นเสียง และส่งกลับเป็น audio stream
+    รองรับ multi-language และ streaming real-time
+    """
+    logger.info(f"🔊 TTS Request: {text[:50]}...")
+    
+    async def audio_stream():
+        try:
+            async for chunk in speak(text):
+                yield chunk
+        except Exception as e:
+            logger.error(f"❌ TTS Error: {e}")
+            # ส่ง silent audio กรณี error
+            yield b'\x00' * 1024
+    
+    return StreamingResponse(
+        audio_stream(),
+        media_type="audio/mpeg",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Transfer-Encoding": "chunked"
+        }
+    )
 
 async def send_fb_text(psid: str, text: str):
     """ส่งข้อความกลับไปยัง Facebook"""
@@ -305,7 +321,6 @@ async def handle_admin_reply(sid, data):
     
     logger.info(f"👨‍💼 Admin manual reply to {platform}/{uid}")
     
-    # ✅ ตรวจสอบ Bot Status ของ Session นี้
     bot_enabled = get_bot_enabled(uid)
     
     if bot_enabled:
@@ -317,9 +332,7 @@ async def handle_admin_reply(sid, data):
 
     formatted_msg = f"[Admin]: {text}"
 
-    # ✅ ส่งข้อความไปยังผู้ใช้
     if platform == "facebook":
-        # ตัด fb_ ออกเพื่อส่งไปยัง Facebook API (ต้องการแค่ PSID)
         clean_psid = uid.replace("fb_", "")
         await send_fb_text(clean_psid, text)
         logger.info(f"   📤 Sent to Facebook: {clean_psid}")
@@ -327,12 +340,10 @@ async def handle_admin_reply(sid, data):
         await sio.emit("ai_response", {"motion": "Happy", "text": text})
         logger.info(f"   📤 Sent to Web client")
 
-    # ✅ บันทึกลง session (ใช้ uid ตรงๆ)
     history = get_or_create_history(uid)
     history.append({"role": "model", "parts": [{"text": formatted_msg}]})
     save_history(uid, history)
     
-    # ✅ แจ้งกลับไปยัง Admin UI
     await sio.emit("admin_bot_reply", {
         "platform": platform, 
         "uid": uid, 

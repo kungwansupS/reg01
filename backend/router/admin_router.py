@@ -193,7 +193,7 @@ async def toggle_bot(platform: str = Form(...), status: bool = Form(...)):
 
 @router.get("/chat/sessions", dependencies=[Depends(verify_admin)])
 async def get_chat_sessions():
-    """ดึงรายชื่อ Session การแชทล่าสุดครอบคลุมทุก Platform"""
+    """ดึงรายชื่อ Session การแชทล่าสุด โดยอ่าน metadata จากไฟล์โดยตรง"""
     sessions = []
     if not os.path.exists(SESSION_DIR): return []
     
@@ -202,38 +202,45 @@ async def get_chat_sessions():
             path = os.path.join(SESSION_DIR, filename)
             mtime = os.path.getmtime(path)
             
-            # แยกแยะ Platform
-            is_fb = filename.startswith("fb_")
-            platform = "facebook" if is_fb else "web"
-            uid = filename.replace("fb_", "").replace(".json", "")
-            
-            profile = {"name": f"{platform.upper()} User {uid[:5]}", "picture": "https://www.gravatar.com/avatar/?d=mp"}
-            
-            if is_fb and FB_PAGE_ACCESS_TOKEN:
-                try:
-                    async with httpx.AsyncClient() as client:
-                        r = await client.get(f"https://graph.facebook.com/{uid}?fields=name,picture&access_token={FB_PAGE_ACCESS_TOKEN}", timeout=1)
-                        if r.status_code == 200:
-                            data = r.json()
-                            profile["name"] = data.get("name", profile["name"])
-                            profile["picture"] = data.get("picture", {}).get("data", {}).get("url", profile["picture"])
-                except: pass
-
-            sessions.append({
-                "id": uid, "platform": platform, "profile": profile, "last_active": mtime
-            })
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    # หากเป็นโครงสร้างใหม่ จะมี user_info
+                    if isinstance(data, dict) and "user_info" in data:
+                        info = data["user_info"]
+                        uid = filename.replace(".json", "").replace("fb_", "")
+                        sessions.append({
+                            "id": uid, 
+                            "platform": info.get("platform", "web"), 
+                            "profile": info, 
+                            "last_active": mtime
+                        })
+                    else:
+                        # Fallback สำหรับโครงสร้างเก่า (List)
+                        is_fb = filename.startswith("fb_")
+                        uid = filename.replace("fb_", "").replace(".json", "")
+                        sessions.append({
+                            "id": uid, 
+                            "platform": "facebook" if is_fb else "web", 
+                            "profile": {"name": f"User {uid[:5]}", "picture": "https://www.gravatar.com/avatar/?d=mp"}, 
+                            "last_active": mtime
+                        })
+            except: pass
     
     return sorted(sessions, key=lambda x: x["last_active"], reverse=True)
 
 @router.get("/chat/history/{platform}/{uid}", dependencies=[Depends(verify_admin)])
 async def get_chat_history(platform: str, uid: str):
-    """ดึงประวัติการแชทรายคนตาม Platform"""
+    """ดึงประวัติการแชทรายคน"""
     filename = f"fb_{uid}.json" if platform == "facebook" else f"{uid}.json"
     path = os.path.join(SESSION_DIR, filename)
     if not os.path.exists(path): return []
     try:
         with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
+            data = json.load(f)
+            if isinstance(data, dict):
+                return data.get("history", [])
+            return data # Case เก่าที่เป็น list
     except: return []
 
 @router.post("/chat/send", dependencies=[Depends(verify_admin)])

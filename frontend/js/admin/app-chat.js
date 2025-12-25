@@ -4,7 +4,6 @@ function adminChat() {
         currentSession: null,
         messages: [],
         newMessage: '',
-        selectedPlatform: 'facebook',
         botSettings: {},
         socket: null,
 
@@ -24,6 +23,11 @@ function adminChat() {
             // รับเหตุการณ์เมื่อ Bot หรือ Admin ตอบกลับ
             this.socket.on('admin_bot_reply', (data) => {
                 this.handleIncomingSocket(data, 'model');
+            });
+
+            // รับ Error จาก Server
+            this.socket.on('admin_error', (data) => {
+                alert(data.message);
             });
             
             // ตรวจสอบการเปลี่ยนสถานะบอทจาก Dashboard
@@ -52,6 +56,12 @@ function adminChat() {
             const text = this.newMessage.trim();
             if (!text || !this.currentSession) return;
             
+            // ตรวจสอบสถานะบอทก่อนส่งในฝั่ง Client
+            if (this.botSettings[this.currentSession.platform]) {
+                alert('กรุณาปิด Auto Bot ของแพลตฟอร์มนี้ก่อนตอบกลับ');
+                return;
+            }
+
             this.newMessage = '';
 
             // ส่งข้อมูลผ่าน Socket ไปยัง Backend
@@ -61,16 +71,15 @@ function adminChat() {
                 text: text
             });
 
-            // ข้อความจะถูกอัปเดตอัตโนมัติผ่าน Socket event 'admin_bot_reply'
             this.scrollToBottom();
         },
 
-        async toggleBot() {
-            const currentStatus = this.botSettings[this.selectedPlatform];
+        async toggleBot(platform) {
+            const currentStatus = this.botSettings[platform];
             const nextStatus = !currentStatus;
             
             const formData = new FormData();
-            formData.append('platform', this.selectedPlatform);
+            formData.append('platform', platform);
             formData.append('status', nextStatus);
 
             try {
@@ -83,15 +92,14 @@ function adminChat() {
         },
 
         handleIncomingSocket(data, role) {
-            // อัปเดตรายการ Session เมื่อมีข้อความใหม่
-            const exists = this.sessions.some(s => s.id === data.uid && s.platform === data.platform);
+            // อัปเดตรายการ Session เมื่อมีข้อความใหม่ (หรือถ้าเป็น Session ใหม่)
+            const exists = this.sessions.find(s => s.id === data.uid && s.platform === data.platform);
             if (!exists) {
                 this.refreshSessions();
             }
 
             // หากกำลังเปิดหน้าแชทของคนนี้อยู่ ให้อัปเดตข้อความทันที
             if (this.currentSession && this.currentSession.id === data.uid && this.currentSession.platform === data.platform) {
-                // ตรวจสอบเพื่อป้องกันข้อความซ้ำใน UI
                 const lastMsg = this.messages.length > 0 ? this.messages[this.messages.length - 1] : null;
                 if (!lastMsg || lastMsg.parts[0].text !== data.text) {
                     this.messages.push({

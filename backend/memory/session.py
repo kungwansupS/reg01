@@ -16,23 +16,70 @@ def get_session_path(session_id):
     safe_id = "".join([c for c in str(session_id) if c.isalnum() or c in ("-", "_")])
     return os.path.join(SESSION_DIR, f"{safe_id}.json")
 
-def get_or_create_history(session_id, context=""):
+def get_or_create_history(session_id, context="", user_name=None, user_picture=None, platform=None):
     path = get_session_path(session_id)
+    
+    # Robust Platform & Name Detection
+    is_fb = str(session_id).startswith("fb_")
+    detected_platform = platform or ("facebook" if is_fb else "web")
+    
+    clean_uid = str(session_id).replace("fb_", "")
+    if not user_name:
+        user_name = f"{detected_platform.capitalize()} User {clean_uid[:5]}"
+    
+    # ใช้รูปที่ส่งมา ถ้าไม่มีให้ใช้ Gravatar
+    final_pic = user_picture or "https://www.gravatar.com/avatar/?d=mp"
+
+    default_data = {
+        "user_info": {
+            "name": user_name,
+            "picture": final_pic,
+            "platform": detected_platform
+        },
+        "history": [{"role": "user", "parts": [{"text": context}]}] if context else []
+    }
+
     if os.path.exists(path):
         try:
             with open(path, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 if isinstance(data, list):
                     return data
+                return data.get("history", [])
         except (json.JSONDecodeError, Exception):
-            pass # หากไฟล์เสียจะสร้างใหม่
+            pass 
 
-    history = [{"role": "user", "parts": [{"text": context}]}] if context else []
     with open(path, "w", encoding="utf-8") as f:
-        json.dump(history, f, ensure_ascii=False, indent=2)
-    return history
+        json.dump(default_data, f, ensure_ascii=False, indent=2)
+    return default_data["history"]
 
-def save_history(session_id, history):
+def save_history(session_id, history, user_name=None, user_picture=None, platform=None):
+    path = get_session_path(session_id)
+    
+    is_fb = str(session_id).startswith("fb_")
+    detected_platform = platform or ("facebook" if is_fb else "web")
+    clean_uid = str(session_id).replace("fb_", "")
+    
+    # ดึงข้อมูลเดิมมาตั้งต้น
+    user_info = {
+        "name": user_name or f"{detected_platform.capitalize()} User {clean_uid[:5]}", 
+        "picture": user_picture or "https://www.gravatar.com/avatar/?d=mp", 
+        "platform": detected_platform
+    }
+    
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                old_data = json.load(f)
+                if isinstance(old_data, dict):
+                    user_info = old_data.get("user_info", user_info)
+        except: pass
+
+    # อัปเดต Metadata ใหม่ถ้ามีข้อมูลส่งมา
+    if user_name: user_info["name"] = user_name
+    if user_picture: user_info["picture"] = user_picture
+    if detected_platform: user_info["platform"] = detected_platform
+
     deduped_history = []
     for entry in history:
         if not deduped_history or deduped_history[-1] != entry:
@@ -47,12 +94,15 @@ def save_history(session_id, history):
             "parts": [{"text": f"สรุปบทสนทนาก่อนหน้านี้:\n{summary_text}"}]
         }] + recent
 
-    path = get_session_path(session_id)
+    final_data = {
+        "user_info": user_info,
+        "history": deduped_history
+    }
+
     with open(path, "w", encoding="utf-8") as f:
-        json.dump(deduped_history, f, ensure_ascii=False, indent=2)
+        json.dump(final_data, f, ensure_ascii=False, indent=2)
 
 def cleanup_old_sessions(days=7):
-    """ลบไฟล์ session ที่ไม่มีการเคลื่อนไหวเกินกำหนด"""
     try:
         now = time.time()
         cutoff = now - (days * 86400)

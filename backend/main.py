@@ -238,6 +238,7 @@ async def send_fb_text(psid: str, text: str):
 
 @sio.on("admin_manual_reply")
 async def handle_admin_reply(sid, data):
+    """จัดการเมื่อ Admin ตอบกลับด้วยตนเองผ่าน UI แชท"""
     uid = data.get("uid")
     text = data.get("text")
     platform = data.get("platform")
@@ -246,17 +247,27 @@ async def handle_admin_reply(sid, data):
         await sio.emit("admin_error", {"message": f"กรุณาปิด Auto Bot ของ {platform} ก่อนส่งข้อความ"}, room=sid)
         return
 
+    admin_display_text = f"[Admin]: {text}"
+
     if platform == "facebook":
         await send_fb_text(uid, text)
         session_key = f"fb_{uid}"
     else:
+        # สำหรับ Web แพลตฟอร์ม ให้ส่งไปยังหน้า User ด้วย
         await sio.emit("ai_response", {"motion": "Happy", "text": text})
         session_key = uid
 
+    # บันทึกลง History โดยใช้ฟังก์ชันมาตรฐาน
     history = get_or_create_history(session_key)
-    history.append({"role": "model", "parts": [{"text": f"[Admin]: {text}"}]})
+    history.append({"role": "model", "parts": [{"text": admin_display_text}]})
     save_history(session_key, history)
-    await sio.emit("admin_bot_reply", {"platform": platform, "uid": uid, "text": f"[Admin]: {text}"})
+    
+    # Broadcast แจ้ง Admin ทุกคน (รวมคนส่งด้วยเพื่อให้ UI Sync กัน)
+    await sio.emit("admin_bot_reply", {
+        "platform": platform, 
+        "uid": uid, 
+        "text": admin_display_text
+    })
 
 @app.get("/")
 async def serve_index(): return FileResponse("frontend/index.html")

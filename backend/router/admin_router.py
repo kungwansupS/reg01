@@ -200,15 +200,15 @@ async def get_chat_sessions():
     for filename in os.listdir(SESSION_DIR):
         if filename.endswith(".json"):
             path = os.path.join(SESSION_DIR, filename)
-            mtime = os.path.getmtime(path)
-            
             try:
+                mtime = os.path.getmtime(path)
                 with open(path, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                    # หากเป็นโครงสร้างใหม่ จะมี user_info
+                    uid = filename.replace(".json", "").replace("fb_", "")
+                    
+                    # ตรวจสอบโครงสร้างไฟล์ (New: Dict with user_info, Old: List)
                     if isinstance(data, dict) and "user_info" in data:
                         info = data["user_info"]
-                        uid = filename.replace(".json", "").replace("fb_", "")
                         sessions.append({
                             "id": uid, 
                             "platform": info.get("platform", "web"), 
@@ -216,9 +216,7 @@ async def get_chat_sessions():
                             "last_active": mtime
                         })
                     else:
-                        # Fallback สำหรับโครงสร้างเก่า (List)
                         is_fb = filename.startswith("fb_")
-                        uid = filename.replace("fb_", "").replace(".json", "")
                         sessions.append({
                             "id": uid, 
                             "platform": "facebook" if is_fb else "web", 

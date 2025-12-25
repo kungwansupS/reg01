@@ -70,8 +70,6 @@ function adminChat() {
                 platform: this.currentSession.platform,
                 text: text
             });
-
-            this.scrollToBottom();
         },
 
         async toggleBot(platform) {
@@ -92,16 +90,28 @@ function adminChat() {
         },
 
         handleIncomingSocket(data, role) {
-            // อัปเดตรายการ Session เมื่อมีข้อความใหม่ (หรือถ้าเป็น Session ใหม่)
-            const exists = this.sessions.find(s => s.id === data.uid && s.platform === data.platform);
-            if (!exists) {
+            // ค้นหาว่า Session นี้มีอยู่ในรายการหรือไม่
+            const sessionIndex = this.sessions.findIndex(s => s.id === data.uid && s.platform === data.platform);
+            
+            if (sessionIndex !== -1) {
+                // หากมีอยู่แล้ว ให้อัปเดตข้อมูล (เช่น ชื่อ/รูป) และย้ายขึ้นมาบนสุด
+                const existingSession = this.sessions[sessionIndex];
+                if (data.user_name) existingSession.profile.name = data.user_name;
+                if (data.user_pic) existingSession.profile.picture = data.user_pic;
+                
+                // ดัน Session นี้ขึ้นบนสุด
+                const movedSession = this.sessions.splice(sessionIndex, 1)[0];
+                this.sessions.unshift(movedSession);
+            } else {
+                // หากเป็น Session ใหม่ ให้ดึงรายการใหม่ทั้งหมดจาก API
                 this.refreshSessions();
             }
 
             // หากกำลังเปิดหน้าแชทของคนนี้อยู่ ให้อัปเดตข้อความทันที
             if (this.currentSession && this.currentSession.id === data.uid && this.currentSession.platform === data.platform) {
-                const lastMsg = this.messages.length > 0 ? this.messages[this.messages.length - 1] : null;
-                if (!lastMsg || lastMsg.parts[0].text !== data.text) {
+                // ป้องกันการเพิ่มข้อความซ้ำ (กรณีเป็น Echo จาก Admin เอง)
+                const isDuplicate = this.messages.some(m => m.role === role && m.parts[0].text === data.text);
+                if (!isDuplicate) {
                     this.messages.push({
                         role: role,
                         parts: [{ text: data.text }]

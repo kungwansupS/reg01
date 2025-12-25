@@ -1,4 +1,3 @@
-# [FILE: backend/main.py - FULLCODE ONLY]
 from fastapi import FastAPI, Request, UploadFile, Form, HTTPException, Depends, Response
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -70,22 +69,22 @@ def write_audit_log(user_id: str, platform: str, user_input: str, ai_response: s
         f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
 
 def is_bot_enabled(platform: str, session_id: str = None) -> bool:
-    """ตรวจสอบสถานะบอท: Global Platform และ Individual User"""
-    # 1. ตรวจสอบ Global Platform
-    global_status = True
+    """ตรวจสอบสถานะบอท: เช็คทั้งระดับ Global และรายบุคคล"""
+    # 1. เช็ค Global Platform
+    global_enabled = True
     if os.path.exists(BOT_SETTINGS_FILE):
         try:
             with open(BOT_SETTINGS_FILE, "r") as f:
                 settings = json.load(f)
-                global_status = settings.get(platform, True)
+                global_enabled = settings.get(platform, True)
         except: pass
     
-    if not global_status: return False
+    if not global_enabled: return False
 
-    # 2. ตรวจสอบ Individual User (ถ้ามี session_id)
+    # 2. เช็ครายบุคคล (ถ้ามีการส่ง session_id มา)
     if session_id:
         return is_user_bot_enabled(session_id)
-    
+        
     return True
 
 # ----------------------------------------------------------------------------- #
@@ -108,20 +107,20 @@ async def fb_worker():
         task = await fb_task_queue.get()
         psid = task["psid"]; user_text = task["text"]
         start_time = time.time()
-        session_key = f"fb_{psid}"
+        session_id = f"fb_{psid}"
         
         # แจ้งเตือน Admin ว่ามีข้อความเข้า
         await sio.emit("admin_new_message", {"platform": "facebook", "uid": psid, "text": user_text})
         
-        # ตรวจสอบว่าเปิด Bot หรือไม่ (ทั้ง Platform และ User นี้)
-        if not is_bot_enabled("facebook", session_key):
-            logger.info(f"Bot is disabled (Global/User) for Facebook: {psid}")
+        # ตรวจสอบว่าเปิด Bot หรือไม่ (Global & User)
+        if not is_bot_enabled("facebook", session_id):
+            logger.info(f"Bot is disabled for Facebook User: {psid}")
             fb_task_queue.task_done()
             continue
 
-        async with await get_session_lock(session_key):
+        async with await get_session_lock(session_id):
             try:
-                result = await ask_llm(user_text, session_key, emit_fn=sio.emit)
+                result = await ask_llm(user_text, session_id, emit_fn=sio.emit)
                 reply = result["text"]
                 await send_fb_text(psid, reply.replace("//", ""))
                 
@@ -191,9 +190,9 @@ async def handle_speech(
     # แจ้ง Admin ว่ามีข้อความเข้าจาก Web
     await sio.emit("admin_new_message", {"platform": "web", "uid": final_session_id, "text": text})
 
-    # ตรวจสอบสถานะ Bot (Global Platform และ Individual User)
+    # ตรวจสอบสถานะ Bot (Global & User)
     if not is_bot_enabled("web", final_session_id):
-         return {"text": "ขออภัย ขณะนี้ Bot ปิดให้บริการชั่วคราว", "motion": "Idle"}
+         return {"text": "เจ้าหน้าที่กำลังรับเรื่องต่อ...", "motion": "Idle"}
 
     async with await get_session_lock(final_session_id):
         result = await ask_llm(text, final_session_id, emit_fn=sio.emit)

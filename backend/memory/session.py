@@ -61,7 +61,7 @@ def save_history(session_id, history, user_name=None, user_picture=None, platfor
     detected_platform = platform or ("facebook" if is_fb else "web")
     clean_uid = str(session_id).replace("fb_", "")
     
-    # ข้อมูลเริ่มต้น
+    # ดึงข้อมูลเดิมมาตั้งต้นเพื่อไม่ให้ bot_enabled หาย
     user_info = {
         "name": user_name or f"{detected_platform.capitalize()} User {clean_uid[:5]}", 
         "picture": user_picture or "https://www.gravatar.com/avatar/?d=mp", 
@@ -77,7 +77,7 @@ def save_history(session_id, history, user_name=None, user_picture=None, platfor
                     user_info = old_data.get("user_info", user_info)
         except: pass
 
-    # อัปเดต Metadata
+    # อัปเดต Metadata ใหม่ถ้ามีข้อมูลส่งมา
     if user_name: user_info["name"] = user_name
     if user_picture: user_info["picture"] = user_picture
     if detected_platform: user_info["platform"] = detected_platform
@@ -105,7 +105,7 @@ def save_history(session_id, history, user_name=None, user_picture=None, platfor
         json.dump(final_data, f, ensure_ascii=False, indent=2)
 
 def set_user_bot_status(session_id, status: bool):
-    """เปิด-ปิดบอทเฉพาะรายบุคคล"""
+    """อัปเดตสถานะบอทรายบุคคลในไฟล์ Session"""
     path = get_session_path(session_id)
     if os.path.exists(path):
         try:

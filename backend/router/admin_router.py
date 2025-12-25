@@ -1,4 +1,3 @@
-# [FILE: backend/router/admin_router.py - FULLCODE ONLY]
 from fastapi import APIRouter, UploadFile, Form, HTTPException, Depends, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.security.api_key import APIKeyHeader
@@ -204,7 +203,7 @@ async def toggle_bot(platform: str = Form(...), status: str = Form(...), uid: Op
 
 @router.get("/chat/sessions", dependencies=[Depends(verify_admin)])
 async def get_chat_sessions():
-    """ดึงรายชื่อ Session การแชทล่าสุดพร้อมสถานะ Bot รายบุคคล"""
+    """ดึงรายชื่อ Session พร้อมข้อมูลชื่อและรูปจากไฟล์จริง"""
     sessions = []
     if not os.path.exists(SESSION_DIR): return []
     
@@ -218,21 +217,22 @@ async def get_chat_sessions():
             platform = "facebook" if is_fb else "web"
             uid = filename.replace("fb_", "").replace(".json", "")
             
-            # ข้อมูลพื้นฐานจากไฟล์ Session
-            user_bot_enabled = True
+            # ข้อมูล Profile เบื้องต้น
             profile = {"name": f"{platform.upper()} User {uid[:5]}", "picture": "https://www.gravatar.com/avatar/?d=mp"}
+            bot_enabled = True
             
+            # อ่านข้อมูลจริงจากไฟล์ Session
             try:
                 with open(path, "r", encoding="utf-8") as f:
                     data = json.load(f)
                     user_info = data.get("user_info", {})
-                    user_bot_enabled = user_info.get("bot_enabled", True)
                     profile["name"] = user_info.get("name", profile["name"])
                     profile["picture"] = user_info.get("picture", profile["picture"])
+                    bot_enabled = user_info.get("bot_enabled", True)
             except: pass
 
             sessions.append({
-                "id": uid, "platform": platform, "profile": profile, "last_active": mtime, "bot_enabled": user_bot_enabled
+                "id": uid, "platform": platform, "profile": profile, "last_active": mtime, "bot_enabled": bot_enabled
             })
     
     return sorted(sessions, key=lambda x: x["last_active"], reverse=True)
@@ -242,11 +242,11 @@ async def get_chat_history(platform: str, uid: str):
     """ดึงประวัติการแชทรายคนตาม Platform"""
     filename = f"fb_{uid}.json" if platform == "facebook" else f"{uid}.json"
     path = os.path.join(SESSION_DIR, filename)
-    if not os.path.exists(path): return []
+    if not os.path.exists(path): return {"user_info": {}, "history": []}
     try:
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
-    except: return []
+    except: return {"user_info": {}, "history": []}
 
 @router.post("/chat/send", dependencies=[Depends(verify_admin)])
 async def admin_send_message(platform: str = Form(...), uid: str = Form(...), message: str = Form(...)):

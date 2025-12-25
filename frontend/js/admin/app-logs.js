@@ -30,7 +30,7 @@ window.loadLogsTab = function() {
             </div>
 
             <!-- Stats Summary -->
-            <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
                 <!-- Total Queries -->
                 <div class="card-enterprise stat-card p-6 rounded-xl shadow-lg">
                     <p class="text-xs font-bold uppercase tracking-wider mb-2" style="color: var(--text-tertiary);">Total Queries</p>
@@ -43,16 +43,10 @@ window.loadLogsTab = function() {
                     <h3 class="text-3xl font-black gradient-text-cmu" x-text="calculateAvgLatency() + 'ms'">0ms</h3>
                 </div>
                 
-                <!-- Success Rate -->
+                <!-- Total Tokens -->
                 <div class="card-enterprise stat-card p-6 rounded-xl shadow-lg">
-                    <p class="text-xs font-bold uppercase tracking-wider mb-2" style="color: var(--text-tertiary);">Success Rate</p>
-                    <h3 class="text-3xl font-black" style="color: var(--success);" x-text="calculateSuccessRate() + '%'">0%</h3>
-                </div>
-                
-                <!-- Today's Queries -->
-                <div class="card-enterprise stat-card p-6 rounded-xl shadow-lg">
-                    <p class="text-xs font-bold uppercase tracking-wider mb-2" style="color: var(--text-tertiary);">Today's Queries</p>
-                    <h3 class="text-3xl font-black" style="color: var(--cmu-purple);" x-text="getTodayCount()">0</h3>
+                    <p class="text-xs font-bold uppercase tracking-wider mb-2" style="color: var(--text-tertiary);">Total Tokens</p>
+                    <h3 class="text-3xl font-black" style="color: var(--accent-gold);" x-text="calculateTotalTokens().toLocaleString()">0</h3>
                 </div>
             </div>
 
@@ -112,6 +106,7 @@ window.loadLogsTab = function() {
                                 <th class="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider" style="color: var(--text-secondary);">Query</th>
                                 <th class="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider hidden md:table-cell" style="color: var(--text-secondary);">Response</th>
                                 <th class="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider" style="color: var(--text-secondary);">Latency</th>
+                                <th class="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider hidden lg:table-cell" style="color: var(--text-secondary);">Tokens/Cost</th>
                             </tr>
                         </thead>
                         <tbody style="border-top: 1px solid var(--border-secondary);">
@@ -160,6 +155,26 @@ window.loadLogsTab = function() {
                                                     'background-color: rgba(255, 59, 48, 0.1); color: var(--danger);'"
                                             x-text="log.latency + 'ms'">
                                         </span>
+                                    </td>
+
+                                    <td class="px-6 py-4 text-sm hidden lg:table-cell">
+                                        <template x-if="log.tokens">
+                                            <div class="flex flex-col gap-1">
+                                                <span class="badge-enterprise text-xs" 
+                                                      style="background-color: rgba(81, 45, 109, 0.1); color: var(--cmu-purple);"
+                                                      x-text="log.tokens.total + ' tokens'">
+                                                </span>
+                                                <template x-if="log.tokens.cost_usd">
+                                                    <span class="badge-enterprise text-xs" 
+                                                          style="background-color: rgba(196, 160, 82, 0.1); color: var(--accent-gold);"
+                                                          x-text="'$' + log.tokens.cost_usd.toFixed(6)">
+                                                    </span>
+                                                </template>
+                                            </div>
+                                        </template>
+                                        <template x-if="!log.tokens">
+                                            <span class="text-xs" style="color: var(--text-tertiary);">N/A</span>
+                                        </template>
                                     </td>
                                 </tr>
                             </template>
@@ -279,6 +294,40 @@ window.loadLogsTab = function() {
                                 <label class="text-xs font-bold uppercase tracking-wider" style="color: var(--text-tertiary);">Rating</label>
                                 <p class="text-2xl font-black mt-1" style="color: var(--success);" 
                                    x-text="selectedLog && selectedLog.rating"></p>
+                            </div>
+                        </div>
+                        
+                        <!-- Token Information -->
+                        <div x-show="selectedLog && selectedLog.tokens" class="mt-4">
+                            <label class="text-xs font-bold uppercase tracking-wider mb-3 block" style="color: var(--text-tertiary);">Token Usage & Cost</label>
+                            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                <div class="p-4 rounded-xl" style="background-color: rgba(81, 45, 109, 0.05);">
+                                    <p class="text-xs font-bold mb-1" style="color: var(--text-tertiary);">Prompt</p>
+                                    <p class="text-xl font-black" style="color: var(--cmu-purple);" 
+                                       x-text="selectedLog && selectedLog.tokens && selectedLog.tokens.prompt || 0"></p>
+                                </div>
+                                <div class="p-4 rounded-xl" style="background-color: rgba(52, 199, 89, 0.05);">
+                                    <p class="text-xs font-bold mb-1" style="color: var(--text-tertiary);">Completion</p>
+                                    <p class="text-xl font-black" style="color: var(--success);" 
+                                       x-text="selectedLog && selectedLog.tokens && selectedLog.tokens.completion || 0"></p>
+                                </div>
+                                <div class="p-4 rounded-xl" style="background-color: rgba(196, 160, 82, 0.05);">
+                                    <p class="text-xs font-bold mb-1" style="color: var(--text-tertiary);">Total</p>
+                                    <p class="text-xl font-black" style="color: var(--accent-gold);" 
+                                       x-text="selectedLog && selectedLog.tokens && selectedLog.tokens.total || 0"></p>
+                                </div>
+                                <div class="p-4 rounded-xl" style="background-color: rgba(255, 149, 0, 0.05);" 
+                                     x-show="selectedLog && selectedLog.tokens && selectedLog.tokens.cost_usd">
+                                    <p class="text-xs font-bold mb-1" style="color: var(--text-tertiary);">Cost (USD)</p>
+                                    <p class="text-xl font-black" style="color: var(--warning);" 
+                                       x-text="selectedLog && selectedLog.tokens && selectedLog.tokens.cost_usd ? '$' + selectedLog.tokens.cost_usd.toFixed(6) : '$0'"></p>
+                                </div>
+                            </div>
+                            <div x-show="selectedLog && selectedLog.tokens && selectedLog.tokens.cached" 
+                                 class="mt-3 px-4 py-2 rounded-xl flex items-center gap-2"
+                                 style="background-color: rgba(52, 199, 89, 0.1);">
+                                <i data-lucide="zap" class="w-4 h-4" style="color: var(--success);"></i>
+                                <span class="text-sm font-bold" style="color: var(--success);">Cached Response (Faster & Cheaper)</span>
                             </div>
                         </div>
                     </div>
@@ -405,6 +454,13 @@ window.logsModule = function() {
                 logDate.setHours(0, 0, 0, 0);
                 return logDate.getTime() === today.getTime();
             }).length;
+        },
+
+        calculateTotalTokens() {
+            if (this.logs.length === 0) return 0;
+            return this.logs.reduce((sum, log) => {
+                return sum + (log.tokens?.total || 0);
+            }, 0);
         }
     };
 };

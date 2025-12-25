@@ -23,6 +23,7 @@ from app.tts import speak
 from app.stt import transcribe
 from app.utils.llm.llm import ask_llm
 from app.utils.pose import suggest_pose
+from app.utils.token_counter import calculate_cost
 from app.config import BOT_SETTINGS_FILE
 from dotenv import load_dotenv
 from memory.session import (
@@ -64,7 +65,29 @@ async def get_session_lock(session_id: str):
 def hash_id(user_id: str) -> str:
     return hashlib.sha256(user_id.encode()).hexdigest()[:16]
 
-def write_audit_log(user_id: str, platform: str, user_input: str, ai_response: str, latency: float, rating: str = "none"):
+def write_audit_log(
+    user_id: str, 
+    platform: str, 
+    user_input: str, 
+    ai_response: str, 
+    latency: float, 
+    rating: str = "none",
+    tokens: dict = None,
+    model_name: str = None
+):
+    """
+    Write comprehensive audit log with token tracking
+    
+    Args:
+        user_id: User identifier
+        platform: Platform (web/facebook/line)
+        user_input: User's input text
+        ai_response: AI's response text
+        latency: Response time in seconds
+        rating: User rating (if any)
+        tokens: Token usage dict {prompt_tokens, completion_tokens, total_tokens, cached}
+        model_name: Model name used for the response
+    """
     log_entry = {
         "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "anon_id": hash_id(user_id),
@@ -74,6 +97,22 @@ def write_audit_log(user_id: str, platform: str, user_input: str, ai_response: s
         "latency": round(latency, 2),
         "rating": rating
     }
+    
+    # Add token information if available
+    if tokens:
+        log_entry["tokens"] = {
+            "prompt": tokens.get("prompt_tokens", 0),
+            "completion": tokens.get("completion_tokens", 0),
+            "total": tokens.get("total_tokens", 0),
+            "cached": tokens.get("cached", False)
+        }
+        
+        # Add cost if model name provided
+        if model_name:
+            cost = calculate_cost(tokens, model_name)
+            if cost > 0:
+                log_entry["tokens"]["cost_usd"] = round(cost, 6)
+    
     os.makedirs("logs", exist_ok=True)
     with open("logs/user_audit.log", "a", encoding="utf-8") as f:
         f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
@@ -95,6 +134,8 @@ app.mount("/assets", StaticFiles(directory="frontend/assets"), name="assets")
 
 async def fb_worker():
     """Worker สำหรับประมวลผลข้อความจาก Facebook"""
+    from app.config import LLM_PROVIDER, GEMINI_MODEL_NAME, OPENAI_MODEL_NAME, LOCAL_MODEL_NAME
+    
     while True:
         task = await fb_task_queue.get()
         psid = task["psid"]
@@ -148,6 +189,7 @@ async def fb_worker():
                 
                 result = await ask_llm(user_text, session_id, emit_fn=sio.emit)
                 reply = result["text"]
+                tokens = result.get("tokens", {})
                 
                 fb_message = f"[Bot พี่เร็ก] {reply.replace('//', '')}"
                 await send_fb_text(psid, fb_message)
@@ -158,7 +200,25 @@ async def fb_worker():
                     "text": fb_message
                 })
                 
-                write_audit_log(psid, "facebook", user_text, reply, time.time() - start_time)
+                # Get model name
+                if LLM_PROVIDER == "gemini":
+                    model_name = GEMINI_MODEL_NAME
+                elif LLM_PROVIDER == "openai":
+                    model_name = OPENAI_MODEL_NAME
+                else:
+                    model_name = LOCAL_MODEL_NAME
+                
+                # Write audit log with token info
+                write_audit_log(
+                    psid, 
+                    "facebook", 
+                    user_text, 
+                    reply, 
+                    time.time() - start_time,
+                    tokens=tokens,
+                    model_name=model_name
+                )
+                
                 logger.info(f"   ✅ Processed successfully")
             except Exception as e: 
                 logger.error(f"   ❌ FB Worker Error: {e}")
@@ -220,6 +280,8 @@ async def handle_speech(
     auth: str = Depends(APIKeyHeader(name="X-API-Key", auto_error=False))
 ):
     """จัดการข้อความจาก Web Interface"""
+    from app.config import LLM_PROVIDER, GEMINI_MODEL_NAME, OPENAI_MODEL_NAME, LOCAL_MODEL_NAME
+    
     start_time = time.time()
     user_id = auth or "anonymous"
     final_session_id = session_id if session_id else (user_id if user_id != "local-dev-user" else str(uuid.uuid4()))
@@ -262,8 +324,26 @@ async def handle_speech(
         result = await ask_llm(text, final_session_id, emit_fn=sio.emit)
         reply = result["text"]
         motion = await suggest_pose(reply)
-        
-    write_audit_log(user_id, "web", text, reply, time.time() - start_time)
+        tokens = result.get("tokens", {})
+    
+    # Get model name
+    if LLM_PROVIDER == "gemini":
+        model_name = GEMINI_MODEL_NAME
+    elif LLM_PROVIDER == "openai":
+        model_name = OPENAI_MODEL_NAME
+    else:
+        model_name = LOCAL_MODEL_NAME
+    
+    # Write audit log with token info
+    write_audit_log(
+        user_id, 
+        "web", 
+        text, 
+        reply, 
+        time.time() - start_time,
+        tokens=tokens,
+        model_name=model_name
+    )
     
     display_text = f"[Bot พี่เร็ก] {reply.replace('//', ' ')}"
     

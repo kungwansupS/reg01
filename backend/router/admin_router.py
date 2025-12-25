@@ -15,7 +15,7 @@ from concurrent.futures import ThreadPoolExecutor
 # Import Config จากระบบ
 from app.config import PDF_INPUT_FOLDER, PDF_QUICK_USE_FOLDER, BOT_SETTINGS_FILE, SESSION_DIR
 from memory.faq_cache import get_faq_analytics
-from memory.session import get_bot_enabled, set_bot_enabled  # ✅ เพิ่ม import
+from memory.session import get_bot_enabled, set_bot_enabled
 from pdf_to_txt import process_pdfs
 
 # สร้าง Router สำหรับ Admin
@@ -78,9 +78,65 @@ def format_size(size_bytes):
     s = round(size_bytes / p, 2)
     return f"{s} {size_name[i]}"
 
+def calculate_token_analytics(logs: list) -> dict:
+    """
+    Calculate comprehensive token usage analytics from logs
+    
+    Args:
+        logs: List of log entries
+    
+    Returns:
+        Dict with token statistics
+    """
+    if not logs:
+        return {
+            "total_tokens": 0,
+            "total_prompt_tokens": 0,
+            "total_completion_tokens": 0,
+            "cached_responses": 0,
+            "total_cost_usd": 0.0,
+            "avg_tokens_per_request": 0,
+            "requests_with_tokens": 0
+        }
+    
+    total_tokens = 0
+    total_prompt = 0
+    total_completion = 0
+    cached_count = 0
+    total_cost = 0.0
+    requests_with_tokens = 0
+    
+    for log in logs:
+        if "tokens" in log:
+            tokens = log["tokens"]
+            total_tokens += tokens.get("total", 0)
+            total_prompt += tokens.get("prompt", 0)
+            total_completion += tokens.get("completion", 0)
+            
+            if tokens.get("cached", False):
+                cached_count += 1
+            
+            if "cost_usd" in tokens:
+                total_cost += tokens["cost_usd"]
+            
+            requests_with_tokens += 1
+    
+    avg_tokens = total_tokens / requests_with_tokens if requests_with_tokens > 0 else 0
+    
+    return {
+        "total_tokens": total_tokens,
+        "total_prompt_tokens": total_prompt,
+        "total_completion_tokens": total_completion,
+        "cached_responses": cached_count,
+        "total_cost_usd": round(total_cost, 4),
+        "avg_tokens_per_request": round(avg_tokens, 2),
+        "requests_with_tokens": requests_with_tokens,
+        "cache_hit_rate": round((cached_count / len(logs) * 100), 2) if logs else 0
+    }
+
 @router.get("/stats", dependencies=[Depends(verify_admin)])
 async def get_stats():
-    """ดึงข้อมูล Dashboard Stats"""
+    """ดึงข้อมูล Dashboard Stats พร้อม Token Analytics"""
     logs = []
     log_path = "logs/user_audit.log"
     if os.path.exists(log_path):
@@ -89,11 +145,15 @@ async def get_stats():
                 lines = f.readlines()
                 logs = [json.loads(line) for line in lines][-100:]
         except: logs = []
-            
+    
+    # Calculate token analytics
+    token_analytics = calculate_token_analytics(logs)
+    
     return {
         "recent_logs": logs,
         "faq_analytics": get_faq_analytics(),
-        "bot_settings": get_bot_settings(),  # ✅ เก็บไว้เพื่อ backward compatibility
+        "bot_settings": get_bot_settings(),
+        "token_analytics": token_analytics,  # NEW: Token analytics
         "system_time": datetime.datetime.now().isoformat()
     }
 
@@ -187,7 +247,7 @@ async def delete_items(root: str, paths: str):
     return {"status": "deleted"}
 
 # ----------------------------------------------------------------------------- #
-# CHAT & BOT CONTROL ENDPOINTS (✅ NEW VERSION)
+# CHAT & BOT CONTROL ENDPOINTS
 # ----------------------------------------------------------------------------- #
 
 @router.post("/bot-toggle", dependencies=[Depends(verify_admin)])
@@ -256,12 +316,9 @@ async def get_chat_sessions():
                     session_id = filename.replace(".json", "")
                     logger.debug(f"  [{file_count}/{len(files)}] Processing: {session_id}")
                     
-                    # ✅ ดึง bot_enabled จาก session
                     bot_enabled = data.get("bot_enabled", True)
                     
-                    # ตรวจสอบรูปแบบข้อมูล
                     if isinstance(data, dict) and "user_info" in data:
-                        # รูปแบบใหม่ (มี metadata)
                         info = data["user_info"]
                         history = data.get("history", [])
                         
@@ -272,13 +329,12 @@ async def get_chat_sessions():
                                 "name": info.get("name", f"User {session_id[:8]}"),
                                 "picture": info.get("picture", "https://www.gravatar.com/avatar/?d=mp")
                             },
-                            "bot_enabled": bot_enabled,  # ✅ เพิ่ม field นี้
+                            "bot_enabled": bot_enabled,
                             "last_active": mtime
                         })
                         logger.debug(f"    ✅ Valid session: {info.get('name')} (Bot: {bot_enabled})")
                         
                     elif isinstance(data, list):
-                        # รูปแบบเก่า (เป็น array ของ messages)
                         is_fb = filename.startswith("fb_")
                         
                         sessions.append({
@@ -288,7 +344,7 @@ async def get_chat_sessions():
                                 "name": f"User {session_id[:8]}",
                                 "picture": "https://www.gravatar.com/avatar/?d=mp"
                             },
-                            "bot_enabled": True,  # ✅ Default สำหรับ session เก่า
+                            "bot_enabled": True,
                             "last_active": mtime
                         })
                         logger.debug(f"    ⚠️ Old format (migrating): {session_id}")
@@ -303,11 +359,9 @@ async def get_chat_sessions():
                 logger.error(f"    ❌ Error loading {filename}: {e}")
                 continue
         
-        # เรียงตาม last_active
         sessions.sort(key=lambda x: x["last_active"], reverse=True)
         logger.info(f"✅ Successfully loaded {len(sessions)}/{file_count} sessions")
         
-        # แสดง 5 sessions แรก
         if sessions:
             logger.info("📋 Recent sessions:")
             for i, s in enumerate(sessions[:5], 1):
@@ -324,7 +378,6 @@ async def get_chat_history(platform: str, uid: str):
     """ดึงประวัติการแชทรายคน"""
     logger.info(f"📖 Loading history for {platform}/{uid}")
     
-    # ใช้ uid ตรงๆ เป็นชื่อไฟล์
     filename = f"{uid}.json"
     path = os.path.join(SESSION_DIR, filename)
     
@@ -339,18 +392,15 @@ async def get_chat_history(platform: str, uid: str):
             data = json.load(f)
             
             if isinstance(data, dict) and "history" in data:
-                # รูปแบบใหม่
                 history = data["history"]
                 logger.info(f"   ✅ Loaded {len(history)} messages (new format)")
             elif isinstance(data, list):
-                # รูปแบบเก่า
                 history = data
                 logger.info(f"   ✅ Loaded {len(history)} messages (old format)")
             else:
                 logger.error(f"   ❌ Unknown data format")
                 return []
             
-            # กรองเฉพาะข้อความที่ถูกต้อง
             filtered = [
                 msg for msg in history
                 if msg.get("role") in ["user", "model"]

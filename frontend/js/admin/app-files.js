@@ -55,7 +55,7 @@ window.loadFilesTab = function() {
                             :class="fileSystem.root === 'uploads' ? 'active-root' : ''"
                             class="px-6 py-2 rounded-lg font-bold text-sm transition-all"
                             :style="fileSystem.root === 'uploads' ? 'background-color: var(--bg-secondary); color: var(--cmu-purple); box-shadow: 0 2px 8px rgba(0,0,0,0.1);' : 'color: var(--text-secondary);'">
-                            Quick Use (TXT)
+                            RAG (TXT)
                         </button>
                     </div>
 

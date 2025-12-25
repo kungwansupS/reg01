@@ -16,7 +16,6 @@ from concurrent.futures import ThreadPoolExecutor
 from app.config import PDF_INPUT_FOLDER, PDF_QUICK_USE_FOLDER, BOT_SETTINGS_FILE, SESSION_DIR
 from memory.faq_cache import get_faq_analytics
 from pdf_to_txt import process_pdfs
-from memory.session import set_user_bot_status
 
 # สร้าง Router สำหรับ Admin
 router = APIRouter(prefix="/api/admin")
@@ -185,25 +184,16 @@ async def delete_items(root: str, paths: str):
 # ----------------------------------------------------------------------------- #
 
 @router.post("/bot-toggle", dependencies=[Depends(verify_admin)])
-async def toggle_bot(platform: str = Form(...), status: str = Form(...), uid: Optional[str] = Form(None)):
-    """สลับสถานะเปิด/ปิด Bot (รองรับทั้ง Platform และ Individual User)"""
-    is_on = status.lower() == 'true'
-    
-    if uid:
-        # กรณีระบุ UID: ปรับสถานะบอทรายบุคคล
-        session_key = f"fb_{uid}" if platform == "facebook" else uid
-        success = set_user_bot_status(session_key, is_on)
-        return {"status": "success" if success else "error", "mode": "individual", "uid": uid, "bot_enabled": is_on}
-    else:
-        # กรณีไม่ระบุ UID: ปรับสถานะบอททั้ง Platform
-        settings = get_bot_settings()
-        settings[platform] = is_on
-        save_bot_settings(settings)
-        return {"status": "success", "mode": "global", "settings": settings}
+async def toggle_bot(platform: str = Form(...), status: bool = Form(...)):
+    """สลับสถานะเปิด/ปิด Bot"""
+    settings = get_bot_settings()
+    settings[platform] = status
+    save_bot_settings(settings)
+    return {"status": "success", "settings": settings}
 
 @router.get("/chat/sessions", dependencies=[Depends(verify_admin)])
 async def get_chat_sessions():
-    """ดึงรายชื่อ Session พร้อมข้อมูลชื่อและรูปจากไฟล์จริง"""
+    """ดึงรายชื่อ Session การแชทล่าสุด โดยอ่าน metadata จากไฟล์โดยตรง"""
     sessions = []
     if not os.path.exists(SESSION_DIR): return []
     
@@ -212,43 +202,48 @@ async def get_chat_sessions():
             path = os.path.join(SESSION_DIR, filename)
             mtime = os.path.getmtime(path)
             
-            # แยกแยะ Platform
-            is_fb = filename.startswith("fb_")
-            platform = "facebook" if is_fb else "web"
-            uid = filename.replace("fb_", "").replace(".json", "")
-            
-            # ข้อมูล Profile เบื้องต้น
-            profile = {"name": f"{platform.upper()} User {uid[:5]}", "picture": "https://www.gravatar.com/avatar/?d=mp"}
-            bot_enabled = True
-            
-            # อ่านข้อมูลจริงจากไฟล์ Session
             try:
                 with open(path, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                    user_info = data.get("user_info", {})
-                    profile["name"] = user_info.get("name", profile["name"])
-                    profile["picture"] = user_info.get("picture", profile["picture"])
-                    bot_enabled = user_info.get("bot_enabled", True)
+                    # หากเป็นโครงสร้างใหม่ จะมี user_info
+                    if isinstance(data, dict) and "user_info" in data:
+                        info = data["user_info"]
+                        uid = filename.replace(".json", "").replace("fb_", "")
+                        sessions.append({
+                            "id": uid, 
+                            "platform": info.get("platform", "web"), 
+                            "profile": info, 
+                            "last_active": mtime
+                        })
+                    else:
+                        # Fallback สำหรับโครงสร้างเก่า (List)
+                        is_fb = filename.startswith("fb_")
+                        uid = filename.replace("fb_", "").replace(".json", "")
+                        sessions.append({
+                            "id": uid, 
+                            "platform": "facebook" if is_fb else "web", 
+                            "profile": {"name": f"User {uid[:5]}", "picture": "https://www.gravatar.com/avatar/?d=mp"}, 
+                            "last_active": mtime
+                        })
             except: pass
-
-            sessions.append({
-                "id": uid, "platform": platform, "profile": profile, "last_active": mtime, "bot_enabled": bot_enabled
-            })
     
     return sorted(sessions, key=lambda x: x["last_active"], reverse=True)
 
 @router.get("/chat/history/{platform}/{uid}", dependencies=[Depends(verify_admin)])
 async def get_chat_history(platform: str, uid: str):
-    """ดึงประวัติการแชทรายคนตาม Platform"""
+    """ดึงประวัติการแชทรายคน"""
     filename = f"fb_{uid}.json" if platform == "facebook" else f"{uid}.json"
     path = os.path.join(SESSION_DIR, filename)
-    if not os.path.exists(path): return {"user_info": {}, "history": []}
+    if not os.path.exists(path): return []
     try:
         with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except: return {"user_info": {}, "history": []}
+            data = json.load(f)
+            if isinstance(data, dict):
+                return data.get("history", [])
+            return data # Case เก่าที่เป็น list
+    except: return []
 
 @router.post("/chat/send", dependencies=[Depends(verify_admin)])
 async def admin_send_message(platform: str = Form(...), uid: str = Form(...), message: str = Form(...)):
-    """Admin ส่งข้อความตอบกลับด้วยตนเอง"""
+    """Admin ส่งข้อความตอบกลับด้วยตนเอง (API Proxy)"""
     return {"status": "success", "platform": platform, "uid": uid}

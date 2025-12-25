@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Admin Dashboard | RAG Management System</title>
+    <title>Advanced Admin Dashboard | RAG Folder System</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
@@ -11,7 +11,7 @@
     <style>
         body { font-family: 'Inter', sans-serif; }
         [x-cloak] { display: none !important; }
-        .glass-card { background: rgba(255, 255, 255, 0.8); backdrop-filter: blur(10px); }
+        .breadcrumb-item:not(:last-child)::after { content: '/'; margin: 0 0.5rem; color: #9ca3af; }
     </style>
 </head>
 <body class="bg-gray-50 min-h-screen" x-data="adminPanel()" x-init="init()">
@@ -23,13 +23,13 @@
                     <div class="bg-indigo-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
                         <i data-lucide="lock" class="text-indigo-600 w-8 h-8"></i>
                     </div>
-                    <h2 class="text-2xl font-bold text-gray-800">Admin Authentication</h2>
-                    <p class="text-gray-500 text-sm">กรุณาระบุ Admin Token เพื่อเข้าสู่ระบบ</p>
+                    <h2 class="text-2xl font-bold text-gray-800">Admin Login</h2>
+                    <p class="text-gray-500 text-sm">กรุณาระบุ Admin Token เพื่อจัดการไฟล์</p>
                 </div>
                 <div class="space-y-4">
                     <input type="password" x-model="tokenInput" @keyup.enter="login()"
-                        class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition"
-                        placeholder="ระบุ Admin Token ที่นี่...">
+                        class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none transition"
+                        placeholder="Admin Token...">
                     <button @click="login()"
                         class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 rounded-xl transition shadow-lg shadow-indigo-200">
                         เข้าสู่ระบบ
@@ -42,90 +42,63 @@
     <div x-show="isLoggedIn" x-cloak class="flex">
         
         <aside class="w-64 bg-white border-r border-gray-100 h-screen sticky top-0 flex flex-col">
-            <div class="p-6 border-b border-gray-50">
-                <div class="flex items-center space-x-3">
-                    <div class="bg-indigo-600 p-2 rounded-lg">
-                        <i data-lucide="shield" class="text-white w-5 h-5"></i>
-                    </div>
-                    <span class="font-bold text-xl text-gray-800">REG-RAG</span>
-                </div>
+            <div class="p-6 border-b border-gray-50 flex items-center space-x-3">
+                <div class="bg-indigo-600 p-2 rounded-lg"><i data-lucide="folder-tree" class="text-white w-5 h-5"></i></div>
+                <span class="font-bold text-xl text-gray-800">REG-ADMIN</span>
             </div>
             
             <nav class="flex-1 p-4 space-y-2">
                 <button @click="activeTab = 'dashboard'" :class="activeTab === 'dashboard' ? 'bg-indigo-50 text-indigo-600' : 'text-gray-500 hover:bg-gray-50'"
-                    class="w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition group">
+                    class="w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition font-medium">
                     <i data-lucide="layout-dashboard" class="w-5 h-5"></i>
-                    <span class="font-medium">Dashboard</span>
+                    <span>Dashboard</span>
                 </button>
                 <button @click="activeTab = 'files'" :class="activeTab === 'files' ? 'bg-indigo-50 text-indigo-600' : 'text-gray-500 hover:bg-gray-50'"
-                    class="w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition">
-                    <i data-lucide="file-text" class="w-5 h-5"></i>
-                    <span class="font-medium">File Manager</span>
+                    class="w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition font-medium">
+                    <i data-lucide="files" class="w-5 h-5"></i>
+                    <span>File Explorer</span>
                 </button>
                 <button @click="activeTab = 'logs'" :class="activeTab === 'logs' ? 'bg-indigo-50 text-indigo-600' : 'text-gray-500 hover:bg-gray-50'"
-                    class="w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition">
-                    <i data-lucide="activity" class="w-5 h-5"></i>
-                    <span class="font-medium">Audit Logs</span>
+                    class="w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition font-medium">
+                    <i data-lucide="history" class="w-5 h-5"></i>
+                    <span>Audit Logs</span>
                 </button>
             </nav>
 
             <div class="p-4 border-t border-gray-100">
-                <button @click="logout()" class="w-full flex items-center space-x-3 px-4 py-3 text-red-500 hover:bg-red-50 rounded-xl transition">
+                <button @click="logout()" class="w-full flex items-center space-x-3 px-4 py-3 text-red-500 hover:bg-red-50 rounded-xl transition font-medium">
                     <i data-lucide="log-out" class="w-5 h-5"></i>
-                    <span class="font-medium">ออกจากระบบ</span>
+                    <span>ออกจากระบบ</span>
                 </button>
             </div>
         </aside>
 
         <main class="flex-1 p-8 overflow-y-auto h-screen">
             
-            <div class="flex justify-between items-center mb-8">
-                <div>
-                    <h1 class="text-3xl font-bold text-gray-800" x-text="tabTitles[activeTab]"></h1>
-                    <p class="text-gray-500">จัดการระบบและประมวลผล RAG ของคุณ</p>
-                </div>
-                <div class="flex items-center space-x-4">
-                    <div class="bg-white px-4 py-2 rounded-xl border border-gray-200 shadow-sm flex items-center space-x-2">
-                        <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                        <span class="text-sm font-medium text-gray-600">System Online</span>
-                    </div>
-                </div>
-            </div>
-
             <div x-show="activeTab === 'dashboard'" class="space-y-6">
+                <h1 class="text-3xl font-bold text-gray-800">System Overview</h1>
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
                     <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-                        <p class="text-gray-400 text-sm font-medium uppercase tracking-wider">Total Interactions</p>
-                        <h3 class="text-4xl font-bold text-gray-800 mt-2" x-text="stats.recent_logs.length">0</h3>
-                        <div class="mt-4 flex items-center text-green-500 text-sm">
-                            <i data-lucide="trending-up" class="w-4 h-4 mr-1"></i>
-                            <span>Recent activity active</span>
-                        </div>
+                        <p class="text-gray-400 text-xs font-bold uppercase">Recent Interaction</p>
+                        <h3 class="text-3xl font-bold text-gray-800 mt-1" x-text="stats.recent_logs.length">0</h3>
                     </div>
                     <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-                        <p class="text-gray-400 text-sm font-medium uppercase tracking-wider">Avg Latency</p>
-                        <h3 class="text-4xl font-bold text-gray-800 mt-2" x-text="calculateAvgLatency() + 's'">0s</h3>
-                        <p class="text-gray-500 text-sm mt-4">Processing time per request</p>
+                        <p class="text-gray-400 text-xs font-bold uppercase">Average Latency</p>
+                        <h3 class="text-3xl font-bold text-gray-800 mt-1" x-text="calculateAvgLatency() + 's'">0s</h3>
                     </div>
                     <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-                        <p class="text-gray-400 text-sm font-medium uppercase tracking-wider">Managed Files</p>
-                        <h3 class="text-4xl font-bold text-gray-800 mt-2" x-text="files.docs.length">0</h3>
-                        <p class="text-gray-500 text-sm mt-4">PDF Documents in RAG</p>
+                        <p class="text-gray-400 text-xs font-bold uppercase">Server Time</p>
+                        <h3 class="text-xl font-bold text-gray-700 mt-2" x-text="new Date(stats.system_time).toLocaleTimeString()"></h3>
                     </div>
                 </div>
 
-                <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-                    <h2 class="text-xl font-bold text-gray-800 mb-6">Top Questions</h2>
-                    <div class="space-y-4">
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                    <h2 class="text-xl font-bold text-gray-800 mb-4">FAQ Analytics</h2>
+                    <div class="space-y-3">
                         <template x-for="(count, question) in stats.faq_analytics" :key="question">
-                            <div class="flex items-center justify-between">
-                                <div class="flex-1">
-                                    <p class="text-gray-700 font-medium" x-text="question"></p>
-                                    <div class="w-full bg-gray-100 h-2 rounded-full mt-2">
-                                        <div class="bg-indigo-500 h-2 rounded-full" :style="`width: ${Math.min(count * 5, 100)}%`"></div>
-                                    </div>
-                                </div>
-                                <span class="ml-6 font-bold text-indigo-600" x-text="count"></span>
+                            <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                                <span class="text-gray-700" x-text="question"></span>
+                                <span class="bg-indigo-100 text-indigo-700 px-3 py-1 rounded-full text-xs font-bold" x-text="count"></span>
                             </div>
                         </template>
                     </div>
@@ -133,88 +106,128 @@
             </div>
 
             <div x-show="activeTab === 'files'" class="space-y-6">
-                <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-wrap gap-4 items-center">
-                    <label class="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-xl cursor-pointer transition shadow-md shadow-indigo-200 flex items-center">
-                        <i data-lucide="upload-cloud" class="w-5 h-5 mr-2"></i>
-                        <span>Upload PDF Document</span>
-                        <input type="file" class="hidden" accept=".pdf" @change="uploadFile($event)">
-                    </label>
-                    <button @click="processRAG()" :disabled="processing"
-                        class="bg-emerald-500 hover:bg-emerald-600 disabled:bg-emerald-300 text-white px-6 py-3 rounded-xl transition shadow-md shadow-emerald-100 flex items-center">
-                        <i data-lucide="refresh-cw" class="w-5 h-5 mr-2" :class="processing ? 'animate-spin' : ''"></i>
-                        <span x-text="processing ? 'Processing...' : 'Run RAG Processor'"></span>
-                    </button>
+                <div class="flex justify-between items-end">
+                    <div>
+                        <h1 class="text-3xl font-bold text-gray-800">File Explorer</h1>
+                        <p class="text-gray-500">จัดการโครงสร้างไฟล์ RAG ใน static folder</p>
+                    </div>
+                    <div class="flex space-x-2 bg-gray-200 p-1 rounded-xl">
+                        <button @click="switchRoot('docs')" :class="fileSystem.root === 'docs' ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-500'"
+                            class="px-4 py-2 rounded-lg text-sm font-bold transition">Source (PDF)</button>
+                        <button @click="switchRoot('quick_use')" :class="fileSystem.root === 'quick_use' ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-500'"
+                            class="px-4 py-2 rounded-lg text-sm font-bold transition">Processed (TXT)</button>
+                    </div>
+                </div>
+
+                <div class="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between">
+                    <nav class="flex items-center text-sm font-medium">
+                        <button @click="navigate('')" class="text-indigo-600 hover:underline">root</button>
+                        <template x-for="(part, index) in fileSystem.current_path.split('/').filter(p => p)" :key="index">
+                            <div class="flex items-center">
+                                <span class="mx-2 text-gray-400">/</span>
+                                <button @click="navigateByParts(index)" class="text-indigo-600 hover:underline" x-text="part"></button>
+                            </div>
+                        </template>
+                    </nav>
+                    <div class="flex space-x-3">
+                        <label class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg cursor-pointer text-sm font-bold transition flex items-center">
+                            <i data-lucide="upload" class="w-4 h-4 mr-2"></i> Upload
+                            <input type="file" class="hidden" accept=".pdf" @change="uploadFile($event)">
+                        </label>
+                        <button @click="processRAG()" :disabled="processing" class="bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-bold transition flex items-center">
+                            <i data-lucide="play" class="w-4 h-4 mr-2" :class="processing ? 'animate-spin' : ''"></i> Run RAG
+                        </button>
+                    </div>
                 </div>
 
                 <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
                     <table class="w-full text-left">
-                        <thead class="bg-gray-50">
+                        <thead class="bg-gray-50 border-b border-gray-100">
                             <tr>
-                                <th class="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">File Name</th>
-                                <th class="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
-                                <th class="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
+                                <th class="px-6 py-4 text-xs font-bold text-gray-400 uppercase">Name</th>
+                                <th class="px-6 py-4 text-xs font-bold text-gray-400 uppercase">Type</th>
+                                <th class="px-6 py-4 text-xs font-bold text-gray-400 uppercase text-right">Actions</th>
                             </tr>
                         </thead>
-                        <tbody class="divide-y divide-gray-100">
-                            <template x-for="file in files.docs" :key="file">
-                                <tr class="hover:bg-gray-50 transition">
+                        <tbody class="divide-y divide-gray-50">
+                            <template x-if="fileSystem.current_path">
+                                <tr @click="navigateUp()" class="hover:bg-gray-50 cursor-pointer transition">
+                                    <td class="px-6 py-4 flex items-center text-indigo-600 font-bold">
+                                        <i data-lucide="corner-left-up" class="w-4 h-4 mr-3"></i> ..
+                                    </td>
+                                    <td colspan="2"></td>
+                                </tr>
+                            </template>
+                            
+                            <template x-for="entry in fileSystem.entries" :key="entry.path">
+                                <tr class="hover:bg-gray-50 transition group">
                                     <td class="px-6 py-4">
-                                        <div class="flex items-center">
-                                            <i data-lucide="file-type" class="text-red-400 w-5 h-5 mr-3"></i>
-                                            <span class="font-medium text-gray-700" x-text="file"></span>
+                                        <div class="flex items-center cursor-pointer" @click="entry.is_dir ? navigate(entry.path) : null">
+                                            <template x-if="entry.is_dir">
+                                                <i data-lucide="folder" class="text-amber-400 w-5 h-5 mr-3 fill-current"></i>
+                                            </template>
+                                            <template x-if="!entry.is_dir">
+                                                <i data-lucide="file" class="text-gray-400 w-5 h-5 mr-3"></i>
+                                            </template>
+                                            <span :class="entry.is_dir ? 'font-bold text-gray-700' : 'text-gray-600'" x-text="entry.name"></span>
                                         </div>
                                     </td>
                                     <td class="px-6 py-4">
-                                        <template x-if="files.quick_use.includes(file.replace('.pdf', '.txt'))">
-                                            <span class="bg-green-100 text-green-700 px-3 py-1 rounded-full text-xs font-bold">READY</span>
-                                        </template>
-                                        <template x-if="!files.quick_use.includes(file.replace('.pdf', '.txt'))">
-                                            <span class="bg-amber-100 text-amber-700 px-3 py-1 rounded-full text-xs font-bold">PENDING PROCESS</span>
-                                        </template>
+                                        <span class="text-xs font-bold text-gray-400 uppercase" x-text="entry.is_dir ? 'Folder' : entry.ext.replace('.','')"></span>
                                     </td>
                                     <td class="px-6 py-4 text-right">
-                                        <button @click="deleteFile(file)" class="text-gray-400 hover:text-red-500 transition p-2">
-                                            <i data-lucide="trash-2" class="w-5 h-5"></i>
+                                        <button @click="deleteItem(entry)" class="text-gray-300 hover:text-red-500 transition p-2">
+                                            <i data-lucide="trash-2" class="w-4 h-4"></i>
                                         </button>
                                     </td>
                                 </tr>
                             </template>
                         </tbody>
                     </table>
+                    <template x-if="fileSystem.entries.length === 0">
+                        <div class="p-12 text-center text-gray-400">
+                            <i data-lucide="folder-open" class="w-12 h-12 mx-auto mb-3 opacity-20"></i>
+                            <p>โฟลเดอร์นี้ยังไม่มีไฟล์</p>
+                        </div>
+                    </template>
                 </div>
             </div>
 
-            <div x-show="activeTab === 'logs'" class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-                <table class="w-full text-left">
-                    <thead class="bg-gray-50 border-b border-gray-100">
-                        <tr>
-                            <th class="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Timestamp</th>
-                            <th class="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">User (Anon)</th>
-                            <th class="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Platform</th>
-                            <th class="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Input / Output</th>
-                            <th class="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Latency</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-gray-100">
-                        <template x-for="log in stats.recent_logs" :key="log.timestamp">
-                            <tr class="hover:bg-gray-50 transition align-top">
-                                <td class="px-6 py-4 text-sm text-gray-500 whitespace-nowrap" x-text="log.timestamp"></td>
-                                <td class="px-6 py-4 text-sm font-mono text-indigo-600" x-text="log.anon_id"></td>
-                                <td class="px-6 py-4">
-                                    <span :class="log.platform === 'facebook' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'"
-                                        class="px-2 py-1 rounded-lg text-xs font-bold uppercase" x-text="log.platform"></span>
-                                </td>
-                                <td class="px-6 py-4 max-w-md">
-                                    <div class="text-sm font-bold text-gray-800 mb-1" x-text="log.input"></div>
-                                    <div class="text-sm text-gray-500 italic" x-text="log.output"></div>
-                                </td>
-                                <td class="px-6 py-4">
-                                    <span class="text-sm font-bold" :class="log.latency > 5 ? 'text-red-500' : 'text-green-500'" x-text="log.latency + 's'"></span>
-                                </td>
+            <div x-show="activeTab === 'logs'" class="space-y-6">
+                <h1 class="text-3xl font-bold text-gray-800">Audit Logs</h1>
+                <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                    <table class="w-full text-left">
+                        <thead class="bg-gray-50 border-b border-gray-100">
+                            <tr>
+                                <th class="px-6 py-4 text-xs font-bold text-gray-400 uppercase">User</th>
+                                <th class="px-6 py-4 text-xs font-bold text-gray-400 uppercase">Platform</th>
+                                <th class="px-6 py-4 text-xs font-bold text-gray-400 uppercase">Log</th>
+                                <th class="px-6 py-4 text-xs font-bold text-gray-400 uppercase">Latency</th>
                             </tr>
-                        </template>
-                    </tbody>
-                </table>
+                        </thead>
+                        <tbody class="divide-y divide-gray-50">
+                            <template x-for="log in stats.recent_logs" :key="log.timestamp">
+                                <tr class="hover:bg-gray-50 transition">
+                                    <td class="px-6 py-4">
+                                        <div class="text-xs font-mono text-indigo-600" x-text="log.anon_id"></div>
+                                        <div class="text-[10px] text-gray-400 mt-1" x-text="log.timestamp"></div>
+                                    </td>
+                                    <td class="px-6 py-4">
+                                        <span :class="log.platform === 'facebook' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'"
+                                            class="px-2 py-1 rounded-md text-[10px] font-bold uppercase" x-text="log.platform"></span>
+                                    </td>
+                                    <td class="px-6 py-4 max-w-xs">
+                                        <div class="text-sm font-bold text-gray-800 truncate" x-text="log.input"></div>
+                                        <div class="text-xs text-gray-500 truncate mt-1" x-text="log.output"></div>
+                                    </td>
+                                    <td class="px-6 py-4">
+                                        <span class="text-sm font-bold" :class="log.latency > 5 ? 'text-red-500' : 'text-green-500'" x-text="log.latency + 's'"></span>
+                                    </td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
             </div>
 
         </main>
@@ -225,35 +238,35 @@
             return {
                 isLoggedIn: false,
                 tokenInput: '',
-                activeTab: 'dashboard',
-                tabTitles: {
-                    'dashboard': 'System Overview',
-                    'files': 'Content Management',
-                    'logs': 'Interaction Logs'
-                },
-                stats: { recent_logs: [], faq_analytics: {} },
-                files: { docs: [], quick_use: [] },
-                processing: false,
                 adminToken: '',
+                activeTab: 'dashboard',
+                processing: false,
+                stats: { recent_logs: [], faq_analytics: {}, system_time: new Date() },
+                fileSystem: { root: 'docs', current_path: '', entries: [] },
 
-                init() {
+                async init() {
                     const saved = localStorage.getItem('admin_token');
                     if (saved) {
                         this.adminToken = saved;
-                        this.isLoggedIn = true;
-                        this.refreshData();
+                        try {
+                            await this.refreshAll();
+                            this.isLoggedIn = true;
+                        } catch(e) { localStorage.removeItem('admin_token'); }
                     }
-                    setTimeout(() => lucide.createIcons(), 100);
+                    this.updateIcons();
                 },
 
-                login() {
-                    if (this.tokenInput) {
-                        this.adminToken = this.tokenInput;
-                        this.refreshData().then(() => {
-                            this.isLoggedIn = true;
-                            localStorage.setItem('admin_token', this.adminToken);
-                        }).catch(() => alert('Invalid Token!'));
-                    }
+                updateIcons() {
+                    setTimeout(() => lucide.createIcons(), 50);
+                },
+
+                async login() {
+                    this.adminToken = this.tokenInput;
+                    try {
+                        await this.refreshAll();
+                        this.isLoggedIn = true;
+                        localStorage.setItem('admin_token', this.adminToken);
+                    } catch(e) { alert('Invalid Token!'); }
                 },
 
                 logout() {
@@ -267,25 +280,46 @@
                     if (body && !(body instanceof FormData)) {
                         config.headers['Content-Type'] = 'application/json';
                         config.body = JSON.stringify(body);
-                    } else if (body) {
-                        config.body = body;
-                    }
+                    } else if (body) { config.body = body; }
                     
                     const res = await fetch(endpoint, config);
                     if (!res.ok) throw new Error('API Error');
                     return res.json();
                 },
 
-                async refreshData() {
+                async refreshAll() {
                     this.stats = await this.apiCall('/api/admin/stats');
-                    this.files = await this.apiCall('/api/admin/files');
-                    setTimeout(() => lucide.createIcons(), 50);
+                    await this.loadFiles();
+                    this.updateIcons();
                 },
 
-                calculateAvgLatency() {
-                    if (this.stats.recent_logs.length === 0) return 0;
-                    const sum = this.stats.recent_logs.reduce((a, b) => a + b.latency, 0);
-                    return (sum / this.stats.recent_logs.length).toFixed(2);
+                async loadFiles() {
+                    const data = await this.apiCall(`/api/admin/files?root=${this.fileSystem.root}&subdir=${this.fileSystem.current_path}`);
+                    this.fileSystem.entries = data.entries;
+                    this.fileSystem.current_path = data.current_path;
+                    this.updateIcons();
+                },
+
+                async switchRoot(root) {
+                    this.fileSystem.root = root;
+                    this.fileSystem.current_path = '';
+                    await this.loadFiles();
+                },
+
+                async navigate(path) {
+                    this.fileSystem.current_path = path;
+                    await this.loadFiles();
+                },
+
+                navigateUp() {
+                    const parts = this.fileSystem.current_path.split('/').filter(p => p);
+                    parts.pop();
+                    this.navigate(parts.join('/'));
+                },
+
+                navigateByParts(index) {
+                    const parts = this.fileSystem.current_path.split('/').filter(p => p);
+                    this.navigate(parts.slice(0, index + 1).join('/'));
                 },
 
                 async uploadFile(e) {
@@ -293,17 +327,19 @@
                     if (!file) return;
                     const formData = new FormData();
                     formData.append('file', file);
+                    formData.append('target_dir', this.fileSystem.current_path);
                     try {
                         await this.apiCall('/api/admin/upload', 'POST', formData);
                         alert('อัปโหลดสำเร็จ!');
-                        this.refreshData();
+                        await this.loadFiles();
                     } catch (err) { alert('Upload Failed'); }
                 },
 
-                async deleteFile(filename) {
-                    if (confirm(`ต้องการลบไฟล์ ${filename} ใช่หรือไม่?`)) {
-                        await this.apiCall(`/api/admin/files/${filename}`, 'DELETE');
-                        this.refreshData();
+                async deleteItem(entry) {
+                    const msg = entry.is_dir ? `ต้องการลบโฟลเดอร์ ${entry.name} และไฟล์ทั้งหมดภายในใช่หรือไม่?` : `ต้องการลบไฟล์ ${entry.name} ใช่หรือไม่?`;
+                    if (confirm(msg)) {
+                        await this.apiCall(`/api/admin/files?root=${this.fileSystem.root}&path=${entry.path}`, 'DELETE');
+                        await this.loadFiles();
                     }
                 },
 
@@ -312,8 +348,15 @@
                     try {
                         await this.apiCall('/api/admin/process-rag', 'POST');
                         alert('ประมวลผล RAG เสร็จสมบูรณ์!');
-                        this.refreshData();
-                    } finally { this.processing = false; }
+                        await this.loadFiles();
+                    } catch(e) { alert('Error: ' + e.message); }
+                    finally { this.processing = false; }
+                },
+
+                calculateAvgLatency() {
+                    if (this.stats.recent_logs.length === 0) return 0;
+                    const sum = this.stats.recent_logs.reduce((a, b) => a + (b.latency || 0), 0);
+                    return (sum / this.stats.recent_logs.length).toFixed(2);
                 }
             }
         }

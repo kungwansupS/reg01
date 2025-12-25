@@ -13,8 +13,8 @@ function adminChat() {
         async init() {
             console.log('🚀 Initializing Unified Chat...');
             
-            // โหลด Bot Settings
-            this.botSettings = this.$root.stats.bot_settings || {};
+            // โหลด Bot Settings จาก $root.stats ถ้ามี
+            this.botSettings = this.$root.stats?.bot_settings || {};
             console.log('Bot Settings:', this.botSettings);
 
             // เชื่อมต่อ Socket.IO
@@ -70,7 +70,20 @@ function adminChat() {
             
             try {
                 console.log('🔄 Refreshing sessions...');
-                const data = await this.$root.apiCall('/api/admin/chat/sessions');
+                
+                // ✅ ใช้ fetch โดยตรง
+                const token = localStorage.getItem('adminToken');
+                const response = await fetch('/api/admin/chat/sessions', {
+                    headers: {
+                        'X-Admin-Token': token
+                    }
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
                 
                 console.log('📦 Raw sessions data:', data);
                 
@@ -120,9 +133,22 @@ function adminChat() {
             try {
                 console.log(`📖 Loading history for ${session.platform}/${session.id}`);
                 
-                const history = await this.$root.apiCall(
-                    `/api/admin/chat/history/${session.platform}/${session.id}`
+                // ✅ ใช้ fetch โดยตรง
+                const token = localStorage.getItem('adminToken');
+                const response = await fetch(
+                    `/api/admin/chat/history/${session.platform}/${session.id}`,
+                    {
+                        headers: {
+                            'X-Admin-Token': token
+                        }
+                    }
                 );
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const history = await response.json();
                 
                 console.log('📦 Raw history data:', history);
                 
@@ -159,7 +185,6 @@ function adminChat() {
                 console.error('❌ Load history failed:', e); 
                 this.messages = [];
                 this.error = 'ไม่สามารถโหลดประวัติการสนทนาได้: ' + e.message;
-                alert('ไม่สามารถโหลดประวัติการสนทนาได้: ' + e.message);
             } finally {
                 this.loading = false;
             }
@@ -213,11 +238,27 @@ function adminChat() {
             formData.append('status', nextStatus);
 
             try {
-                const res = await this.$root.apiCall('/api/admin/bot-toggle', 'POST', formData);
+                // ✅ ใช้ fetch โดยตรง
+                const token = localStorage.getItem('adminToken');
+                const response = await fetch('/api/admin/bot-toggle', {
+                    method: 'POST',
+                    headers: {
+                        'X-Admin-Token': token
+                    },
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const res = await response.json();
                 
                 if (res.status === 'success') {
                     this.botSettings = res.settings;
-                    this.$root.stats.bot_settings = res.settings;
+                    if (this.$root.stats) {
+                        this.$root.stats.bot_settings = res.settings;
+                    }
                     console.log('✅ Bot status updated:', res.settings);
                 } else {
                     console.error('❌ Unexpected response:', res);

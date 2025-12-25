@@ -45,10 +45,11 @@ PDF_QUICK_USE_FOLDER = os.getenv(
     os.path.join(BASE_DIR, "static/quick_use")
 )
 
+# ✅ FIX: เปลี่ยนจาก session_storage เป็น sessions หรือตามชื่อโฟลเดอร์จริง
 # โฟลเดอร์สำหรับเก็บประวัติการสนทนา (Session Memory)
 SESSION_DIR = os.getenv(
     "SESSION_DIR",
-    os.path.join(BASE_DIR, "../memory/session_storage")
+    os.path.join(BASE_DIR, "../memory/session_storage")  # ใช้ชื่อ session_storage
 )
 
 # ไฟล์เก็บการตั้งค่าสถานะ Bot
@@ -89,3 +90,11 @@ def debug_list_files(folder_path: str, label: str = "Files"):
     print(f"{label} ({folder_path}):")
     for f in files:
         print(f"  - {f}")
+
+# ตรวจสอบและแสดงข้อมูล SESSION_DIR
+print(f"📁 SESSION_DIR: {SESSION_DIR}")
+if os.path.exists(SESSION_DIR):
+    file_count = len([f for f in os.listdir(SESSION_DIR) if f.endswith('.json')])
+    print(f"✅ Found {file_count} session files")
+else:
+    print(f"⚠️ SESSION_DIR does not exist, will be created on first use")

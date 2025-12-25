@@ -481,6 +481,7 @@
                         <p class="font-medium" style="color: var(--text-secondary);">System Overview & Real-time Analytics</p>
                     </div>
 
+                    <!-- Date & Time Display -->
                     <div class="card-enterprise stat-card p-6 md:p-8 rounded-2xl shadow-lg mb-8">
                         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                             <div>
@@ -494,8 +495,9 @@
                         </div>
                     </div>
 
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                        <div class="card-enterprise stat-card p-6 md:p-8 rounded-2xl shadow-lg">
+                    <!-- Main Stats Grid -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                        <div class="card-enterprise stat-card p-6 rounded-2xl shadow-lg">
                             <div class="flex items-center justify-between mb-4">
                                 <p class="text-xs font-bold uppercase tracking-wider" style="color: var(--text-tertiary);">Total Activities</p>
                                 <div class="p-2 rounded-lg" style="background-color: var(--bg-tertiary);">
@@ -506,7 +508,7 @@
                             <p class="text-sm font-medium mt-2" style="color: var(--text-tertiary);">Total queries processed</p>
                         </div>
 
-                        <div class="card-enterprise stat-card p-6 md:p-8 rounded-2xl shadow-lg">
+                        <div class="card-enterprise stat-card p-6 rounded-2xl shadow-lg">
                             <div class="flex items-center justify-between mb-4">
                                 <p class="text-xs font-bold uppercase tracking-wider" style="color: var(--text-tertiary);">Avg Latency</p>
                                 <div class="p-2 rounded-lg" style="background-color: var(--bg-tertiary);">
@@ -517,7 +519,18 @@
                             <p class="text-sm font-medium mt-2" style="color: var(--text-tertiary);">Response time average</p>
                         </div>
 
-                        <div class="card-enterprise stat-card p-6 md:p-8 rounded-2xl shadow-lg">
+                        <div class="card-enterprise stat-card p-6 rounded-2xl shadow-lg">
+                            <div class="flex items-center justify-between mb-4">
+                                <p class="text-xs font-bold uppercase tracking-wider" style="color: var(--text-tertiary);">Active Sessions</p>
+                                <div class="p-2 rounded-lg" style="background-color: var(--bg-tertiary);">
+                                    <i data-lucide="users" class="w-5 h-5" style="color: var(--success);"></i>
+                                </div>
+                            </div>
+                            <h3 class="text-4xl md:text-5xl font-black" style="color: var(--success);" x-text="getActiveSessionsCount()">0</h3>
+                            <p class="text-sm font-medium mt-2" style="color: var(--text-tertiary);">Total user sessions</p>
+                        </div>
+
+                        <div class="card-enterprise stat-card p-6 rounded-2xl shadow-lg">
                             <div class="flex items-center justify-between mb-4">
                                 <p class="text-xs font-bold uppercase tracking-wider" style="color: var(--text-tertiary);">System Status</p>
                                 <div class="p-2 rounded-lg" style="background-color: var(--bg-tertiary);">
@@ -526,9 +539,164 @@
                             </div>
                             <div class="flex items-center gap-3 mt-2">
                                 <div class="status-indicator" style="background-color: var(--success);"></div>
-                                <span class="font-black text-xl md:text-2xl" style="color: var(--success);">OPERATIONAL</span>
+                                <span class="font-black text-xl md:text-2xl" style="color: var(--success);">ONLINE</span>
                             </div>
                             <p class="text-sm font-medium mt-2" style="color: var(--text-tertiary);">All systems running</p>
+                        </div>
+                    </div>
+
+                    <!-- Platform Statistics -->
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+                        <div class="card-enterprise p-6 rounded-2xl shadow-lg">
+                            <div class="flex items-center justify-between mb-4">
+                                <h3 class="font-bold text-lg" style="color: var(--text-primary);">Platform Usage</h3>
+                                <i data-lucide="pie-chart" class="w-5 h-5" style="color: var(--text-tertiary);"></i>
+                            </div>
+                            <div class="space-y-4">
+                                <div class="flex items-center justify-between">
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-3 h-3 rounded-full bg-blue-500"></div>
+                                        <span class="font-semibold" style="color: var(--text-secondary);">Facebook</span>
+                                    </div>
+                                    <span class="font-black" style="color: var(--text-primary);" x-text="getPlatformCount('facebook')">0</span>
+                                </div>
+                                <div class="flex items-center justify-between">
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-3 h-3 rounded-full bg-green-500"></div>
+                                        <span class="font-semibold" style="color: var(--text-secondary);">Web</span>
+                                    </div>
+                                    <span class="font-black" style="color: var(--text-primary);" x-text="getPlatformCount('web')">0</span>
+                                </div>
+                                <div class="flex items-center justify-between">
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-3 h-3 rounded-full" style="background-color: #06C755;"></div>
+                                        <span class="font-semibold" style="color: var(--text-secondary);">Line</span>
+                                    </div>
+                                    <span class="font-black" style="color: var(--text-primary);" x-text="getPlatformCount('line')">0</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="card-enterprise p-6 rounded-2xl shadow-lg">
+                            <div class="flex items-center justify-between mb-4">
+                                <h3 class="font-bold text-lg" style="color: var(--text-primary);">Bot Statistics</h3>
+                                <i data-lucide="bot" class="w-5 h-5" style="color: var(--text-tertiary);"></i>
+                            </div>
+                            <div class="space-y-4">
+                                <div class="flex items-center justify-between">
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-3 h-3 rounded-full bg-emerald-500"></div>
+                                        <span class="font-semibold" style="color: var(--text-secondary);">Bot Enabled</span>
+                                    </div>
+                                    <span class="font-black text-emerald-500" x-text="getBotEnabledCount()">0</span>
+                                </div>
+                                <div class="flex items-center justify-between">
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-3 h-3 rounded-full" style="background-color: var(--danger);"></div>
+                                        <span class="font-semibold" style="color: var(--text-secondary);">Bot Disabled</span>
+                                    </div>
+                                    <span class="font-black" style="color: var(--danger);" x-text="getBotDisabledCount()">0</span>
+                                </div>
+                                <div class="flex items-center justify-between">
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-3 h-3 rounded-full" style="background-color: var(--cmu-purple);"></div>
+                                        <span class="font-semibold" style="color: var(--text-secondary);">Auto Response Rate</span>
+                                    </div>
+                                    <span class="font-black" style="color: var(--cmu-purple);" x-text="getAutoResponseRate() + '%'">0%</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="card-enterprise p-6 rounded-2xl shadow-lg">
+                            <div class="flex items-center justify-between mb-4">
+                                <h3 class="font-bold text-lg" style="color: var(--text-primary);">FAQ Knowledge Base</h3>
+                                <i data-lucide="book-open" class="w-5 h-5" style="color: var(--text-tertiary);"></i>
+                            </div>
+                            <div class="space-y-4">
+                                <div class="flex items-center justify-between">
+                                    <span class="font-semibold" style="color: var(--text-secondary);">Total KB</span>
+                                    <span class="font-black" style="color: var(--text-primary);" x-text="stats.faq_analytics?.total_knowledge_base || 0">0</span>
+                                </div>
+                                <div class="flex items-center justify-between">
+                                    <span class="font-semibold" style="color: var(--text-secondary);">Auto Learned</span>
+                                    <span class="font-black text-blue-500" x-text="stats.faq_analytics?.auto_learned_count || 0">0</span>
+                                </div>
+                                <div class="flex items-center justify-between">
+                                    <span class="font-semibold" style="color: var(--text-secondary);">Cache Hit Rate</span>
+                                    <span class="font-black text-green-500" x-text="getCacheHitRate() + '%'">0%</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Recent Activity & Top FAQs -->
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <!-- Recent Activity -->
+                        <div class="card-enterprise p-6 rounded-2xl shadow-lg">
+                            <div class="flex items-center justify-between mb-6">
+                                <h3 class="font-bold text-xl" style="color: var(--text-primary);">Recent Activity</h3>
+                                <button @click="switchTab('logs')" class="text-sm font-bold" style="color: var(--cmu-purple);">
+                                    View All →
+                                </button>
+                            </div>
+                            <div class="space-y-4 max-h-80 overflow-y-auto custom-scrollbar">
+                                <template x-for="log in stats.recent_logs.slice(0, 8)" :key="log.timestamp + log.anon_id">
+                                    <div class="p-4 rounded-xl transition-all" style="background-color: var(--bg-tertiary);">
+                                        <div class="flex items-start justify-between mb-2">
+                                            <div class="flex items-center gap-2">
+                                                <span class="badge-enterprise" 
+                                                      :style="log.platform === 'web' ? 'background-color: rgba(81, 45, 109, 0.1); color: var(--cmu-purple);' : 
+                                                              log.platform === 'facebook' ? 'background-color: rgba(24, 119, 242, 0.1); color: #1877F2;' : 
+                                                              log.platform === 'line' ? 'background-color: rgba(6, 199, 85, 0.1); color: #06C755;' :
+                                                              'background-color: var(--bg-tertiary); color: var(--text-secondary);'"
+                                                      x-text="log.platform">
+                                                </span>
+                                                <span class="text-xs font-bold" style="color: var(--text-tertiary);" x-text="formatTime(log.timestamp)"></span>
+                                            </div>
+                                            <span class="badge-enterprise"
+                                                :style="log.latency < 1000 ? 'background-color: rgba(52, 199, 89, 0.1); color: var(--success);' : 
+                                                        log.latency < 3000 ? 'background-color: rgba(255, 149, 0, 0.1); color: var(--warning);' : 
+                                                        'background-color: rgba(255, 59, 48, 0.1); color: var(--danger);'"
+                                                x-text="log.latency + 'ms'">
+                                            </span>
+                                        </div>
+                                        <p class="text-sm font-medium truncate" style="color: var(--text-primary);" x-text="log.input"></p>
+                                        <p class="text-xs mt-1 truncate" style="color: var(--text-secondary);" x-text="log.output"></p>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+
+                        <!-- Top FAQs -->
+                        <div class="card-enterprise p-6 rounded-2xl shadow-lg">
+                            <div class="flex items-center justify-between mb-6">
+                                <h3 class="font-bold text-xl" style="color: var(--text-primary);">Top FAQs</h3>
+                                <i data-lucide="trending-up" class="w-5 h-5" style="color: var(--success);"></i>
+                            </div>
+                            <div class="space-y-4 max-h-80 overflow-y-auto custom-scrollbar">
+                                <template x-if="stats.faq_analytics?.top_faqs && stats.faq_analytics.top_faqs.length > 0">
+                                    <div>
+                                        <template x-for="(faq, index) in stats.faq_analytics.top_faqs" :key="index">
+                                            <div class="p-4 rounded-xl mb-3 transition-all" style="background-color: var(--bg-tertiary);">
+                                                <div class="flex items-start justify-between mb-2">
+                                                    <span class="font-black text-2xl" style="color: var(--cmu-purple);" x-text="'#' + (index + 1)"></span>
+                                                    <span class="badge-enterprise bg-emerald-500/10 text-emerald-600">
+                                                        <i data-lucide="eye" class="w-3 h-3"></i>
+                                                        <span x-text="faq.hits + ' hits'"></span>
+                                                    </span>
+                                                </div>
+                                                <p class="text-sm font-semibold leading-relaxed" style="color: var(--text-primary);" x-text="faq.question"></p>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </template>
+                                <template x-if="!stats.faq_analytics?.top_faqs || stats.faq_analytics.top_faqs.length === 0">
+                                    <div class="text-center py-8">
+                                        <i data-lucide="inbox" class="w-12 h-12 mx-auto mb-3" style="color: var(--border-primary);"></i>
+                                        <p class="text-sm font-medium" style="color: var(--text-tertiary);">No FAQ data available</p>
+                                    </div>
+                                </template>
+                            </div>
                         </div>
                     </div>
                 </div>

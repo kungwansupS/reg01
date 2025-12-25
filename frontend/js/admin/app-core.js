@@ -15,7 +15,13 @@ function adminApp() {
         // Data State
         stats: {
             recent_logs: [],
-            bot_settings: {} // เพิ่มเข้ามาใน Phase 2 เพื่อเก็บสถานะการเปิด/ปิด Bot
+            bot_settings: {},
+            faq_analytics: {}
+        },
+        
+        sessionStats: {
+            botEnabled: 0,
+            botDisabled: 0
         },
         
         // Clock State
@@ -104,7 +110,6 @@ function adminApp() {
             } else if (tab === 'logs' && window.loadLogsTab) {
                 window.loadLogsTab();
             }
-            // หมายเหตุ: Tab 'chat' จะถูกจัดการโดยคอมโพเนนต์ adminChat ในไฟล์ app-chat.js
         },
 
         /**
@@ -136,9 +141,28 @@ function adminApp() {
         async refreshAll() {
             try {
                 this.stats = await this.apiCall('/api/admin/stats');
+                
+                // โหลดข้อมูล Session Stats
+                await this.loadSessionStats();
             } catch (e) {
                 console.error('Failed to load stats:', e);
                 this.showNotification('ไม่สามารถโหลดข้อมูลได้', 'error');
+            }
+        },
+
+        /**
+         * Load Session Stats
+         */
+        async loadSessionStats() {
+            try {
+                const sessions = await this.apiCall('/api/admin/chat/sessions');
+                
+                if (Array.isArray(sessions)) {
+                    this.sessionStats.botEnabled = sessions.filter(s => s.bot_enabled).length;
+                    this.sessionStats.botDisabled = sessions.filter(s => !s.bot_enabled).length;
+                }
+            } catch (e) {
+                console.error('Failed to load session stats:', e);
             }
         },
 
@@ -149,6 +173,68 @@ function adminApp() {
             if (!this.stats.recent_logs || this.stats.recent_logs.length === 0) return 0;
             const sum = this.stats.recent_logs.reduce((a, b) => a + (b.latency || 0), 0);
             return (sum / this.stats.recent_logs.length).toFixed(0);
+        },
+
+        /**
+         * Get Active Sessions Count
+         */
+        getActiveSessionsCount() {
+            // นับจำนวน unique sessions
+            if (!this.stats.recent_logs) return 0;
+            const uniqueSessions = new Set(this.stats.recent_logs.map(log => log.anon_id));
+            return uniqueSessions.size;
+        },
+
+        /**
+         * Get Platform Count
+         */
+        getPlatformCount(platform) {
+            if (!this.stats.recent_logs) return 0;
+            return this.stats.recent_logs.filter(log => log.platform === platform).length;
+        },
+
+        /**
+         * Get Bot Enabled Count
+         */
+        getBotEnabledCount() {
+            return this.sessionStats?.botEnabled || 0;
+        },
+
+        /**
+         * Get Bot Disabled Count
+         */
+        getBotDisabledCount() {
+            return this.sessionStats?.botDisabled || 0;
+        },
+
+        /**
+         * Get Auto Response Rate
+         */
+        getAutoResponseRate() {
+            const total = this.getBotEnabledCount() + this.getBotDisabledCount();
+            if (total === 0) return 100;
+            return ((this.getBotEnabledCount() / total) * 100).toFixed(0);
+        },
+
+        /**
+         * Get Cache Hit Rate
+         */
+        getCacheHitRate() {
+            if (!this.stats.faq_analytics?.total_knowledge_base) return 0;
+            const totalKB = this.stats.faq_analytics.total_knowledge_base;
+            const topHits = this.stats.faq_analytics.top_faqs?.reduce((sum, faq) => sum + faq.hits, 0) || 0;
+            if (totalKB === 0) return 0;
+            return Math.min(100, ((topHits / totalKB) * 10).toFixed(0));
+        },
+
+        /**
+         * Format Time
+         */
+        formatTime(timestamp) {
+            const date = new Date(timestamp);
+            const hours = String(date.getHours()).padStart(2, '0');
+            const minutes = String(date.getMinutes()).padStart(2, '0');
+            return `${hours}:${minutes}`;
         },
 
         /**

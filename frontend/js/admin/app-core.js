@@ -1,11 +1,11 @@
 /**
- * Core Application Logic
- * จัดการ Authentication, State, และ Dashboard
+ * Enterprise Admin Core Application Logic
+ * CMU Innovation Platform - Administrative Console
  */
 
 function adminApp() {
     return {
-        // Authentication
+        // Authentication State
         isLoggedIn: false,
         tokenInput: '',
         adminToken: '',
@@ -17,27 +17,29 @@ function adminApp() {
             darkMode: false
         },
         
-        // Stats & Data
+        // Data State
         stats: {
             recent_logs: []
         },
         
-        // Clock
+        // Clock State
         currentTime: '',
         currentDate: '',
         clockInterval: null,
 
         /**
-         * Initialize application
+         * Initialize Application
          */
         init() {
             this.checkAuth();
-            this.startClock();
             this.loadSettings();
+            if (this.isLoggedIn) {
+                this.startClock();
+            }
         },
 
         /**
-         * Check if user is authenticated
+         * Check Authentication Status
          */
         checkAuth() {
             const token = localStorage.getItem('adminToken');
@@ -49,11 +51,11 @@ function adminApp() {
         },
 
         /**
-         * Login function
+         * Login Handler
          */
         async login() {
             if (!this.tokenInput.trim()) {
-                alert('กรุณาระบุ Token');
+                this.showNotification('กรุณาระบุ Security Token', 'warning');
                 return;
             }
 
@@ -66,37 +68,41 @@ function adminApp() {
                     this.adminToken = this.tokenInput;
                     localStorage.setItem('adminToken', this.adminToken);
                     this.isLoggedIn = true;
+                    this.startClock();
                     await this.refreshAll();
+                    this.showNotification('เข้าสู่ระบบสำเร็จ', 'success');
                 } else {
-                    alert('Token ไม่ถูกต้อง');
+                    this.showNotification('Security Token ไม่ถูกต้อง', 'error');
                     this.tokenInput = '';
                 }
             } catch (e) {
-                alert('ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้');
+                this.showNotification('ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้', 'error');
+                console.error('Login error:', e);
             }
         },
 
         /**
-         * Logout function
+         * Logout Handler
          */
         logout() {
-            if (confirm('ต้องการออกจากระบบใช่หรือไม่?')) {
+            if (confirm('ต้องการออกจากระบบหรือไม่?')) {
                 localStorage.removeItem('adminToken');
                 this.isLoggedIn = false;
                 this.adminToken = '';
                 this.tokenInput = '';
                 this.stopClock();
+                this.showNotification('ออกจากระบบเรียบร้อย', 'success');
             }
         },
 
         /**
-         * Switch tab and close mobile menu
+         * Switch Active Tab
          */
         switchTab(tab) {
             this.activeTab = tab;
             this.mobileMenuOpen = false;
             
-            // Load content for specific tabs
+            // Load tab-specific content
             if (tab === 'files' && window.loadFilesTab) {
                 window.loadFilesTab();
             } else if (tab === 'logs' && window.loadLogsTab) {
@@ -105,7 +111,7 @@ function adminApp() {
         },
 
         /**
-         * API call helper
+         * API Call Helper
          */
         async apiCall(endpoint, method = 'GET', body = null) {
             const config = {
@@ -128,27 +134,28 @@ function adminApp() {
         },
 
         /**
-         * Refresh all data
+         * Refresh All Dashboard Data
          */
         async refreshAll() {
             try {
                 this.stats = await this.apiCall('/api/admin/stats');
             } catch (e) {
                 console.error('Failed to load stats:', e);
+                this.showNotification('ไม่สามารถโหลดข้อมูลได้', 'error');
             }
         },
 
         /**
-         * Calculate average latency
+         * Calculate Average Latency
          */
         calculateAvgLatency() {
-            if (this.stats.recent_logs.length === 0) return 0;
+            if (!this.stats.recent_logs || this.stats.recent_logs.length === 0) return 0;
             const sum = this.stats.recent_logs.reduce((a, b) => a + (b.latency || 0), 0);
             return (sum / this.stats.recent_logs.length).toFixed(0);
         },
 
         /**
-         * Start realtime clock
+         * Start Real-time Clock
          */
         startClock() {
             this.updateClock();
@@ -158,7 +165,7 @@ function adminApp() {
         },
 
         /**
-         * Stop clock
+         * Stop Clock
          */
         stopClock() {
             if (this.clockInterval) {
@@ -168,7 +175,7 @@ function adminApp() {
         },
 
         /**
-         * Update clock display
+         * Update Clock Display
          */
         updateClock() {
             const now = new Date();
@@ -179,7 +186,7 @@ function adminApp() {
             const seconds = String(now.getSeconds()).padStart(2, '0');
             this.currentTime = `${hours}:${minutes}:${seconds}`;
             
-            // Format date
+            // Format date (Thai)
             const days = ['อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์'];
             const months = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 
                           'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
@@ -187,13 +194,13 @@ function adminApp() {
             const dayName = days[now.getDay()];
             const day = now.getDate();
             const month = months[now.getMonth()];
-            const year = now.getFullYear() + 543; // Thai year
+            const year = now.getFullYear() + 543; // Buddhist Era
             
             this.currentDate = `วัน${dayName}ที่ ${day} ${month} ${year}`;
         },
 
         /**
-         * Load settings from localStorage
+         * Load Settings from LocalStorage
          */
         loadSettings() {
             const savedSettings = localStorage.getItem('adminSettings');
@@ -205,10 +212,26 @@ function adminApp() {
                 }
             }
             
-            // Watch for settings changes
+            // Watch for settings changes and persist
             this.$watch('settings', (value) => {
                 localStorage.setItem('adminSettings', JSON.stringify(value));
             }, { deep: true });
+        },
+
+        /**
+         * Show Notification (Simple alert for now, can be enhanced)
+         */
+        showNotification(message, type = 'info') {
+            // Simple implementation - can be enhanced with toast notifications
+            if (type === 'error') {
+                alert('❌ ' + message);
+            } else if (type === 'success') {
+                alert('✅ ' + message);
+            } else if (type === 'warning') {
+                alert('⚠️ ' + message);
+            } else {
+                alert('ℹ️ ' + message);
+            }
         }
     };
 }

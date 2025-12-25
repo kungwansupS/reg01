@@ -3,91 +3,316 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Master Admin | Innovation Platform</title>
+    <title>Admin Portal | REG CMU Platform</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <style>
-        * { font-family: 'Inter', sans-serif; }
+        * { 
+            font-family: 'Inter', sans-serif; 
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
         [x-cloak] { display: none !important; }
         
         :root {
-            --primary-orange: #FAAC1E;
-            --primary-purple: #6868AC;
-            --primary-black: #000000;
-            --bg-light: #FFFFFF;
-            --bg-gray: #F5F5F5;
-            --text-primary: #1a1a1a;
-            --text-secondary: #666666;
-            --border-color: #E0E0E0;
-            --success: #10b981;
-            --danger: #ef4444;
+            --cmu-purple: #512D6D;
+            --cmu-purple-dark: #3D2252;
+            --cmu-purple-light: #6B4694;
+            --accent-gold: #C4A052;
+            --bg-primary: #FAFAFA;
+            --bg-secondary: #FFFFFF;
+            --bg-tertiary: #F5F5F7;
+            --text-primary: #1D1D1F;
+            --text-secondary: #6E6E73;
+            --text-tertiary: #86868B;
+            --border-primary: #D2D2D7;
+            --border-secondary: #E5E5EA;
+            --success: #34C759;
+            --warning: #FF9500;
+            --danger: #FF3B30;
+            --overlay: rgba(0, 0, 0, 0.4);
         }
         
         body.dark-mode {
-            --bg-light: #1a1a1a;
-            --bg-gray: #0f0f0f;
-            --text-primary: #f5f5f5;
-            --text-secondary: #a0a0a0;
-            --border-color: #333333;
+            --cmu-purple: #7B5BA1;
+            --cmu-purple-dark: #512D6D;
+            --cmu-purple-light: #9378B8;
+            --accent-gold: #D4B062;
+            --bg-primary: #0A0A0A;
+            --bg-secondary: #1C1C1E;
+            --bg-tertiary: #2C2C2E;
+            --text-primary: #F5F5F7;
+            --text-secondary: #ABABAB;
+            --text-tertiary: #8E8E93;
+            --border-primary: #38383A;
+            --border-secondary: #2C2C2E;
+            --success: #30D158;
+            --warning: #FF9F0A;
+            --danger: #FF453A;
+            --overlay: rgba(0, 0, 0, 0.7);
         }
         
         body { 
-            background-color: var(--bg-gray); 
-            color: var(--text-primary); 
-            transition: all 0.3s ease; 
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            transition: background-color 0.3s ease, color 0.3s ease;
+            overflow-x: hidden;
         }
         
-        .card-base { 
-            background-color: var(--bg-light); 
-            border: 1px solid var(--border-color); 
+        .card-enterprise { 
+            background-color: var(--bg-secondary);
+            border: 1px solid var(--border-secondary);
+            transition: all 0.3s ease;
         }
         
-        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .card-enterprise:hover {
+            border-color: var(--border-primary);
+        }
+        
+        .custom-scrollbar::-webkit-scrollbar { 
+            width: 8px; 
+            height: 8px;
+        }
+        
+        .custom-scrollbar::-webkit-scrollbar-track { 
+            background: var(--bg-tertiary);
+            border-radius: 10px;
+        }
+        
         .custom-scrollbar::-webkit-scrollbar-thumb { 
-            background: linear-gradient(180deg, var(--primary-purple), var(--primary-orange)); 
-            border-radius: 10px; 
+            background: var(--cmu-purple);
+            border-radius: 10px;
+            transition: background 0.3s ease;
         }
         
-        .drag-over { 
-            border: 2px dashed var(--primary-purple) !important; 
-            background: rgba(104, 104, 172, 0.05) !important; 
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { 
+            background: var(--cmu-purple-dark);
         }
         
-        .btn-hover { transition: all 0.2s ease; }
-        .btn-hover:hover { transform: translateY(-2px); box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
-        
-        .gradient-purple-orange {
-            background: linear-gradient(135deg, var(--primary-purple) 0%, var(--primary-orange) 100%);
+        .gradient-cmu {
+            background: linear-gradient(135deg, var(--cmu-purple) 0%, var(--cmu-purple-light) 100%);
         }
         
-        .gradient-text {
-            background: linear-gradient(135deg, var(--primary-purple) 0%, var(--primary-orange) 100%);
+        .gradient-text-cmu {
+            background: linear-gradient(135deg, var(--cmu-purple) 0%, var(--cmu-purple-light) 100%);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
         }
         
+        .btn-enterprise {
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .btn-enterprise:hover {
+            transform: translateY(-1px);
+        }
+        
+        .btn-enterprise:active {
+            transform: translateY(0);
+        }
+        
         .clock-display {
             font-variant-numeric: tabular-nums;
             letter-spacing: 0.05em;
+            font-weight: 700;
         }
-
-        /* Responsive styles */
+        
+        .stat-card {
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: var(--cmu-purple);
+            transition: width 0.3s ease;
+        }
+        
+        .stat-card:hover::before {
+            width: 6px;
+        }
+        
+        .status-indicator {
+            position: relative;
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+        }
+        
+        .status-indicator::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            background: inherit;
+            animation: pulse-ring 2s ease-out infinite;
+        }
+        
+        @keyframes pulse-ring {
+            0% {
+                transform: translate(-50%, -50%) scale(1);
+                opacity: 1;
+            }
+            100% {
+                transform: translate(-50%, -50%) scale(2);
+                opacity: 0;
+            }
+        }
+        
+        .sidebar {
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
         @media (max-width: 768px) {
             .sidebar { 
-                transform: translateX(-100%); 
-                transition: transform 0.3s ease; 
+                transform: translateX(-100%);
                 position: fixed;
                 z-index: 1000;
+                height: 100vh;
             }
-            .sidebar.open { transform: translateX(0); }
+            .sidebar.open { 
+                transform: translateX(0);
+            }
             .mobile-overlay {
                 position: fixed;
                 inset: 0;
-                background: rgba(0,0,0,0.5);
+                background: var(--overlay);
                 z-index: 999;
+                backdrop-filter: blur(4px);
+            }
+        }
+        
+        .login-container {
+            background: linear-gradient(135deg, var(--cmu-purple-dark) 0%, var(--cmu-purple) 50%, var(--cmu-purple-light) 100%);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .login-container::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
+            animation: rotate 20s linear infinite;
+        }
+        
+        @keyframes rotate {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        
+        .table-enterprise tr {
+            transition: background-color 0.2s ease;
+        }
+        
+        .table-enterprise tr:hover {
+            background-color: var(--bg-tertiary);
+        }
+        
+        input[type="text"],
+        input[type="password"],
+        input[type="file"],
+        select,
+        textarea {
+            background-color: var(--bg-secondary);
+            color: var(--text-primary);
+            border-color: var(--border-primary);
+            transition: all 0.3s ease;
+        }
+        
+        input[type="text"]:focus,
+        input[type="password"]:focus,
+        select:focus,
+        textarea:focus {
+            border-color: var(--cmu-purple);
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(81, 45, 109, 0.1);
+        }
+        
+        body.dark-mode input[type="text"]:focus,
+        body.dark-mode input[type="password"]:focus,
+        body.dark-mode select:focus,
+        body.dark-mode textarea:focus {
+            box-shadow: 0 0 0 3px rgba(123, 91, 161, 0.2);
+        }
+        
+        .preview-modal {
+            backdrop-filter: blur(8px);
+        }
+        
+        .preview-content {
+            background-color: var(--bg-secondary);
+            color: var(--text-primary);
+        }
+        
+        body.dark-mode .preview-content textarea {
+            background-color: var(--bg-tertiary);
+            color: var(--text-secondary);
+        }
+        
+        .badge-enterprise {
+            font-size: 0.75rem;
+            font-weight: 600;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+        }
+        
+        .nav-item {
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .nav-item::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            height: 100%;
+            width: 3px;
+            background: var(--cmu-purple);
+            transform: translateX(-100%);
+            transition: transform 0.3s ease;
+        }
+        
+        .nav-item.active::before {
+            transform: translateX(0);
+        }
+        
+        .animate-in {
+            animation: fadeIn 0.3s ease-out;
+        }
+        
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
             }
         }
     </style>
@@ -96,27 +321,30 @@
 
     <!-- Login Screen -->
     <template x-if="!isLoggedIn">
-        <div class="fixed inset-0 z-[1000] flex items-center justify-center" style="background: linear-gradient(135deg, #6868AC 0%, #FAAC1E 100%);">
-            <div class="card-base p-8 md:p-12 rounded-3xl shadow-2xl w-full max-w-md mx-4">
+        <div class="login-container fixed inset-0 z-[1000] flex items-center justify-center p-4">
+            <div class="card-enterprise p-8 md:p-12 rounded-3xl shadow-2xl w-full max-w-md relative z-10 animate-in">
                 <div class="text-center mb-8">
-                    <div class="gradient-purple-orange w-20 h-20 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-xl">
+                    <div class="gradient-cmu w-20 h-20 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-xl">
                         <i data-lucide="shield-check" class="text-white w-10 h-10"></i>
                     </div>
-                    <h2 class="text-3xl md:text-4xl font-black gradient-text">System Access</h2>
-                    <p class="text-gray-500 mt-2 font-medium text-sm md:text-base">กรุณาระบุ Security Token</p>
+                    <h2 class="text-3xl md:text-4xl font-black gradient-text-cmu mb-2">Enterprise Portal</h2>
+                    <p class="text-sm md:text-base font-medium" style="color: var(--text-secondary);">REG CMU Platform</p>
                 </div>
                 <div class="space-y-4">
-                    <input 
-                        type="password" 
-                        x-model="tokenInput" 
-                        @keyup.enter="login()" 
-                        placeholder="••••••••••••"
-                        class="w-full px-6 py-4 rounded-xl border-2 border-gray-200 focus:ring-4 focus:ring-purple-500/20 focus:border-purple-500 outline-none text-center font-bold tracking-widest">
+                    <div>
+                        <label class="block text-sm font-semibold mb-2" style="color: var(--text-secondary);">Security Token</label>
+                        <input 
+                            type="password" 
+                            x-model="tokenInput" 
+                            @keyup.enter="login()" 
+                            placeholder="••••••••••••"
+                            class="w-full px-4 py-3 rounded-xl border-2 focus:ring-0 text-center font-bold tracking-widest">
+                    </div>
                     <button 
                         @click="login()" 
-                        class="w-full gradient-purple-orange text-white font-black py-4 rounded-xl shadow-lg hover:shadow-xl transition-all flex items-center justify-center">
+                        class="w-full gradient-cmu text-white font-bold py-3 rounded-xl shadow-lg hover:shadow-xl btn-enterprise flex items-center justify-center gap-2">
                         <span>Authenticate</span>
-                        <i data-lucide="arrow-right" class="w-5 h-5 ml-2"></i>
+                        <i data-lucide="arrow-right" class="w-5 h-5"></i>
                     </button>
                 </div>
             </div>
@@ -135,63 +363,74 @@
         
         <!-- Sidebar -->
         <aside 
-            class="sidebar w-80 card-base h-screen flex flex-col border-r shadow-lg"
-            :class="{ 'open': mobileMenuOpen }">
-            <div class="p-6 md:p-8 border-b border-gray-200">
+            class="sidebar w-72 card-enterprise h-screen flex flex-col border-r shadow-lg"
+            :class="{ 'open': mobileMenuOpen }"
+            style="border-color: var(--border-primary);">
+            
+            <!-- Logo & Brand -->
+            <div class="p-6 border-b" style="border-color: var(--border-secondary);">
                 <div class="flex items-center justify-between">
-                    <div class="flex items-center space-x-3">
-                        <div class="gradient-purple-orange p-3 rounded-xl shadow-lg">
+                    <div class="flex items-center gap-3">
+                        <div class="gradient-cmu p-2.5 rounded-xl shadow-lg">
                             <i data-lucide="brain-circuit" class="text-white w-6 h-6"></i>
                         </div>
                         <div>
-                            <span class="font-black text-xl md:text-2xl tracking-tight gradient-text">Innovation</span>
-                            <p class="text-xs text-gray-500 font-medium">Control Center</p>
+                            <span class="font-black text-xl tracking-tight gradient-text-cmu block">REG CMU</span>
+                            <p class="text-xs font-medium" style="color: var(--text-tertiary);">Admin Console</p>
                         </div>
                     </div>
                     <button 
                         @click="mobileMenuOpen = false" 
-                        class="md:hidden p-2 hover:bg-gray-100 rounded-lg">
+                        class="md:hidden p-2 hover:bg-opacity-10 rounded-lg"
+                        style="color: var(--text-secondary);">
                         <i data-lucide="x" class="w-5 h-5"></i>
                     </button>
                 </div>
             </div>
 
-            <nav class="flex-1 p-4 md:p-6 space-y-2 overflow-y-auto custom-scrollbar">
+            <!-- Navigation -->
+            <nav class="flex-1 p-4 space-y-1 overflow-y-auto custom-scrollbar">
                 <button 
                     @click="switchTab('dashboard')" 
-                    :class="activeTab === 'dashboard' ? 'bg-purple-50 text-purple-600 shadow-sm' : 'text-gray-500 hover:bg-gray-50'"
-                    class="w-full flex items-center space-x-4 px-4 md:px-6 py-3 md:py-4 rounded-xl transition font-bold">
+                    :class="activeTab === 'dashboard' ? 'active' : ''"
+                    class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl font-semibold transition-all"
+                    :style="activeTab === 'dashboard' ? 'background-color: var(--bg-tertiary); color: var(--cmu-purple);' : 'color: var(--text-secondary);'">
                     <i data-lucide="layout-dashboard" class="w-5 h-5"></i>
                     <span>Dashboard</span>
                 </button>
                 
                 <button 
                     @click="switchTab('files')" 
-                    :class="activeTab === 'files' ? 'bg-purple-50 text-purple-600 shadow-sm' : 'text-gray-500 hover:bg-gray-50'"
-                    class="w-full flex items-center space-x-4 px-4 md:px-6 py-3 md:py-4 rounded-xl transition font-bold">
+                    :class="activeTab === 'files' ? 'active' : ''"
+                    class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl font-semibold transition-all"
+                    :style="activeTab === 'files' ? 'background-color: var(--bg-tertiary); color: var(--cmu-purple);' : 'color: var(--text-secondary);'">
                     <i data-lucide="folder-open" class="w-5 h-5"></i>
                     <span>File Explorer</span>
                 </button>
                 
                 <button 
                     @click="switchTab('logs')" 
-                    :class="activeTab === 'logs' ? 'bg-purple-50 text-purple-600 shadow-sm' : 'text-gray-500 hover:bg-gray-50'"
-                    class="w-full flex items-center space-x-4 px-4 md:px-6 py-3 md:py-4 rounded-xl transition font-bold">
+                    :class="activeTab === 'logs' ? 'active' : ''"
+                    class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl font-semibold transition-all"
+                    :style="activeTab === 'logs' ? 'background-color: var(--bg-tertiary); color: var(--cmu-purple);' : 'color: var(--text-secondary);'">
                     <i data-lucide="file-text" class="w-5 h-5"></i>
                     <span>Audit Logs</span>
                 </button>
             </nav>
 
-            <div class="p-4 md:p-6 border-t border-gray-200 space-y-2">
+            <!-- Settings & Logout -->
+            <div class="p-4 border-t space-y-1" style="border-color: var(--border-secondary);">
                 <button 
                     @click="settings.darkMode = !settings.darkMode" 
-                    class="w-full flex items-center space-x-4 px-4 md:px-6 py-3 text-gray-600 hover:bg-gray-50 rounded-xl transition font-bold">
+                    class="w-full flex items-center gap-3 px-4 py-3 rounded-xl font-semibold transition-all hover:bg-opacity-10"
+                    style="color: var(--text-secondary);">
                     <i :data-lucide="settings.darkMode ? 'sun' : 'moon'" class="w-5 h-5"></i>
                     <span x-text="settings.darkMode ? 'Light Mode' : 'Dark Mode'"></span>
                 </button>
                 <button 
                     @click="logout()" 
-                    class="w-full flex items-center space-x-4 px-4 md:px-6 py-3 text-red-500 hover:bg-red-50 rounded-xl transition font-bold">
+                    class="w-full flex items-center gap-3 px-4 py-3 rounded-xl font-semibold transition-all"
+                    style="color: var(--danger);">
                     <i data-lucide="log-out" class="w-5 h-5"></i>
                     <span>Sign Out</span>
                 </button>
@@ -201,65 +440,79 @@
         <!-- Main Content -->
         <main class="flex-1 overflow-y-auto custom-scrollbar">
             <!-- Mobile Header -->
-            <div class="md:hidden card-base p-4 border-b sticky top-0 z-50 flex items-center justify-between">
+            <div class="md:hidden card-enterprise p-4 border-b sticky top-0 z-50 flex items-center justify-between"
+                 style="border-color: var(--border-primary);">
                 <button 
                     @click="mobileMenuOpen = true" 
-                    class="p-2 hover:bg-gray-100 rounded-lg">
+                    class="p-2 rounded-lg"
+                    style="color: var(--text-primary);">
                     <i data-lucide="menu" class="w-6 h-6"></i>
                 </button>
-                <span class="font-black gradient-text">Innovation</span>
+                <span class="font-black gradient-text-cmu">REG CMU</span>
                 <div class="w-10"></div>
             </div>
 
-            <div class="p-6 md:p-12">
+            <div class="p-6 md:p-10">
                 <!-- Dashboard Tab -->
-                <div x-show="activeTab === 'dashboard'" x-cloak>
-                    <div class="mb-8 md:mb-10">
-                        <h1 class="text-4xl md:text-5xl font-black gradient-text mb-2">Dashboard</h1>
-                        <p class="text-gray-500 font-medium">System Overview & Analytics</p>
+                <div x-show="activeTab === 'dashboard'" x-cloak class="animate-in">
+                    <div class="mb-8">
+                        <h1 class="text-4xl md:text-5xl font-black gradient-text-cmu mb-2">Dashboard</h1>
+                        <p class="font-medium" style="color: var(--text-secondary);">System Overview & Real-time Analytics</p>
                     </div>
 
-                    <!-- Realtime Clock -->
-                    <div class="card-base p-6 md:p-8 rounded-2xl shadow-lg mb-8 border-l-4 border-purple-500">
-                        <div class="flex flex-col md:flex-row md:items-center md:justify-between">
+                    <!-- Real-time Clock -->
+                    <div class="card-enterprise stat-card p-6 md:p-8 rounded-2xl shadow-lg mb-8">
+                        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                             <div>
-                                <p class="text-xs font-bold uppercase tracking-wider text-gray-500 mb-2">Current Time</p>
-                                <div class="clock-display text-3xl md:text-4xl font-black gradient-text" x-text="currentTime"></div>
+                                <p class="text-xs font-bold uppercase tracking-wider mb-2" style="color: var(--text-tertiary);">Current Time</p>
+                                <div class="clock-display text-3xl md:text-4xl font-black gradient-text-cmu" x-text="currentTime"></div>
                             </div>
-                            <div class="mt-4 md:mt-0">
-                                <p class="text-xs font-bold uppercase tracking-wider text-gray-500 mb-2">Date</p>
-                                <div class="text-xl md:text-2xl font-bold text-gray-700" x-text="currentDate"></div>
+                            <div>
+                                <p class="text-xs font-bold uppercase tracking-wider mb-2" style="color: var(--text-tertiary);">Date</p>
+                                <div class="text-xl md:text-2xl font-bold" style="color: var(--text-secondary);" x-text="currentDate"></div>
                             </div>
                         </div>
                     </div>
 
-                    <!-- Stats Cards -->
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-8">
-                        <div class="card-base p-6 md:p-10 rounded-2xl shadow-lg border-l-4 border-purple-500 btn-hover">
+                    <!-- Stats Grid -->
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <!-- Total Activities -->
+                        <div class="card-enterprise stat-card p-6 md:p-8 rounded-2xl shadow-lg">
                             <div class="flex items-center justify-between mb-4">
-                                <p class="text-xs font-black uppercase tracking-widest text-gray-500">Total Activities</p>
-                                <i data-lucide="activity" class="w-5 h-5 text-purple-500"></i>
+                                <p class="text-xs font-bold uppercase tracking-wider" style="color: var(--text-tertiary);">Total Activities</p>
+                                <div class="p-2 rounded-lg" style="background-color: var(--bg-tertiary);">
+                                    <i data-lucide="activity" class="w-5 h-5" style="color: var(--cmu-purple);"></i>
+                                </div>
                             </div>
-                            <h3 class="text-4xl md:text-6xl font-black text-gray-800" x-text="stats.recent_logs.length">0</h3>
+                            <h3 class="text-4xl md:text-5xl font-black" style="color: var(--text-primary);" x-text="stats.recent_logs.length">0</h3>
+                            <p class="text-sm font-medium mt-2" style="color: var(--text-tertiary);">Total queries processed</p>
                         </div>
 
-                        <div class="card-base p-6 md:p-10 rounded-2xl shadow-lg border-l-4 border-orange-500 btn-hover">
+                        <!-- Avg Latency -->
+                        <div class="card-enterprise stat-card p-6 md:p-8 rounded-2xl shadow-lg">
                             <div class="flex items-center justify-between mb-4">
-                                <p class="text-xs font-black uppercase tracking-widest text-gray-500">Avg Latency</p>
-                                <i data-lucide="zap" class="w-5 h-5 text-orange-500"></i>
+                                <p class="text-xs font-bold uppercase tracking-wider" style="color: var(--text-tertiary);">Avg Latency</p>
+                                <div class="p-2 rounded-lg" style="background-color: var(--bg-tertiary);">
+                                    <i data-lucide="zap" class="w-5 h-5" style="color: var(--accent-gold);"></i>
+                                </div>
                             </div>
-                            <h3 class="text-4xl md:text-6xl font-black gradient-text" x-text="calculateAvgLatency() + 'ms'">0ms</h3>
+                            <h3 class="text-4xl md:text-5xl font-black gradient-text-cmu" x-text="calculateAvgLatency() + 'ms'">0ms</h3>
+                            <p class="text-sm font-medium mt-2" style="color: var(--text-tertiary);">Response time average</p>
                         </div>
 
-                        <div class="card-base p-6 md:p-10 rounded-2xl shadow-lg border-l-4 border-green-500 btn-hover">
+                        <!-- System Status -->
+                        <div class="card-enterprise stat-card p-6 md:p-8 rounded-2xl shadow-lg">
                             <div class="flex items-center justify-between mb-4">
-                                <p class="text-xs font-black uppercase tracking-widest text-gray-500">System Status</p>
-                                <i data-lucide="server" class="w-5 h-5 text-green-500"></i>
+                                <p class="text-xs font-bold uppercase tracking-wider" style="color: var(--text-tertiary);">System Status</p>
+                                <div class="p-2 rounded-lg" style="background-color: var(--bg-tertiary);">
+                                    <i data-lucide="server" class="w-5 h-5" style="color: var(--success);"></i>
+                                </div>
                             </div>
-                            <div class="flex items-center space-x-3 mt-2">
-                                <div class="w-4 h-4 bg-green-500 rounded-full animate-pulse shadow-lg"></div>
-                                <span class="font-black text-xl md:text-2xl text-gray-700">ONLINE</span>
+                            <div class="flex items-center gap-3 mt-2">
+                                <div class="status-indicator" style="background-color: var(--success);"></div>
+                                <span class="font-black text-xl md:text-2xl" style="color: var(--success);">OPERATIONAL</span>
                             </div>
+                            <p class="text-sm font-medium mt-2" style="color: var(--text-tertiary);">All systems running</p>
                         </div>
                     </div>
                 </div>
@@ -274,12 +527,11 @@
     </div>
 
     <!-- Scripts -->
-    <script src="/static/js/app-core.js"></script>
-    <script src="/static/js/app-files.js"></script>
-    <script src="/static/js/app-logs.js"></script>
+    <script src="/static/js/admin/app-core.js"></script>
+    <script src="/static/js/admin/app-files.js"></script>
+    <script src="/static/js/admin/app-logs.js"></script>
     <script>
         lucide.createIcons();
-        // Re-initialize icons when Alpine updates DOM
         document.addEventListener('alpine:initialized', () => {
             setInterval(() => lucide.createIcons(), 500);
         });

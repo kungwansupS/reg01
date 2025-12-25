@@ -34,7 +34,8 @@ def get_or_create_history(session_id, context="", user_name=None, user_picture=N
         "user_info": {
             "name": user_name,
             "picture": final_pic,
-            "platform": detected_platform
+            "platform": detected_platform,
+            "bot_enabled": True  # เพิ่มสถานะเปิด-ปิดบอทรายบุคคล
         },
         "history": [{"role": "user", "parts": [{"text": context}]}] if context else []
     }
@@ -60,11 +61,12 @@ def save_history(session_id, history, user_name=None, user_picture=None, platfor
     detected_platform = platform or ("facebook" if is_fb else "web")
     clean_uid = str(session_id).replace("fb_", "")
     
-    # ดึงข้อมูลเดิมมาตั้งต้น
+    # ข้อมูลเริ่มต้น
     user_info = {
         "name": user_name or f"{detected_platform.capitalize()} User {clean_uid[:5]}", 
         "picture": user_picture or "https://www.gravatar.com/avatar/?d=mp", 
-        "platform": detected_platform
+        "platform": detected_platform,
+        "bot_enabled": True
     }
     
     if os.path.exists(path):
@@ -75,7 +77,7 @@ def save_history(session_id, history, user_name=None, user_picture=None, platfor
                     user_info = old_data.get("user_info", user_info)
         except: pass
 
-    # อัปเดต Metadata ใหม่ถ้ามีข้อมูลส่งมา
+    # อัปเดต Metadata
     if user_name: user_info["name"] = user_name
     if user_picture: user_info["picture"] = user_picture
     if detected_platform: user_info["platform"] = detected_platform
@@ -101,6 +103,32 @@ def save_history(session_id, history, user_name=None, user_picture=None, platfor
 
     with open(path, "w", encoding="utf-8") as f:
         json.dump(final_data, f, ensure_ascii=False, indent=2)
+
+def set_user_bot_status(session_id, status: bool):
+    """เปิด-ปิดบอทเฉพาะรายบุคคล"""
+    path = get_session_path(session_id)
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if "user_info" in data:
+                data["user_info"]["bot_enabled"] = status
+                with open(path, "w", encoding="utf-8") as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+                return True
+        except: pass
+    return False
+
+def is_user_bot_enabled(session_id):
+    """ตรวจสอบว่าบอทสำหรับ User นี้เปิดอยู่หรือไม่"""
+    path = get_session_path(session_id)
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return data.get("user_info", {}).get("bot_enabled", True)
+        except: pass
+    return True
 
 def cleanup_old_sessions(days=7):
     try:

@@ -17,6 +17,7 @@ from concurrent.futures import ThreadPoolExecutor
 from app.config import PDF_INPUT_FOLDER, PDF_QUICK_USE_FOLDER, BOT_SETTINGS_FILE, SESSION_DIR
 from memory.faq_cache import get_faq_analytics
 from pdf_to_txt import process_pdfs
+from memory.session import set_user_bot_status
 
 # สร้าง Router สำหรับ Admin
 router = APIRouter(prefix="/api/admin")
@@ -185,16 +186,25 @@ async def delete_items(root: str, paths: str):
 # ----------------------------------------------------------------------------- #
 
 @router.post("/bot-toggle", dependencies=[Depends(verify_admin)])
-async def toggle_bot(platform: str = Form(...), status: bool = Form(...)):
-    """สลับสถานะเปิด/ปิด Bot"""
-    settings = get_bot_settings()
-    settings[platform] = status
-    save_bot_settings(settings)
-    return {"status": "success", "settings": settings}
+async def toggle_bot(platform: str = Form(...), status: str = Form(...), uid: Optional[str] = Form(None)):
+    """สลับสถานะเปิด/ปิด Bot (รองรับทั้ง Platform และ Individual User)"""
+    is_on = status.lower() == 'true'
+    
+    if uid:
+        # กรณีระบุ UID: ปรับสถานะบอทรายบุคคล
+        session_key = f"fb_{uid}" if platform == "facebook" else uid
+        success = set_user_bot_status(session_key, is_on)
+        return {"status": "success" if success else "error", "mode": "individual", "uid": uid, "bot_enabled": is_on}
+    else:
+        # กรณีไม่ระบุ UID: ปรับสถานะบอททั้ง Platform
+        settings = get_bot_settings()
+        settings[platform] = is_on
+        save_bot_settings(settings)
+        return {"status": "success", "mode": "global", "settings": settings}
 
 @router.get("/chat/sessions", dependencies=[Depends(verify_admin)])
 async def get_chat_sessions():
-    """ดึงรายชื่อ Session การแชทล่าสุดครอบคลุมทุก Platform"""
+    """ดึงรายชื่อ Session การแชทล่าสุดพร้อมสถานะ Bot รายบุคคล"""
     sessions = []
     if not os.path.exists(SESSION_DIR): return []
     
@@ -208,22 +218,21 @@ async def get_chat_sessions():
             platform = "facebook" if is_fb else "web"
             uid = filename.replace("fb_", "").replace(".json", "")
             
-            # ข้อมูล Profile เบื้องต้น
+            # ข้อมูลพื้นฐานจากไฟล์ Session
+            user_bot_enabled = True
             profile = {"name": f"{platform.upper()} User {uid[:5]}", "picture": "https://www.gravatar.com/avatar/?d=mp"}
             
-            # ดึงข้อมูลโปรไฟล์จาก Facebook
-            if is_fb and FB_PAGE_ACCESS_TOKEN:
-                try:
-                    async with httpx.AsyncClient() as client:
-                        r = await client.get(f"https://graph.facebook.com/{uid}?fields=name,picture&access_token={FB_PAGE_ACCESS_TOKEN}", timeout=1)
-                        if r.status_code == 200:
-                            data = r.json()
-                            profile["name"] = data.get("name", profile["name"])
-                            profile["picture"] = data.get("picture", {}).get("data", {}).get("url", profile["picture"])
-                except: pass
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    user_info = data.get("user_info", {})
+                    user_bot_enabled = user_info.get("bot_enabled", True)
+                    profile["name"] = user_info.get("name", profile["name"])
+                    profile["picture"] = user_info.get("picture", profile["picture"])
+            except: pass
 
             sessions.append({
-                "id": uid, "platform": platform, "profile": profile, "last_active": mtime
+                "id": uid, "platform": platform, "profile": profile, "last_active": mtime, "bot_enabled": user_bot_enabled
             })
     
     return sorted(sessions, key=lambda x: x["last_active"], reverse=True)
@@ -241,5 +250,5 @@ async def get_chat_history(platform: str, uid: str):
 
 @router.post("/chat/send", dependencies=[Depends(verify_admin)])
 async def admin_send_message(platform: str = Form(...), uid: str = Form(...), message: str = Form(...)):
-    """Admin ส่งข้อความตอบกลับด้วยตนเอง (API Proxy สำหรับ Socket)"""
+    """Admin ส่งข้อความตอบกลับด้วยตนเอง"""
     return {"status": "success", "platform": platform, "uid": uid}

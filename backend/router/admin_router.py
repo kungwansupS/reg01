@@ -1,3 +1,5 @@
+# ✅ FIXED: เพิ่ม /api/admin/copy endpoint
+
 from fastapi import APIRouter, UploadFile, Form, HTTPException, Depends, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.security.api_key import APIKeyHeader
@@ -40,7 +42,7 @@ async def verify_admin(auth: str = Depends(ADMIN_API_KEY_HEADER)):
     return auth
 
 def get_bot_settings():
-    """❌ เก็บไว้เพื่อ backward compatibility แต่ไม่ใช้แล้ว"""
+    """Backward compatibility"""
     if not os.path.exists(BOT_SETTINGS_FILE):
         default = {"facebook": True, "line": True, "web": True}
         with open(BOT_SETTINGS_FILE, "w") as f: json.dump(default, f)
@@ -50,7 +52,7 @@ def get_bot_settings():
         except: return {"facebook": True, "line": True, "web": True}
 
 def save_bot_settings(settings):
-    """❌ เก็บไว้เพื่อ backward compatibility แต่ไม่ใช้แล้ว"""
+    """Backward compatibility"""
     with open(BOT_SETTINGS_FILE, "w") as f:
         json.dump(settings, f)
 
@@ -79,15 +81,7 @@ def format_size(size_bytes):
     return f"{s} {size_name[i]}"
 
 def calculate_token_analytics(logs: list) -> dict:
-    """
-    Calculate comprehensive token usage analytics from logs
-    
-    Args:
-        logs: List of log entries
-    
-    Returns:
-        Dict with token statistics
-    """
+    """Calculate comprehensive token usage analytics from logs"""
     if not logs:
         return {
             "total_tokens": 0,
@@ -146,14 +140,13 @@ async def get_stats():
                 logs = [json.loads(line) for line in lines][-100:]
         except: logs = []
     
-    # Calculate token analytics
     token_analytics = calculate_token_analytics(logs)
     
     return {
         "recent_logs": logs,
         "faq_analytics": get_faq_analytics(),
         "bot_settings": get_bot_settings(),
-        "token_analytics": token_analytics,  # NEW: Token analytics
+        "token_analytics": token_analytics,
         "system_time": datetime.datetime.now().isoformat()
     }
 
@@ -206,6 +199,44 @@ async def move_items(root: str = Form(...), src_paths: str = Form(...), dest_dir
         shutil.move(src, os.path.join(base_dest, os.path.basename(src)))
     return {"status": "success"}
 
+# ✅ NEW: Copy Endpoint
+@router.post("/copy", dependencies=[Depends(verify_admin)])
+async def copy_items(root: str = Form(...), source_paths: str = Form(...), target_path: str = Form(...)):
+    """คัดลอกไฟล์/โฟลเดอร์ไปยังตำแหน่งใหม่"""
+    try:
+        paths = json.loads(source_paths)
+        base_dest = get_secure_path(root, target_path)
+        os.makedirs(base_dest, exist_ok=True)
+        
+        for p in paths:
+            src = get_secure_path(root, p)
+            if not os.path.exists(src):
+                continue
+            
+            dest = os.path.join(base_dest, os.path.basename(src))
+            
+            # Handle duplicates
+            counter = 1
+            original_dest = dest
+            while os.path.exists(dest):
+                if os.path.isdir(src):
+                    dest = f"{original_dest}_copy_{counter}"
+                else:
+                    name, ext = os.path.splitext(original_dest)
+                    dest = f"{name}_copy_{counter}{ext}"
+                counter += 1
+            
+            # Copy
+            if os.path.isdir(src):
+                shutil.copytree(src, dest)
+            else:
+                shutil.copy2(src, dest)
+        
+        return {"status": "success"}
+    except Exception as e:
+        logger.error(f"Copy error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.get("/view", dependencies=[Depends(verify_admin)])
 async def preview_file(root: str, path: str):
     target = get_secure_path(root, path)
@@ -252,7 +283,7 @@ async def delete_items(root: str, paths: str):
 
 @router.post("/bot-toggle", dependencies=[Depends(verify_admin)])
 async def toggle_bot(session_id: str = Form(...), status: bool = Form(...)):
-    """✅ สลับสถานะเปิด/ปิด Bot สำหรับ Session นี้"""
+    """สลับสถานะเปิด/ปิด Bot สำหรับ Session นี้"""
     logger.info(f"🔄 Toggling bot for session {session_id}: {status}")
     
     success = set_bot_enabled(session_id, status)
@@ -266,7 +297,7 @@ async def toggle_bot(session_id: str = Form(...), status: bool = Form(...)):
 
 @router.post("/bot-toggle-all", dependencies=[Depends(verify_admin)])
 async def toggle_all_bots(status: bool = Form(...)):
-    """✅ เปิด/ปิด Bot ทั้งหมดทุก Session"""
+    """เปิด/ปิด Bot ทั้งหมดทุก Session"""
     logger.info(f"🔄 Toggling ALL bots: {status}")
     
     if not os.path.exists(SESSION_DIR):
@@ -288,7 +319,7 @@ async def toggle_all_bots(status: bool = Form(...)):
 
 @router.get("/chat/sessions", dependencies=[Depends(verify_admin)])
 async def get_chat_sessions():
-    """ดึงรายชื่อ Session การแชทล่าสุด โดยอ่าน metadata จากไฟล์โดยตรง"""
+    """ดึงรายชื่อ Session การแชทล่าสุด"""
     logger.info(f"📋 Loading chat sessions from {SESSION_DIR}")
     
     if not os.path.exists(SESSION_DIR): 
@@ -362,11 +393,6 @@ async def get_chat_sessions():
         sessions.sort(key=lambda x: x["last_active"], reverse=True)
         logger.info(f"✅ Successfully loaded {len(sessions)}/{file_count} sessions")
         
-        if sessions:
-            logger.info("📋 Recent sessions:")
-            for i, s in enumerate(sessions[:5], 1):
-                logger.info(f"  {i}. {s['profile']['name']} ({s['platform']}) - Bot: {s['bot_enabled']}")
-        
         return sessions
         
     except Exception as e:
@@ -421,6 +447,6 @@ async def get_chat_history(platform: str, uid: str):
 
 @router.post("/chat/send", dependencies=[Depends(verify_admin)])
 async def admin_send_message(platform: str = Form(...), uid: str = Form(...), message: str = Form(...)):
-    """Admin ส่งข้อความตอบกลับด้วยตนเอง (API Proxy)"""
+    """Admin ส่งข้อความตอบกลับด้วยตนเอง"""
     logger.info(f"📤 Admin sending message to {platform}/{uid}")
     return {"status": "success", "platform": platform, "uid": uid}

@@ -959,7 +959,7 @@ window.filesModule = function() {
             const fd = new FormData();
             fd.append('root', this.fileSystem.root);
             fd.append('src_paths', JSON.stringify(sourcePaths));
-            fd.append('dest_dir', targetPath);
+            fd.append('dest_dir', targetPath); // May be empty string for root
 
             try {
                 const response = await fetch('/api/admin/move', {
@@ -973,11 +973,13 @@ window.filesModule = function() {
                     this.selectionMode = false;
                     await this.loadFiles();
                 } else {
-                    throw new Error('Move failed');
+                    // Get detailed error message
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Move failed');
                 }
             } catch (e) {
                 console.error('Move error:', e);
-                alert('ไม่สามารถย้ายไฟล์ได้');
+                alert('ไม่สามารถย้ายไฟล์ได้: ' + e.message);
             }
         },
 
@@ -1373,20 +1375,19 @@ window.filesModule = function() {
 
             const action = this.clipboard.action;
             const sourcePaths = this.clipboard.paths;
-            const targetPath = this.fileSystem.current_path;
+            const targetPath = this.fileSystem.current_path; // May be empty string for root
 
             try {
                 if (action === 'cut') {
                     // Move files
                     await this.moveItems(sourcePaths, targetPath);
-                    this.clipboard = { action: null, paths: [] }; // Clear clipboard after cut
                     alert(`✅ ย้าย ${sourcePaths.length} รายการเรียบร้อย!`);
                 } else if (action === 'copy') {
                     // Copy files
                     const fd = new FormData();
                     fd.append('root', this.fileSystem.root);
                     fd.append('source_paths', JSON.stringify(sourcePaths));
-                    fd.append('target_path', targetPath);
+                    fd.append('target_path', targetPath); // Empty string is valid for root
 
                     const response = await fetch('/api/admin/copy', {
                         method: 'POST',
@@ -1397,16 +1398,20 @@ window.filesModule = function() {
                     if (response.ok) {
                         alert(`✅ คัดลอก ${sourcePaths.length} รายการเรียบร้อย!`);
                     } else {
-                        throw new Error('Copy failed');
+                        const error = await response.json();
+                        throw new Error(error.detail || 'Copy failed');
                     }
                 }
 
+                // ✅ Clear clipboard after successful operation
+                this.clipboard = { action: null, paths: [] };
+                
                 await this.loadFiles();
                 this.selectedPaths = [];
                 this.selectionMode = false;
             } catch (e) {
                 console.error('Paste error:', e);
-                alert('❌ การวาง (Paste) ล้มเหลว');
+                alert('❌ การวาง (Paste) ล้มเหลว: ' + e.message);
             }
         },
 

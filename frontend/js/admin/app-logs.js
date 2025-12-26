@@ -1,9 +1,3 @@
-/**
- * Enterprise Audit Logs Module
- * CMU Innovation Platform - Activity Monitoring System
- */
-
-// Global Logs State
 window.logsState = {
     logs: [],
     filteredLogs: [],

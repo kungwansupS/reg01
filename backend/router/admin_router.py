@@ -1,4 +1,7 @@
-# ✅ FIXED: เพิ่ม /api/admin/copy endpoint
+# ✅ FIXED VERSION - admin_router.py
+# Changes:
+# 1. Fixed get_secure_path to handle empty string for root directory
+# 2. Improved error responses with clear messages
 
 from fastapi import APIRouter, UploadFile, Form, HTTPException, Depends, Request
 from fastapi.responses import FileResponse, JSONResponse
@@ -57,19 +60,32 @@ def save_bot_settings(settings):
         json.dump(settings, f)
 
 def get_secure_path(root: str, path: str):
-    """แมป Root และตรวจสอบความปลอดภัยของ Path"""
+    """
+    แมป Root และตรวจสอบความปลอดภัยของ Path
+    
+    FIXED: รองรับ empty string สำหรับ root directory
+    """
     if root in ["data", "docs"]:
         base_path = PDF_INPUT_FOLDER
     elif root in ["uploads", "quick_use"]:
         base_path = PDF_QUICK_USE_FOLDER
     else:
         base_path = PDF_INPUT_FOLDER
-        
-    clean_path = path.lstrip("/").replace("..", "")
-    target = os.path.abspath(os.path.join(base_path, clean_path))
     
+    # ✅ Handle empty path (root directory)
+    if not path or path.strip() == "":
+        target = os.path.abspath(base_path)
+        logger.info(f"📁 Resolved empty path to root: {target}")
+    else:
+        clean_path = path.lstrip("/").replace("..", "")
+        target = os.path.abspath(os.path.join(base_path, clean_path))
+        logger.info(f"📁 Resolved path '{path}' to: {target}")
+    
+    # Security check
     if not target.startswith(os.path.abspath(base_path)):
+        logger.error(f"🚨 Security violation: {target} not in {base_path}")
         raise HTTPException(status_code=403, detail="Access Denied: Path escape detected")
+    
     return target
 
 def format_size(size_bytes):
@@ -177,40 +193,101 @@ async def list_admin_files(root: str = "data", subdir: str = ""):
 
 @router.post("/mkdir", dependencies=[Depends(verify_admin)])
 async def create_directory(root: str = Form(...), path: str = Form(...), name: str = Form(...)):
-    target = os.path.join(get_secure_path(root, path), name)
-    os.makedirs(target, exist_ok=True)
-    return {"status": "success"}
+    try:
+        target = os.path.join(get_secure_path(root, path), name)
+        os.makedirs(target, exist_ok=True)
+        logger.info(f"✅ Created directory: {target}")
+        return {"status": "success"}
+    except Exception as e:
+        logger.error(f"❌ Failed to create directory: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/rename", dependencies=[Depends(verify_admin)])
 async def rename_item(root: str = Form(...), old_path: str = Form(...), new_name: str = Form(...)):
-    old_target = get_secure_path(root, old_path)
-    new_target = os.path.join(os.path.dirname(old_target), new_name)
-    if os.path.exists(new_target): raise HTTPException(status_code=400, detail="Name already exists")
-    os.rename(old_target, new_target)
-    return {"status": "success"}
+    try:
+        old_target = get_secure_path(root, old_path)
+        new_target = os.path.join(os.path.dirname(old_target), new_name)
+        
+        if os.path.exists(new_target):
+            raise HTTPException(status_code=400, detail=f"'{new_name}' already exists")
+        
+        os.rename(old_target, new_target)
+        logger.info(f"✅ Renamed: {old_target} → {new_target}")
+        return {"status": "success"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Rename failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/move", dependencies=[Depends(verify_admin)])
 async def move_items(root: str = Form(...), src_paths: str = Form(...), dest_dir: str = Form(...)):
-    paths = json.loads(src_paths)
-    base_dest = get_secure_path(root, dest_dir)
-    os.makedirs(base_dest, exist_ok=True)
-    for p in paths:
-        src = get_secure_path(root, p)
-        shutil.move(src, os.path.join(base_dest, os.path.basename(src)))
-    return {"status": "success"}
+    """
+    ย้ายไฟล์/โฟลเดอร์
+    
+    FIXED: รองรับ dest_dir = "" สำหรับ root directory
+    """
+    try:
+        paths = json.loads(src_paths)
+        
+        # ✅ Handle empty dest_dir (root directory)
+        base_dest = get_secure_path(root, dest_dir)
+        logger.info(f"📦 Moving {len(paths)} items to: {base_dest}")
+        
+        os.makedirs(base_dest, exist_ok=True)
+        
+        for p in paths:
+            src = get_secure_path(root, p)
+            dest = os.path.join(base_dest, os.path.basename(src))
+            
+            if not os.path.exists(src):
+                logger.warning(f"⚠️ Source not found: {src}")
+                continue
+            
+            if src == dest:
+                logger.warning(f"⚠️ Source and destination are the same: {src}")
+                continue
+            
+            if os.path.exists(dest):
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"'{os.path.basename(src)}' already exists in destination"
+                )
+            
+            shutil.move(src, dest)
+            logger.info(f"  ✅ Moved: {os.path.basename(src)}")
+        
+        return {"status": "success"}
+        
+    except json.JSONDecodeError as e:
+        logger.error(f"❌ Invalid JSON in src_paths: {e}")
+        raise HTTPException(status_code=400, detail="Invalid source paths format")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Move failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
-# ✅ NEW: Copy Endpoint
 @router.post("/copy", dependencies=[Depends(verify_admin)])
 async def copy_items(root: str = Form(...), source_paths: str = Form(...), target_path: str = Form(...)):
-    """คัดลอกไฟล์/โฟลเดอร์ไปยังตำแหน่งใหม่"""
+    """
+    คัดลอกไฟล์/โฟลเดอร์ไปยังตำแหน่งใหม่
+    
+    FIXED: รองรับ target_path = "" สำหรับ root directory
+    """
     try:
         paths = json.loads(source_paths)
+        
+        # ✅ Handle empty target_path (root directory)
         base_dest = get_secure_path(root, target_path)
+        logger.info(f"📋 Copying {len(paths)} items to: {base_dest}")
+        
         os.makedirs(base_dest, exist_ok=True)
         
         for p in paths:
             src = get_secure_path(root, p)
             if not os.path.exists(src):
+                logger.warning(f"⚠️ Source not found: {src}")
                 continue
             
             dest = os.path.join(base_dest, os.path.basename(src))
@@ -229,53 +306,84 @@ async def copy_items(root: str = Form(...), source_paths: str = Form(...), targe
             # Copy
             if os.path.isdir(src):
                 shutil.copytree(src, dest)
+                logger.info(f"  ✅ Copied folder: {os.path.basename(src)}")
             else:
                 shutil.copy2(src, dest)
+                logger.info(f"  ✅ Copied file: {os.path.basename(src)}")
         
         return {"status": "success"}
+        
+    except json.JSONDecodeError as e:
+        logger.error(f"❌ Invalid JSON in source_paths: {e}")
+        raise HTTPException(status_code=400, detail="Invalid source paths format")
     except Exception as e:
-        logger.error(f"Copy error: {e}")
+        logger.error(f"❌ Copy error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/view", dependencies=[Depends(verify_admin)])
 async def preview_file(root: str, path: str):
-    target = get_secure_path(root, path)
-    if not os.path.exists(target) or os.path.isdir(target): raise HTTPException(status_code=404, detail="File not found")
-    ext = target.lower()
-    mime = "application/pdf" if ext.endswith(".pdf") else "text/plain"
-    return FileResponse(target, media_type=mime)
+    try:
+        target = get_secure_path(root, path)
+        if not os.path.exists(target) or os.path.isdir(target):
+            raise HTTPException(status_code=404, detail="File not found")
+        ext = target.lower()
+        mime = "application/pdf" if ext.endswith(".pdf") else "text/plain"
+        return FileResponse(target, media_type=mime)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ View file error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/edit", dependencies=[Depends(verify_admin)])
 async def edit_file(root: str = Form(...), path: str = Form(...), content: str = Form(...)):
-    target = get_secure_path(root, path)
-    with open(target, "w", encoding="utf-8") as f: f.write(content)
-    return {"status": "success"}
+    try:
+        target = get_secure_path(root, path)
+        with open(target, "w", encoding="utf-8") as f: f.write(content)
+        logger.info(f"✅ Edited file: {target}")
+        return {"status": "success"}
+    except Exception as e:
+        logger.error(f"❌ Edit file error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/upload", dependencies=[Depends(verify_admin)])
 async def upload_document(file: UploadFile, target_dir: str = Form(""), root: str = Form("data")):
-    dest_folder = get_secure_path(root, target_dir)
-    os.makedirs(dest_folder, exist_ok=True)
-    file_path = os.path.join(dest_folder, file.filename)
-    with open(file_path, "wb") as buffer: shutil.copyfileobj(file.file, buffer)
-    return {"status": "success"}
+    try:
+        dest_folder = get_secure_path(root, target_dir)
+        os.makedirs(dest_folder, exist_ok=True)
+        file_path = os.path.join(dest_folder, file.filename)
+        with open(file_path, "wb") as buffer: shutil.copyfileobj(file.file, buffer)
+        logger.info(f"✅ Uploaded: {file.filename}")
+        return {"status": "success"}
+    except Exception as e:
+        logger.error(f"❌ Upload error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/process-rag", dependencies=[Depends(verify_admin)])
 async def trigger_rag_process():
     try:
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(admin_executor, process_pdfs)
+        logger.info("✅ RAG processing completed")
         return {"status": "completed"}
-    except Exception as e: raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        logger.error(f"❌ RAG processing error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/files", dependencies=[Depends(verify_admin)])
 async def delete_items(root: str, paths: str):
-    path_list = json.loads(paths)
-    for path in path_list:
-        target = get_secure_path(root, path)
-        if os.path.exists(target):
-            if os.path.isdir(target): shutil.rmtree(target)
-            else: os.remove(target)
-    return {"status": "deleted"}
+    try:
+        path_list = json.loads(paths)
+        for path in path_list:
+            target = get_secure_path(root, path)
+            if os.path.exists(target):
+                if os.path.isdir(target): shutil.rmtree(target)
+                else: os.remove(target)
+                logger.info(f"✅ Deleted: {target}")
+        return {"status": "deleted"}
+    except Exception as e:
+        logger.error(f"❌ Delete error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # ----------------------------------------------------------------------------- #
 # CHAT & BOT CONTROL ENDPOINTS

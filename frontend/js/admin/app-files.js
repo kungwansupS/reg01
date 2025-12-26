@@ -2,6 +2,11 @@
  * Enterprise File Explorer Module - Enhanced Edition
  * CMU Innovation Platform - Modern File Management System
  * Features: Drag & Drop, Grid/List View, Professional UI/UX
+ * 
+ * FIXES:
+ * 1. Removed duplicate context menu
+ * 2. Fixed move/copy API to handle root directory (empty path)
+ * 3. Improved error handling with proper error messages
  */
 
 // Global File System State
@@ -15,14 +20,14 @@ window.filesState = {
     draggedOver: null,
     selectionMode: false,
     longPressTimer: null,
-    longPressFired: false, // Flag to prevent mouseup after long press
+    longPressFired: false,
     uploadStatus: { total: 0, done: 0 },
     processing: false,
-    viewMode: 'grid', // 'grid' or 'list'
-    sortBy: 'name', // 'name', 'size', 'type'
+    viewMode: 'grid',
+    sortBy: 'name',
     sortDesc: false,
     contextMenu: { show: false, x: 0, y: 0, entry: null },
-    clipboard: { action: null, paths: [] }, // for cut/copy/paste
+    clipboard: { action: null, paths: [] },
     preview: { 
         open: false, 
         type: 'txt', 
@@ -491,33 +496,6 @@ window.loadFilesTab = function() {
                 </div>
             </div>
 
-            <!-- Context Menu -->
-            <div x-show="contextMenu.show" 
-                 @click.away="contextMenu.show = false"
-                 :style="'position: fixed; top: ' + contextMenu.y + 'px; left: ' + contextMenu.x + 'px; z-index: 1000;'"
-                 class="card-enterprise rounded-lg shadow-2xl py-2 min-w-[200px] animate-in"
-                 style="border: 1px solid var(--border-primary);">
-                <button @click="contextMenu.entry && (contextMenu.entry.type === 'dir' ? navigate(contextMenu.entry.path) : previewFile(contextMenu.entry)); contextMenu.show = false" 
-                        class="w-full px-4 py-2 text-left text-sm font-medium hover:bg-opacity-10 transition-colors flex items-center gap-2"
-                        style="color: var(--text-primary);">
-                    <i :data-lucide="contextMenu.entry?.type === 'dir' ? 'folder-open' : 'eye'" class="w-4 h-4"></i>
-                    <span x-text="contextMenu.entry?.type === 'dir' ? 'Open' : 'Preview'"></span>
-                </button>
-                <button @click="contextMenu.entry && renameItem(contextMenu.entry); contextMenu.show = false" 
-                        class="w-full px-4 py-2 text-left text-sm font-medium hover:bg-opacity-10 transition-colors flex items-center gap-2"
-                        style="color: var(--text-primary);">
-                    <i data-lucide="edit-3" class="w-4 h-4"></i>
-                    Rename
-                </button>
-                <div class="h-px my-2" style="background-color: var(--border-secondary);"></div>
-                <button @click="contextMenu.entry && deleteItem(contextMenu.entry); contextMenu.show = false" 
-                        class="w-full px-4 py-2 text-left text-sm font-medium hover:bg-opacity-10 transition-colors flex items-center gap-2"
-                        style="color: var(--danger);">
-                    <i data-lucide="trash-2" class="w-4 h-4"></i>
-                    Delete
-                </button>
-            </div>
-
             <!-- Preview Modal -->
             <div 
                 x-show="preview.open" 
@@ -595,7 +573,7 @@ window.loadFilesTab = function() {
             </div>
         </div>
 
-        <!-- Context Menu -->
+        <!-- Context Menu (FIXED: Only ONE context menu, outside main container) -->
         <div 
             x-show="contextMenu.show" 
             @click.away="contextMenu.show = false"
@@ -605,19 +583,19 @@ window.loadFilesTab = function() {
             style="border: 1px solid var(--border-primary);">
             
             <button 
-                @click="renameItem(contextMenu.entry); contextMenu.show = false"
+                @click="contextMenu.entry && (contextMenu.entry.type === 'dir' ? navigate(contextMenu.entry.path) : previewFile(contextMenu.entry)); contextMenu.show = false" 
+                class="w-full px-4 py-2 text-left text-sm font-medium hover:bg-opacity-10 transition-colors flex items-center gap-3"
+                style="color: var(--text-primary);">
+                <i :data-lucide="contextMenu.entry?.type === 'dir' ? 'folder-open' : 'eye'" class="w-4 h-4" style="color: var(--cmu-purple);"></i>
+                <span x-text="contextMenu.entry?.type === 'dir' ? 'Open' : 'Preview'"></span>
+            </button>
+            
+            <button 
+                @click="contextMenu.entry && renameItem(contextMenu.entry); contextMenu.show = false"
                 class="w-full px-4 py-2 text-left text-sm font-medium hover:bg-opacity-10 transition-colors flex items-center gap-3"
                 style="color: var(--text-primary);">
                 <i data-lucide="edit-3" class="w-4 h-4" style="color: var(--cmu-purple);"></i>
                 <span>Rename</span>
-            </button>
-            
-            <button 
-                @click="deleteItem(contextMenu.entry); contextMenu.show = false"
-                class="w-full px-4 py-2 text-left text-sm font-medium hover:bg-opacity-10 transition-colors flex items-center gap-3"
-                style="color: var(--danger);">
-                <i data-lucide="trash-2" class="w-4 h-4"></i>
-                <span>Delete</span>
             </button>
             
             <div class="h-px my-1" style="background-color: var(--border-secondary);"></div>
@@ -636,6 +614,16 @@ window.loadFilesTab = function() {
                 style="color: var(--text-primary);">
                 <i data-lucide="scissors" class="w-4 h-4" style="color: var(--cmu-purple);"></i>
                 <span>Cut</span>
+            </button>
+            
+            <div class="h-px my-1" style="background-color: var(--border-secondary);"></div>
+            
+            <button 
+                @click="contextMenu.entry && deleteItem(contextMenu.entry); contextMenu.show = false"
+                class="w-full px-4 py-2 text-left text-sm font-medium hover:bg-opacity-10 transition-colors flex items-center gap-3"
+                style="color: var(--danger);">
+                <i data-lucide="trash-2" class="w-4 h-4"></i>
+                <span>Delete</span>
             </button>
         </div>
 
@@ -678,7 +666,6 @@ window.loadFilesTab = function() {
                 animation: shimmer 2s infinite;
             }
 
-            /* Prevent text selection during drag */
             .select-none {
                 user-select: none;
                 -webkit-user-select: none;
@@ -686,7 +673,6 @@ window.loadFilesTab = function() {
                 -ms-user-select: none;
             }
 
-            /* Custom Scrollbar */
             .custom-scrollbar::-webkit-scrollbar {
                 width: 8px;
                 height: 8px;
@@ -723,13 +709,11 @@ window.filesModule = function() {
             
             // Keyboard shortcuts
             document.addEventListener('keydown', (e) => {
-                // Ctrl+S to save in preview
                 if (e.ctrlKey && e.key === 's' && this.preview.open && this.preview.type === 'txt') {
                     e.preventDefault();
                     this.saveContent();
                 }
                 
-                // Escape to close preview or clear selection or close context menu
                 if (e.key === 'Escape') {
                     if (this.preview.open) {
                         this.closePreview();
@@ -741,85 +725,62 @@ window.filesModule = function() {
                     }
                 }
                 
-                // Ctrl+A to select all
                 if (e.ctrlKey && e.key === 'a' && !this.preview.open) {
                     e.preventDefault();
                     this.selectedPaths = this.filteredEntries.map(e => e.path);
                     this.selectionMode = true;
                 }
                 
-                // Ctrl+C to copy
                 if (e.ctrlKey && e.key === 'c' && this.selectedPaths.length > 0 && !this.preview.open) {
                     e.preventDefault();
                     this.copyToClipboard();
                 }
                 
-                // Ctrl+X to cut
                 if (e.ctrlKey && e.key === 'x' && this.selectedPaths.length > 0 && !this.preview.open) {
                     e.preventDefault();
                     this.cutToClipboard();
                 }
                 
-                // Ctrl+V to paste
                 if (e.ctrlKey && e.key === 'v' && this.clipboard.paths.length > 0 && !this.preview.open) {
                     e.preventDefault();
                     this.pasteFromClipboard();
                 }
                 
-                // Delete key to delete selected
                 if (e.key === 'Delete' && this.selectedPaths.length > 0 && !this.preview.open) {
                     this.bulkDelete();
                 }
             });
         },
 
-        // Mouse Event Handlers for Long-Press Selection
+        // Mouse Event Handlers
         handleItemMouseDown(event, entry) {
-            // Ignore right-click (context menu)
-            if (event.button === 2) {
-                return;
-            }
+            if (event.button === 2) return;
+            if (this.clipboard.paths.length > 0) return;
 
-            // If in clipboard mode, prevent new selections
-            if (this.clipboard.paths.length > 0) {
-                return;
-            }
-
-            // Prevent default to avoid text selection
             event.preventDefault();
             
-            // Clear any existing timer
             if (this.longPressTimer) {
                 clearTimeout(this.longPressTimer);
                 this.longPressTimer = null;
             }
 
-            // Reset flag
             this.longPressFired = false;
 
-            // Start long press timer (500ms)
             this.longPressTimer = setTimeout(() => {
-                // Enter selection mode and select this item
                 this.selectionMode = true;
                 this.longPressFired = true;
                 
-                // Add to selection if not already selected
                 if (!this.selectedPaths.includes(entry.path)) {
                     this.selectedPaths.push(entry.path);
                 }
                 
-                // Clear timer
                 this.longPressTimer = null;
             }, 500);
         },
 
         handleItemMouseUp(event, entry) {
-            // Ignore right-click (context menu)
-            if (event.button === 2) {
-                return;
-            }
+            if (event.button === 2) return;
 
-            // If in clipboard mode, only allow folder navigation
             if (this.clipboard.paths.length > 0) {
                 if (entry.type === 'dir') {
                     this.navigate(entry.path);
@@ -827,32 +788,27 @@ window.filesModule = function() {
                 return;
             }
 
-            // Clear long press timer if still running
             if (this.longPressTimer) {
                 clearTimeout(this.longPressTimer);
                 this.longPressTimer = null;
             }
 
-            // If long press just fired, ignore this mouseup
             if (this.longPressFired) {
                 this.longPressFired = false;
                 return;
             }
 
-            // If in selection mode, toggle selection
             if (this.selectionMode) {
                 this.toggleSelection(entry);
                 return;
             }
 
-            // If already selected items exist, add to selection and enter selection mode
             if (this.selectedPaths.length > 0) {
                 this.selectionMode = true;
                 this.toggleSelection(entry);
                 return;
             }
 
-            // Single click - open folder or preview file
             if (entry.type === 'dir') {
                 this.navigate(entry.path);
             } else {
@@ -868,38 +824,32 @@ window.filesModule = function() {
                 this.selectedPaths.push(entry.path);
             }
 
-            // Exit selection mode if no items selected
             if (this.selectedPaths.length === 0) {
                 this.selectionMode = false;
             }
         },
 
-        // Item Drag & Drop (for moving files/folders)
+        // Item Drag & Drop
         handleItemDragStart(event, entry) {
-            // Cancel long press
             if (this.longPressTimer) {
                 clearTimeout(this.longPressTimer);
                 this.longPressTimer = null;
             }
 
-            // If item not selected, select it
             if (!this.selectedPaths.includes(entry.path)) {
                 this.selectedPaths = [entry.path];
             }
 
-            // Store dragged items
             this.draggedItems = this.selectedPaths.map(path => 
                 this.fileSystem.entries.find(e => e.path === path)
             ).filter(e => e);
 
-            // Set drag data
             event.dataTransfer.effectAllowed = 'move';
             event.dataTransfer.setData('application/json', JSON.stringify({
                 type: 'internal',
                 paths: this.selectedPaths
             }));
 
-            // Visual feedback
             event.target.style.opacity = '0.5';
         },
 
@@ -912,7 +862,6 @@ window.filesModule = function() {
         handleItemDragOver(event, entry) {
             if (entry.type !== 'dir') return;
             
-            // Don't allow dropping on itself
             if (this.draggedItems.some(item => item.path === entry.path)) {
                 event.dataTransfer.dropEffect = 'none';
                 return;
@@ -931,14 +880,12 @@ window.filesModule = function() {
         async handleItemDrop(event, targetEntry) {
             this.draggedOver = null;
 
-            // Only allow drop on folders
             if (targetEntry.type !== 'dir') return;
 
             try {
                 const data = JSON.parse(event.dataTransfer.getData('application/json'));
                 
                 if (data.type === 'internal') {
-                    // Move files/folders
                     await this.moveItems(data.paths, targetEntry.path);
                 }
             } catch (e) {
@@ -949,7 +896,6 @@ window.filesModule = function() {
         async moveItems(sourcePaths, targetPath) {
             if (!sourcePaths || sourcePaths.length === 0) return;
 
-            // Don't move if target is in sources
             if (sourcePaths.includes(targetPath)) {
                 alert('ไม่สามารถย้ายโฟลเดอร์เข้าไปในตัวมันเองได้');
                 return;
@@ -959,7 +905,7 @@ window.filesModule = function() {
             const fd = new FormData();
             fd.append('root', this.fileSystem.root);
             fd.append('src_paths', JSON.stringify(sourcePaths));
-            fd.append('dest_dir', targetPath); // May be empty string for root
+            fd.append('dest_dir', targetPath);
 
             try {
                 const response = await fetch('/api/admin/move', {
@@ -973,13 +919,22 @@ window.filesModule = function() {
                     this.selectionMode = false;
                     await this.loadFiles();
                 } else {
-                    // Get detailed error message
-                    const error = await response.json();
-                    throw new Error(error.detail || 'Move failed');
+                    // Parse error response
+                    let errorMessage = 'Move failed';
+                    try {
+                        const errorData = await response.json();
+                        errorMessage = errorData.detail || errorData.message || JSON.stringify(errorData);
+                    } catch (jsonError) {
+                        // If response is not JSON
+                        const errorText = await response.text();
+                        errorMessage = errorText || `HTTP ${response.status}: ${response.statusText}`;
+                    }
+                    throw new Error(errorMessage);
                 }
             } catch (e) {
                 console.error('Move error:', e);
-                alert('ไม่สามารถย้ายไฟล์ได้: ' + e.message);
+                const errorMsg = e.message || String(e);
+                alert('ไม่สามารถย้ายไฟล์ได้: ' + errorMsg);
             }
         },
 
@@ -992,14 +947,11 @@ window.filesModule = function() {
         get sortedFilteredEntries() {
             let entries = [...this.filteredEntries];
             
-            // Sort logic
             entries.sort((a, b) => {
-                // Folders first
                 if (a.type !== b.type) {
                     return a.type === 'dir' ? -1 : 1;
                 }
                 
-                // Then by selected sort option
                 let aVal, bVal;
                 
                 if (this.sortBy === 'name') {
@@ -1068,10 +1020,7 @@ window.filesModule = function() {
         },
 
         showContextMenu(event, entry) {
-            // Don't show context menu if in clipboard mode
-            if (this.clipboard.paths.length > 0) {
-                return;
-            }
+            if (this.clipboard.paths.length > 0) return;
 
             this.contextMenu = {
                 show: true,
@@ -1081,10 +1030,15 @@ window.filesModule = function() {
             };
         },
 
-        // External File Drag & Drop Handlers (from desktop)
+        // External File Drag & Drop
         handleDragEnter(e) {
-            this.dragCounter++;
-            this.dragging = true;
+            const hasFiles = e.dataTransfer.types.includes('Files');
+            const isInternal = e.dataTransfer.types.includes('application/json');
+            
+            if (hasFiles && !isInternal) {
+                this.dragCounter++;
+                this.dragging = true;
+            }
         },
 
         handleDragLeave(e) {
@@ -1095,7 +1049,10 @@ window.filesModule = function() {
         },
 
         handleDragOver(e) {
-            e.dataTransfer.dropEffect = 'copy';
+            const hasFiles = e.dataTransfer.types.includes('Files');
+            if (hasFiles) {
+                e.dataTransfer.dropEffect = 'copy';
+            }
         },
 
         handleDrop(e) {
@@ -1201,7 +1158,6 @@ window.filesModule = function() {
             
             await this.loadFiles();
             
-            // Reset upload status after a delay
             setTimeout(() => {
                 this.uploadStatus = { total: 0, done: 0 };
             }, 2000);
@@ -1345,12 +1301,10 @@ window.filesModule = function() {
                 paths: paths || [...this.selectedPaths]
             };
             
-            // Clear selection after copying
             this.selectedPaths = [];
             this.selectionMode = false;
             
-            const count = this.clipboard.paths.length;
-            console.log(`📋 Copied ${count} item(s) to clipboard`);
+            console.log(`📋 Copied ${this.clipboard.paths.length} item(s) to clipboard`);
         },
 
         cutToClipboard(paths = null) {
@@ -1359,12 +1313,10 @@ window.filesModule = function() {
                 paths: paths || [...this.selectedPaths]
             };
             
-            // Clear selection after cutting
             this.selectedPaths = [];
             this.selectionMode = false;
             
-            const count = this.clipboard.paths.length;
-            console.log(`✂️ Cut ${count} item(s) to clipboard`);
+            console.log(`✂️ Cut ${this.clipboard.paths.length} item(s) to clipboard`);
         },
 
         async pasteFromClipboard() {
@@ -1375,19 +1327,17 @@ window.filesModule = function() {
 
             const action = this.clipboard.action;
             const sourcePaths = this.clipboard.paths;
-            const targetPath = this.fileSystem.current_path; // May be empty string for root
+            const targetPath = this.fileSystem.current_path;
 
             try {
                 if (action === 'cut') {
-                    // Move files
                     await this.moveItems(sourcePaths, targetPath);
                     alert(`✅ ย้าย ${sourcePaths.length} รายการเรียบร้อย!`);
                 } else if (action === 'copy') {
-                    // Copy files
                     const fd = new FormData();
                     fd.append('root', this.fileSystem.root);
                     fd.append('source_paths', JSON.stringify(sourcePaths));
-                    fd.append('target_path', targetPath); // Empty string is valid for root
+                    fd.append('target_path', targetPath);
 
                     const response = await fetch('/api/admin/copy', {
                         method: 'POST',
@@ -1398,12 +1348,19 @@ window.filesModule = function() {
                     if (response.ok) {
                         alert(`✅ คัดลอก ${sourcePaths.length} รายการเรียบร้อย!`);
                     } else {
-                        const error = await response.json();
-                        throw new Error(error.detail || 'Copy failed');
+                        // Parse error response
+                        let errorMessage = 'Copy failed';
+                        try {
+                            const errorData = await response.json();
+                            errorMessage = errorData.detail || errorData.message || JSON.stringify(errorData);
+                        } catch (jsonError) {
+                            const errorText = await response.text();
+                            errorMessage = errorText || `HTTP ${response.status}: ${response.statusText}`;
+                        }
+                        throw new Error(errorMessage);
                     }
                 }
 
-                // ✅ Clear clipboard after successful operation
                 this.clipboard = { action: null, paths: [] };
                 
                 await this.loadFiles();
@@ -1411,7 +1368,8 @@ window.filesModule = function() {
                 this.selectionMode = false;
             } catch (e) {
                 console.error('Paste error:', e);
-                alert('❌ การวาง (Paste) ล้มเหลว: ' + e.message);
+                const errorMsg = e.message || String(e);
+                alert('❌ การวาง (Paste) ล้มเหลว: ' + errorMsg);
             }
         },
 
@@ -1444,43 +1402,6 @@ window.filesModule = function() {
             } finally { 
                 this.processing = false; 
                 await this.loadFiles(); 
-            }
-        },
-
-        // External File Drag & Drop Handlers (from desktop)
-        handleDragEnter(e) {
-            // Only show overlay for external files, not internal drag
-            const hasFiles = e.dataTransfer.types.includes('Files');
-            const isInternal = e.dataTransfer.types.includes('application/json');
-            
-            if (hasFiles && !isInternal) {
-                this.dragCounter++;
-                this.dragging = true;
-            }
-        },
-
-        handleDragLeave(e) {
-            this.dragCounter--;
-            if (this.dragCounter === 0) {
-                this.dragging = false;
-            }
-        },
-
-        handleDragOver(e) {
-            const hasFiles = e.dataTransfer.types.includes('Files');
-            if (hasFiles) {
-                e.dataTransfer.dropEffect = 'copy';
-            }
-        },
-
-        handleDrop(e) {
-            this.dragCounter = 0;
-            this.dragging = false;
-            
-            // Only handle external file drops
-            const files = Array.from(e.dataTransfer.files);
-            if (files.length > 0) {
-                this.executeUploadBatch(files);
             }
         }
     };

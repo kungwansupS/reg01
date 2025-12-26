@@ -13,7 +13,6 @@ load_dotenv(os.path.join(BACKEND_DIR, ".env"))
 
 from backend.main import asgi_app
 from backend.app.config import HOST, PORT
-from backend.pdf_to_txt import process_pdfs
 
 logging.basicConfig(
     level=logging.INFO,
@@ -22,9 +21,6 @@ logging.basicConfig(
 
 if __name__ == "__main__":
     logging.info("🚀 Starting REG-01 Backend...")
-
-    # Pre-process PDFs
-    process_pdfs()
 
     # Run ASGI Server ONLY
     logging.info(f"📡 Server running at {HOST}:{PORT}")

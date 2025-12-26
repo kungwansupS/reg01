@@ -1,33 +1,25 @@
+# [FILE: backend/retriever/context_selector.py - FULLCODE ONLY]
 import os
-import torch
 import threading
-from sentence_transformers import SentenceTransformer, util
-from dotenv import load_dotenv
+import logging
 from app.config import PDF_QUICK_USE_FOLDER, debug_list_files
+from app.utils.vector_manager import vector_manager
 
-load_dotenv()
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
-print(f"====== use {device} for embedding ======")
-
-# เลือกระดับความแม่นยำตาม Hardware
-if device == 'cuda':
-    model_name = "BAAI/bge-m3"
-else:
-    model_name = "intfloat/multilingual-e5-small"
-
-print(f"use model {model_name}")
-embedding_model = SentenceTransformer(model_name, device=device)
+# ตั้งค่า Logging สำหรับการตรวจสอบการทำงาน
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("ContextSelector")
 
 # ------------------------------------------------------------------
 # Global Cache & Lock
 # ------------------------------------------------------------------
+# เก็บไว้เพื่อรองรับฟังก์ชันการอ่านไฟล์ดิบสำหรับระบบ Ingestion ใน Phase ถัดไป
 _chunks_cache = []
 _cache_lock = threading.Lock()
-_embedding_lock = threading.Lock()
 
 def get_file_chunks(folder=PDF_QUICK_USE_FOLDER, separator="===================", force_reload=False):
     """
-    ดึงข้อมูล Chunks จากไฟล์ พร้อมระบบ Caching เพื่อลดการอ่าน Disk
+    ดึงข้อมูล Chunks จากไฟล์ต้นทาง (.txt) พร้อมระบบ Caching 
+    ใช้สำหรับการทำ Indexing ลงฐานข้อมูล หรือตรวจสอบเนื้อหาดิบ
     """
     global _chunks_cache
     
@@ -35,10 +27,11 @@ def get_file_chunks(folder=PDF_QUICK_USE_FOLDER, separator="==================="
         if _chunks_cache and not force_reload:
             return _chunks_cache
 
-        debug_list_files(folder, "📄 Quick-use TXT files")
+        debug_list_files(folder, "📄 Quick-use TXT files for Indexing")
         new_chunks = []
         
         if not os.path.exists(folder):
+            logger.warning(f"⚠️ Folder not found: {folder}")
             return []
 
         for root, _, files in os.walk(folder):
@@ -59,37 +52,46 @@ def get_file_chunks(folder=PDF_QUICK_USE_FOLDER, separator="==================="
                                     "index": i
                                 })
                     except Exception as e:
-                        print(f"❌ Error reading {filename}: {e}")
+                        logger.error(f"❌ Error reading {filename}: {e}")
         
         _chunks_cache = new_chunks
         return _chunks_cache
 
 def retrieve_top_k_chunks(query, k=5, folder=PDF_QUICK_USE_FOLDER):
     """
-    ค้นหาข้อมูลที่ใกล้เคียงที่สุดโดยใช้ Vector Search
-    """
-    all_chunks = get_file_chunks(folder)
-    if not all_chunks:
-        return []
-
-    passages = [f"passage: {entry['chunk']}" for entry in all_chunks]
-
-    # ใช้ Lock เพื่อความปลอดภัยในการทำ Inference พร้อมกันหลาย Thread
-    with _embedding_lock:
-        query_embedding = embedding_model.encode(
-            f"query: {query}", 
-            convert_to_tensor=True, 
-            normalize_embeddings=True
-        )
-        chunk_embeddings = embedding_model.encode(
-            passages, 
-            convert_to_tensor=True, 
-            normalize_embeddings=True
-        )
-
-        scores = util.dot_score(query_embedding, chunk_embeddings)[0].tolist()
+    ค้นหาข้อมูลที่ใกล้เคียงที่สุดโดยใช้ Vector Database (ChromaDB)
+    แทนที่การคำนวณ Dot Product สดแบบเดิม
     
-    scored_chunks = [(entry, score) for entry, score in zip(all_chunks, scores)]
-    scored_chunks.sort(key=lambda x: x[1], reverse=True)
+    Args:
+        query: ข้อความที่ต้องการค้นหา
+        k: จำนวนผลลัพธ์ที่ต้องการ (Top K)
+        folder: พารามิเตอร์คงไว้เพื่อความเข้ากันได้ของ Signature (Compatibility)
+    """
+    try:
+        # 1. ค้นหาข้อมูลผ่าน Vector Manager (ChromaDB)
+        # ระบบจะทำการแปลง Query เป็น Vector และค้นหาใน Index อัตโนมัติ
+        results = vector_manager.search(query, k=k)
+        
+        if not results:
+            logger.info(f"🔍 Search Result: No relevant chunks found for '{query}'")
+            return []
 
-    return scored_chunks[:k]
+        # 2. แปลงรูปแบบผลลัพธ์กลับเป็น (entry, score) เพื่อให้เข้ากับระบบ LLM เดิม
+        # โดยที่ entry ต้องมี key 'chunk' และ 'source'
+        scored_chunks = []
+        for r in results:
+            entry = {
+                "chunk": r['chunk'],
+                "source": r['source'],
+                "index": r.get('index', 0) # แถม index เพื่อความสมบูรณ์ของ Metadata
+            }
+            # r['score'] ใน ChromaDB คือ Distance (ยิ่งน้อยยิ่งใกล้)
+            scored_chunks.append((entry, r['score']))
+            
+        logger.info(f"✅ Retrieved {len(scored_chunks)} chunks from Vector DB")
+        return scored_chunks
+
+    except Exception as e:
+        logger.error(f"❌ Retrieval Error: {e}")
+        # หากเกิดข้อผิดพลาด ให้คืนค่าลิสต์ว่างเพื่อไม่ให้ระบบ LLM พัง (No-Error Policy)
+        return []

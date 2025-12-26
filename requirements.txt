@@ -3,7 +3,9 @@ uvicorn
 python-socketio
 python-dotenv
 python-multipart
-ffmpeg
+ffmpeg-python
+httpx
+jinja2
 
 # PDF handling
 PyMuPDF
@@ -19,6 +21,8 @@ torch
 tqdm
 langdetect
 tiktoken
+chromadb
+transformers
 
 # TTS / STT
 speechrecognition

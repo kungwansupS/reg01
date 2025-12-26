@@ -1,3 +1,4 @@
+# [FILE: main.py - FULLCODE ONLY]
 from fastapi import FastAPI, Request, UploadFile, Form, HTTPException, Depends, Response
 from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -24,7 +25,7 @@ from app.stt import transcribe
 from app.utils.llm.llm import ask_llm
 from app.utils.pose import suggest_pose
 from app.utils.token_counter import calculate_cost
-from app.config import BOT_SETTINGS_FILE
+from app.config import BOT_SETTINGS_FILE, PDF_QUICK_USE_FOLDER
 from dotenv import load_dotenv
 from memory.session import (
     get_or_create_history, 
@@ -33,6 +34,8 @@ from memory.session import (
     get_bot_enabled,
     set_bot_enabled
 )
+# นำเข้า Vector Manager สำหรับระบบ Sync ใน Phase 3
+from app.utils.vector_manager import vector_manager
 
 # นำเข้า Admin Router
 from router.admin_router import router as admin_router
@@ -76,17 +79,7 @@ def write_audit_log(
     model_name: str = None
 ):
     """
-    Write comprehensive audit log with token tracking
-    
-    Args:
-        user_id: User identifier
-        platform: Platform (web/facebook/line)
-        user_input: User's input text
-        ai_response: AI's response text
-        latency: Response time in seconds
-        rating: User rating (if any)
-        tokens: Token usage dict {prompt_tokens, completion_tokens, total_tokens, cached}
-        model_name: Model name used for the response
+    เขียน Audit Log พร้อมการติดตาม Token
     """
     log_entry = {
         "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -98,7 +91,6 @@ def write_audit_log(
         "rating": rating
     }
     
-    # Add token information if available
     if tokens:
         log_entry["tokens"] = {
             "prompt": tokens.get("prompt_tokens", 0),
@@ -107,7 +99,6 @@ def write_audit_log(
             "cached": tokens.get("cached", False)
         }
         
-        # Add cost if model name provided
         if model_name:
             cost = calculate_cost(tokens, model_name)
             if cost > 0:
@@ -132,8 +123,48 @@ asgi_app = socketio.ASGIApp(sio, app)
 app.mount("/static", StaticFiles(directory="frontend", html=False), name="static")
 app.mount("/assets", StaticFiles(directory="frontend/assets"), name="assets")
 
+async def sync_vector_db():
+    """
+    [PHASE 3] ตรวจสอบความเปลี่ยนแปลงของไฟล์ .txt และอัปเดตลง Vector DB อัตโนมัติ
+    """
+    def run_sync():
+        logger.info("🔍 [Vector DB] Starting startup synchronization...")
+        if not os.path.exists(PDF_QUICK_USE_FOLDER):
+            logger.warning(f"⚠️ [Vector DB] Quick-use folder not found: {PDF_QUICK_USE_FOLDER}")
+            return
+
+        sync_count = 0
+        for root, _, files in os.walk(PDF_QUICK_USE_FOLDER):
+            for filename in sorted(files):
+                if filename.endswith(".txt"):
+                    filepath = os.path.join(root, filename)
+                    needs_upd, file_hash = vector_manager.needs_update(filepath)
+                    
+                    if needs_upd:
+                        try:
+                            with open(filepath, "r", encoding="utf-8") as f:
+                                content = f.read()
+                            
+                            # แบ่งข้อมูลโดยใช้ separator มาตรฐาน
+                            separator = "==================="
+                            chunks = [c.strip() for c in content.split(separator) if c.strip()]
+                            
+                            vector_manager.add_document(filepath, chunks)
+                            vector_manager.update_registry(filepath, file_hash)
+                            sync_count += 1
+                        except Exception as e:
+                            logger.error(f"❌ [Vector DB] Sync failed for {filename}: {e}")
+        
+        if sync_count > 0:
+            logger.info(f"✅ [Vector DB] Synchronization complete. Updated {sync_count} files.")
+        else:
+            logger.info("✅ [Vector DB] Database is already up-to-date.")
+
+    # รันใน Thread เพื่อไม่ให้บล็อกการทำงานหลัก
+    await asyncio.to_thread(run_sync)
+
 async def fb_worker():
-    """Worker สำหรับประมวลผลข้อความจาก Facebook"""
+    """Worker สำหรับจัดการข้อความจาก Facebook Messenger"""
     from app.config import LLM_PROVIDER, GEMINI_MODEL_NAME, OPENAI_MODEL_NAME, LOCAL_MODEL_NAME
     
     while True:
@@ -145,7 +176,6 @@ async def fb_worker():
         session_id = f"fb_{psid}"
         logger.info(f"📩 Processing FB message: {session_id}")
         
-        # ดึงข้อมูลจาก Facebook (ทั้งชื่อและรูป)
         user_name = f"FB User {psid[:5]}"
         user_pic = "https://www.gravatar.com/avatar/?d=mp"
         
@@ -160,23 +190,16 @@ async def fb_worker():
                         data = r.json()
                         user_name = data.get("name", user_name)
                         user_pic = data.get("picture", {}).get("data", {}).get("url", user_pic)
-                        logger.info(f"   👤 User: {user_name}")
             except Exception as e:
-                logger.error(f"   ❌ Fetch FB Profile Error: {e}")
+                logger.error(f"❌ Fetch FB Profile Error: {e}")
 
         await sio.emit("admin_new_message", {
-            "platform": "facebook", 
-            "uid": session_id,
-            "text": user_text, 
-            "user_name": user_name,
-            "user_pic": user_pic
+            "platform": "facebook", "uid": session_id, "text": user_text, 
+            "user_name": user_name, "user_pic": user_pic
         })
-        logger.info(f"   📤 Sent to admin: {session_id}")
         
         bot_enabled = get_bot_enabled(session_id)
-        
         if not bot_enabled:
-            logger.info(f"   🤖 Bot disabled for session: {session_id}")
             history = get_or_create_history(session_id, user_name=user_name, user_picture=user_pic, platform="facebook")
             history.append({"role": "user", "parts": [{"text": user_text}]})
             save_history(session_id, history, user_name=user_name, user_picture=user_pic, platform="facebook")
@@ -186,7 +209,6 @@ async def fb_worker():
         async with await get_session_lock(session_id):
             try:
                 get_or_create_history(session_id, user_name=user_name, user_picture=user_pic, platform="facebook")
-                
                 result = await ask_llm(user_text, session_id, emit_fn=sio.emit)
                 reply = result["text"]
                 tokens = result.get("tokens", {})
@@ -194,47 +216,28 @@ async def fb_worker():
                 fb_message = f"[Bot พี่เร็ก] {reply.replace('//', '')}"
                 await send_fb_text(psid, fb_message)
                 
-                await sio.emit("admin_bot_reply", {
-                    "platform": "facebook", 
-                    "uid": session_id,
-                    "text": fb_message
-                })
+                await sio.emit("admin_bot_reply", {"platform": "facebook", "uid": session_id, "text": fb_message})
                 
-                # Get model name
-                if LLM_PROVIDER == "gemini":
-                    model_name = GEMINI_MODEL_NAME
-                elif LLM_PROVIDER == "openai":
-                    model_name = OPENAI_MODEL_NAME
-                else:
-                    model_name = LOCAL_MODEL_NAME
-                
-                # Write audit log with token info
-                write_audit_log(
-                    psid, 
-                    "facebook", 
-                    user_text, 
-                    reply, 
-                    time.time() - start_time,
-                    tokens=tokens,
-                    model_name=model_name
-                )
-                
-                logger.info(f"   ✅ Processed successfully")
+                model_name = GEMINI_MODEL_NAME if LLM_PROVIDER == "gemini" else (OPENAI_MODEL_NAME if LLM_PROVIDER == "openai" else LOCAL_MODEL_NAME)
+                write_audit_log(psid, "facebook", user_text, reply, time.time() - start_time, tokens=tokens, model_name=model_name)
             except Exception as e: 
-                logger.error(f"   ❌ FB Worker Error: {e}")
+                logger.error(f"❌ FB Worker Error: {e}")
             finally: 
                 fb_task_queue.task_done()
 
 @app.on_event("startup")
 async def startup_event():
     logger.info("🚀 Starting application...")
+    # [PHASE 3] ซิงค์ข้อมูลลง Vector DB ตอนเริ่มต้น
+    await sync_vector_db()
+    
     asyncio.create_task(maintenance_loop())
     for _ in range(5): 
         asyncio.create_task(fb_worker())
-    logger.info("✅ Application started")
+    logger.info("✅ Application and Vector DB are ready")
 
 async def maintenance_loop():
-    """งานบำรุงรักษาระบบ"""
+    """งานบำรุงรักษาระบบรายวัน"""
     while True:
         cleanup_old_sessions(days=7)
         await asyncio.sleep(86400)
@@ -244,27 +247,20 @@ async def maintenance_loop():
 # ----------------------------------------------------------------------------- #
 @app.get("/webhook")
 async def fb_verify(request: Request):
-    """Webhook Verification สำหรับ Facebook"""
     params = request.query_params
     if params.get("hub.mode") == "subscribe" and params.get("hub.verify_token") == FB_VERIFY_TOKEN:
-        logger.info("✅ Facebook webhook verified")
         return Response(content=params.get("hub.challenge"), media_type="text/plain")
-    logger.warning("❌ Invalid verification token")
     return Response(content="Invalid Token", status_code=403)
 
 @app.post("/webhook")
 async def fb_webhook(request: Request):
-    """รับข้อความจาก Facebook Messenger"""
     raw = await request.body()
     try:
         payload = json.loads(raw.decode("utf-8"))
         for entry in payload.get("entry", []):
             for event in entry.get("messaging", []):
                 if "message" in event and "text" in event["message"] and not event["message"].get("is_echo"):
-                    psid = event["sender"]["id"]
-                    text = event["message"]["text"].strip()
-                    logger.info(f"📨 Received FB message from {psid}")
-                    await fb_task_queue.put({"psid": psid, "text": text})
+                    await fb_task_queue.put({"psid": event["sender"]["id"], "text": event["message"]["text"].strip()})
     except Exception as e:
         logger.error(f"❌ Webhook error: {e}")
     return JSONResponse({"status": "accepted"})
@@ -279,16 +275,12 @@ async def handle_speech(
     audio: UploadFile = Form(None),
     auth: str = Depends(APIKeyHeader(name="X-API-Key", auto_error=False))
 ):
-    """จัดการข้อความจาก Web Interface"""
     from app.config import LLM_PROVIDER, GEMINI_MODEL_NAME, OPENAI_MODEL_NAME, LOCAL_MODEL_NAME
-    
     start_time = time.time()
     user_id = auth or "anonymous"
     final_session_id = session_id if session_id else (user_id if user_id != "local-dev-user" else str(uuid.uuid4()))
     final_user_name = user_name or f"Web User {final_session_id[:5]}"
     final_user_pic = user_pic or "https://www.gravatar.com/avatar/?d=mp"
-    
-    logger.info(f"🌐 Web request from session: {final_session_id}")
     
     if audio:
         with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as temp:
@@ -299,21 +291,15 @@ async def handle_speech(
         finally:
             if os.path.exists(temp_path): os.remove(temp_path)
 
-    if not text:
-        return {"text": "", "motion": "Idle"}
-
+    if not text: return {"text": "", "motion": "Idle"}
+    
     await sio.emit("admin_new_message", {
-        "platform": "web", 
-        "uid": final_session_id, 
-        "text": text, 
-        "user_name": final_user_name,
-        "user_pic": final_user_pic
+        "platform": "web", "uid": final_session_id, "text": text, 
+        "user_name": final_user_name, "user_pic": final_user_pic
     })
 
     bot_enabled = get_bot_enabled(final_session_id)
-    
     if not bot_enabled:
-        logger.info(f"   🤖 Bot disabled for session: {final_session_id}")
         history = get_or_create_history(final_session_id, user_name=final_user_name, user_picture=final_user_pic, platform="web")
         history.append({"role": "user", "parts": [{"text": text}]})
         save_history(final_session_id, history, user_name=final_user_name, user_picture=final_user_pic, platform="web")
@@ -326,66 +312,26 @@ async def handle_speech(
         motion = await suggest_pose(reply)
         tokens = result.get("tokens", {})
     
-    # Get model name
-    if LLM_PROVIDER == "gemini":
-        model_name = GEMINI_MODEL_NAME
-    elif LLM_PROVIDER == "openai":
-        model_name = OPENAI_MODEL_NAME
-    else:
-        model_name = LOCAL_MODEL_NAME
-    
-    # Write audit log with token info
-    write_audit_log(
-        user_id, 
-        "web", 
-        text, 
-        reply, 
-        time.time() - start_time,
-        tokens=tokens,
-        model_name=model_name
-    )
+    model_name = GEMINI_MODEL_NAME if LLM_PROVIDER == "gemini" else (OPENAI_MODEL_NAME if LLM_PROVIDER == "openai" else LOCAL_MODEL_NAME)
+    write_audit_log(user_id, "web", text, reply, time.time() - start_time, tokens=tokens, model_name=model_name)
     
     display_text = f"[Bot พี่เร็ก] {reply.replace('//', ' ')}"
-    
-    await sio.emit("admin_bot_reply", {
-        "platform": "web", 
-        "uid": final_session_id, 
-        "text": display_text
-    })
+    await sio.emit("admin_bot_reply", {"platform": "web", "uid": final_session_id, "text": display_text})
     await sio.emit("ai_response", {"motion": motion, "text": display_text})
     
-    logger.info(f"   ✅ Web request processed")
     return {"text": display_text, "motion": motion}
 
 @app.post("/api/speak")
 async def text_to_speech(text: str = Form(...)):
-    """
-    ✨ แปลงข้อความเป็นเสียง และส่งกลับเป็น audio stream
-    รองรับ multi-language และ streaming real-time
-    """
-    logger.info(f"🔊 TTS Request: {text[:50]}...")
-    
+    """แปลงข้อความเป็นเสียงและส่งแบบ Streaming"""
     async def audio_stream():
         try:
-            async for chunk in speak(text):
-                yield chunk
-        except Exception as e:
-            logger.error(f"❌ TTS Error: {e}")
-            # ส่ง silent audio กรณี error
-            yield b'\x00' * 1024
-    
-    return StreamingResponse(
-        audio_stream(),
-        media_type="audio/mpeg",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "Transfer-Encoding": "chunked"
-        }
-    )
+            async for chunk in speak(text): yield chunk
+        except Exception: yield b'\x00' * 1024
+    return StreamingResponse(audio_stream(), media_type="audio/mpeg")
 
 async def send_fb_text(psid: str, text: str):
-    """ส่งข้อความกลับไปยัง Facebook"""
+    """ส่งข้อความกลับไปยัง Facebook API"""
     if not FB_PAGE_ACCESS_TOKEN: return
     url = f"{GRAPH_BASE}/me/messages?access_token={FB_PAGE_ACCESS_TOKEN}"
     data = {"recipient": {"id": psid}, "message": {"text": (text or "")[:1999]}}
@@ -394,51 +340,27 @@ async def send_fb_text(psid: str, text: str):
 
 @sio.on("admin_manual_reply")
 async def handle_admin_reply(sid, data):
-    """จัดการข้อความที่ Admin ส่งกลับ"""
-    uid = data.get("uid")
-    text = data.get("text")
-    platform = data.get("platform")
-    
-    logger.info(f"👨‍💼 Admin manual reply to {platform}/{uid}")
-    
-    bot_enabled = get_bot_enabled(uid)
-    
-    if bot_enabled:
-        logger.warning(f"   ⚠️ Bot is still enabled for session: {uid}")
-        await sio.emit("admin_error", {
-            "message": f"กรุณาปิด Auto Bot ของ Session นี้ก่อนส่งข้อความ"
-        }, room=sid)
+    """จัดการเมื่อ Admin พิมพ์ตอบเอง"""
+    uid, text, platform = data.get("uid"), data.get("text"), data.get("platform")
+    if get_bot_enabled(uid):
+        await sio.emit("admin_error", {"message": "กรุณาปิด Auto Bot ก่อนส่งข้อความ"}, room=sid)
         return
-
     formatted_msg = f"[Admin]: {text}"
-
     if platform == "facebook":
-        clean_psid = uid.replace("fb_", "")
-        await send_fb_text(clean_psid, text)
-        logger.info(f"   📤 Sent to Facebook: {clean_psid}")
+        await send_fb_text(uid.replace("fb_", ""), text)
     else:
         await sio.emit("ai_response", {"motion": "Happy", "text": text})
-        logger.info(f"   📤 Sent to Web client")
-
+        
     history = get_or_create_history(uid)
     history.append({"role": "model", "parts": [{"text": formatted_msg}]})
     save_history(uid, history)
-    
-    await sio.emit("admin_bot_reply", {
-        "platform": platform, 
-        "uid": uid, 
-        "text": formatted_msg
-    })
-    
-    logger.info(f"   ✅ Admin reply processed")
+    await sio.emit("admin_bot_reply", {"platform": platform, "uid": uid, "text": formatted_msg})
 
 @app.get("/")
-async def serve_index(): 
-    return FileResponse("frontend/index.html")
+async def serve_index(): return FileResponse("frontend/index.html")
 
 @app.get("/admin")
-async def serve_admin(): 
-    return FileResponse("frontend/admin.html")
+async def serve_admin(): return FileResponse("frontend/admin.html")
 
 if __name__ == "__main__":
     import uvicorn

@@ -896,16 +896,21 @@ window.filesModule = function() {
         async moveItems(sourcePaths, targetPath) {
             if (!sourcePaths || sourcePaths.length === 0) return;
 
-            if (sourcePaths.includes(targetPath)) {
-                alert('ไม่สามารถย้ายโฟลเดอร์เข้าไปในตัวมันเองได้');
-                return;
-            }
+            // แก้ปัญหาค่าว่าง: ถ้าเป็น Root ให้ส่งเป็น "." หรือ string เปล่าที่ชัดเจน
+            const finalTargetPath = targetPath || ""; 
 
             const token = localStorage.getItem('adminToken');
             const fd = new FormData();
             fd.append('root', this.fileSystem.root);
             fd.append('source_paths', JSON.stringify(sourcePaths));
-            fd.append('target_path', targetPath);
+            fd.append('target_path', finalTargetPath); // ตรวจสอบชื่อให้ตรงเป๊ะ
+
+            // 🔍 Debug: ดูข้อมูลใน Console ก่อนส่งจริง
+            console.log("📦 Moving Items:", {
+                root: this.fileSystem.root,
+                source_paths: JSON.stringify(sourcePaths),
+                target_path: finalTargetPath
+            });
 
             try {
                 const response = await fetch('/api/admin/move', {
@@ -920,17 +925,16 @@ window.filesModule = function() {
                     await this.loadFiles();
                     return true;
                 } else {
-                    // แกะ Error Message ออกมาแสดงผลแทน [object Object]
                     const errorData = await response.json();
-                    let msg = errorData.detail;
-                    if (Array.isArray(msg)) msg = msg.map(e => e.msg).join(", "); // สำหรับ Validation Error
-                    else if (typeof msg === 'object') msg = JSON.stringify(msg);
-                    
-                    throw new Error(msg || 'Move failed');
+                    // ปรับการแสดง Error ให้ละเอียดขึ้น
+                    const msg = Array.isArray(errorData.detail) 
+                        ? errorData.detail.map(e => `${e.loc.join('.')}: ${e.msg}`).join(" | ")
+                        : (errorData.detail || 'Move failed');
+                    throw new Error(msg);
                 }
             } catch (e) {
                 console.error('Move error:', e);
-                alert('ไม่สามารถย้ายไฟล์ได้: ' + e.message); // จะแสดงข้อความที่อ่านออกแล้ว
+                alert('ไม่สามารถย้ายไฟล์ได้: ' + e.message);
                 throw e;
             }
         },

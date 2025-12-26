@@ -224,15 +224,17 @@ async def rename_item(root: str = Form(...), old_path: str = Form(...), new_name
 async def move_items(
     root: str = Form(...), 
     source_paths: str = Form(...),  # เปลี่ยนจาก src_paths เป็น source_paths
-    target_path: str = Form(...)    # เปลี่ยนจาก dest_dir เป็น target_path
+    target_path: str = Form("")    # เปลี่ยนจาก dest_dir เป็น target_path
 ):
     """
     ย้ายไฟล์/โฟลเดอร์
     """
     try:
         paths = json.loads(source_paths)
+        # ตรวจสอบว่า target_path ที่รับมาคืออะไร
+        logger.info(f"📥 API Move Request: root={root}, target={target_path}")
+        
         base_dest = get_secure_path(root, target_path)
-        logger.info(f"📦 Moving {len(paths)} items to: {base_dest}")
         
         os.makedirs(base_dest, exist_ok=True)
         

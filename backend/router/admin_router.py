@@ -221,17 +221,19 @@ async def rename_item(root: str = Form(...), old_path: str = Form(...), new_name
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/move", dependencies=[Depends(verify_admin)])
-async def move_items(root: str = Form(...), src_paths: str = Form(...), dest_dir: str = Form(...)):
+async def move_items(
+    root: str = Form(...), 
+    source_paths: str = Form(...),  # เปลี่ยนจาก src_paths
+    target_path: str = Form(...)    # เปลี่ยนจาก dest_dir
+):
     """
     ย้ายไฟล์/โฟลเดอร์
-    
-    FIXED: รองรับ dest_dir = "" สำหรับ root directory
     """
     try:
-        paths = json.loads(src_paths)
+        paths = json.loads(source_paths) # ใช้ชื่อใหม่
         
-        # ✅ Handle empty dest_dir (root directory)
-        base_dest = get_secure_path(root, dest_dir)
+        # ✅ Handle empty target_path (root directory)
+        base_dest = get_secure_path(root, target_path) # ใช้ชื่อใหม่
         logger.info(f"📦 Moving {len(paths)} items to: {base_dest}")
         
         os.makedirs(base_dest, exist_ok=True)

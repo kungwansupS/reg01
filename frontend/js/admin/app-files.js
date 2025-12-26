@@ -904,8 +904,8 @@ window.filesModule = function() {
             const token = localStorage.getItem('adminToken');
             const fd = new FormData();
             fd.append('root', this.fileSystem.root);
-            fd.append('src_paths', JSON.stringify(sourcePaths));
-            fd.append('dest_dir', targetPath);
+            fd.append('source_paths', JSON.stringify(sourcePaths)); // ปรับชื่อให้ตรงกัน
+            fd.append('target_path', targetPath);                  // ปรับชื่อให้ตรงกัน
 
             try {
                 const response = await fetch('/api/admin/move', {
@@ -918,23 +918,28 @@ window.filesModule = function() {
                     this.selectedPaths = [];
                     this.selectionMode = false;
                     await this.loadFiles();
+                    return true; // คืนค่าความสำเร็จ
                 } else {
-                    // Parse error response
                     let errorMessage = 'Move failed';
                     try {
                         const errorData = await response.json();
-                        errorMessage = errorData.detail || errorData.message || JSON.stringify(errorData);
+                        // ✅ ปรับปรุง: ตรวจสอบและแปลง Object/Array เป็น String
+                        if (errorData.detail) {
+                            errorMessage = typeof errorData.detail === 'object' 
+                                ? JSON.stringify(errorData.detail) 
+                                : errorData.detail;
+                        } else if (errorData.message) {
+                            errorMessage = errorData.message;
+                        }
                     } catch (jsonError) {
-                        // If response is not JSON
-                        const errorText = await response.text();
-                        errorMessage = errorText || `HTTP ${response.status}: ${response.statusText}`;
+                        errorMessage = await response.text() || `Error ${response.status}`;
                     }
                     throw new Error(errorMessage);
                 }
             } catch (e) {
                 console.error('Move error:', e);
-                const errorMsg = e.message || String(e);
-                alert('ไม่สามารถย้ายไฟล์ได้: ' + errorMsg);
+                alert('ไม่สามารถย้ายไฟล์ได้: ' + e.message);
+                throw e; // Re-throw เพื่อให้ pasteFromClipboard ทราบว่าพลาด
             }
         },
 
@@ -1331,8 +1336,8 @@ window.filesModule = function() {
 
             try {
                 if (action === 'cut') {
-                    await this.moveItems(sourcePaths, targetPath);
-                    alert(`✅ ย้าย ${sourcePaths.length} รายการเรียบร้อย!`);
+                    const success = await this.moveItems(sourcePaths, targetPath);
+                    if (success) alert(`✅ ย้าย ${sourcePaths.length} รายการเรียบร้อย!`);
                 } else if (action === 'copy') {
                     const fd = new FormData();
                     fd.append('root', this.fileSystem.root);

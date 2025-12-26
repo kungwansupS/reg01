@@ -40,7 +40,7 @@ window.loadLogsTab = function() {
                 <!-- Avg Response Time -->
                 <div class="card-enterprise stat-card p-6 rounded-xl shadow-lg">
                     <p class="text-xs font-bold uppercase tracking-wider mb-2" style="color: var(--text-tertiary);">Avg Response Time</p>
-                    <h3 class="text-3xl font-black gradient-text-cmu" x-text="calculateAvgLatency() + 'ms'">0ms</h3>
+                    <h3 class="text-3xl font-black gradient-text-cmu" x-text="calculateAvgLatency() + 's'">0ms</h3>
                 </div>
                 
                 <!-- Total Tokens -->
@@ -153,7 +153,7 @@ window.loadLogsTab = function() {
                                             :style="log.latency < 1000 ? 'background-color: rgba(52, 199, 89, 0.1); color: var(--success);' : 
                                                     log.latency < 3000 ? 'background-color: rgba(255, 149, 0, 0.1); color: var(--warning);' : 
                                                     'background-color: rgba(255, 59, 48, 0.1); color: var(--danger);'"
-                                            x-text="log.latency + 'ms'">
+                                            x-text="log.latency + 's'">
                                         </span>
                                     </td>
 
@@ -287,7 +287,7 @@ window.loadLogsTab = function() {
                             <div>
                                 <label class="text-xs font-bold uppercase tracking-wider" style="color: var(--text-tertiary);">Latency</label>
                                 <p class="text-2xl font-black gradient-text-cmu mt-1" 
-                                   x-text="selectedLog && selectedLog.latency + 'ms'"></p>
+                                   x-text="selectedLog && selectedLog.latency + 's'"></p>
                             </div>
                             
                             <div x-show="selectedLog && selectedLog.rating">

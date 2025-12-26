@@ -904,8 +904,8 @@ window.filesModule = function() {
             const token = localStorage.getItem('adminToken');
             const fd = new FormData();
             fd.append('root', this.fileSystem.root);
-            fd.append('source_paths', JSON.stringify(sourcePaths)); // ปรับชื่อให้ตรงกัน
-            fd.append('target_path', targetPath);                  // ปรับชื่อให้ตรงกัน
+            fd.append('source_paths', JSON.stringify(sourcePaths));
+            fd.append('target_path', targetPath);
 
             try {
                 const response = await fetch('/api/admin/move', {
@@ -918,28 +918,20 @@ window.filesModule = function() {
                     this.selectedPaths = [];
                     this.selectionMode = false;
                     await this.loadFiles();
-                    return true; // คืนค่าความสำเร็จ
+                    return true;
                 } else {
-                    let errorMessage = 'Move failed';
-                    try {
-                        const errorData = await response.json();
-                        // ✅ ปรับปรุง: ตรวจสอบและแปลง Object/Array เป็น String
-                        if (errorData.detail) {
-                            errorMessage = typeof errorData.detail === 'object' 
-                                ? JSON.stringify(errorData.detail) 
-                                : errorData.detail;
-                        } else if (errorData.message) {
-                            errorMessage = errorData.message;
-                        }
-                    } catch (jsonError) {
-                        errorMessage = await response.text() || `Error ${response.status}`;
-                    }
-                    throw new Error(errorMessage);
+                    // แกะ Error Message ออกมาแสดงผลแทน [object Object]
+                    const errorData = await response.json();
+                    let msg = errorData.detail;
+                    if (Array.isArray(msg)) msg = msg.map(e => e.msg).join(", "); // สำหรับ Validation Error
+                    else if (typeof msg === 'object') msg = JSON.stringify(msg);
+                    
+                    throw new Error(msg || 'Move failed');
                 }
             } catch (e) {
                 console.error('Move error:', e);
-                alert('ไม่สามารถย้ายไฟล์ได้: ' + e.message);
-                throw e; // Re-throw เพื่อให้ pasteFromClipboard ทราบว่าพลาด
+                alert('ไม่สามารถย้ายไฟล์ได้: ' + e.message); // จะแสดงข้อความที่อ่านออกแล้ว
+                throw e;
             }
         },
 

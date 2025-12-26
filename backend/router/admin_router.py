@@ -223,17 +223,15 @@ async def rename_item(root: str = Form(...), old_path: str = Form(...), new_name
 @router.post("/move", dependencies=[Depends(verify_admin)])
 async def move_items(
     root: str = Form(...), 
-    source_paths: str = Form(...),  # เปลี่ยนจาก src_paths
-    target_path: str = Form(...)    # เปลี่ยนจาก dest_dir
+    source_paths: str = Form(...),  # เปลี่ยนจาก src_paths เป็น source_paths
+    target_path: str = Form(...)    # เปลี่ยนจาก dest_dir เป็น target_path
 ):
     """
     ย้ายไฟล์/โฟลเดอร์
     """
     try:
-        paths = json.loads(source_paths) # ใช้ชื่อใหม่
-        
-        # ✅ Handle empty target_path (root directory)
-        base_dest = get_secure_path(root, target_path) # ใช้ชื่อใหม่
+        paths = json.loads(source_paths)
+        base_dest = get_secure_path(root, target_path)
         logger.info(f"📦 Moving {len(paths)} items to: {base_dest}")
         
         os.makedirs(base_dest, exist_ok=True)

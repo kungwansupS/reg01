@@ -9,8 +9,6 @@ prompt/__pycache__/motion_prompt.cpython-310.pyc
 /app/__pycache__
 /app/prompt/__pycache__
 /app/utils/__pycache__
-installed.txt
-/backend/memory/session_storage
 /backend/__pycache__
 /backend/app/__pycache__
 /backend/app/prompt/__pycache__
@@ -19,5 +17,10 @@ installed.txt
 /backend/app/utils/llm/__pycache__
 /backend/memory/__pycache__
 /backend/retriever/__pycache__
+/backend/router/__pycache__
+
+installed.txt
+/backend/memory/session_storage
 /backend/app/ffmpeg/
 /.idea
+/backend/app/static/

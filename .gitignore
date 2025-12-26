@@ -24,3 +24,6 @@ installed.txt
 /backend/app/ffmpeg/
 /.idea
 /backend/app/static/
+/frontend/assets/
+/frontend/sound/
+/frontend/images/

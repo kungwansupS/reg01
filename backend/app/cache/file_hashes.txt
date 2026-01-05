@@ -20,3 +20,35 @@ student/Undergraduate Students/Announcement/Academic calendar 2568/REG-Academic-
 student/Undergraduate Students/Announcement/Academic calendar 2568/REG-Academic-Calendar-2568-c3-eGrad.pdf||6c4bdd5ba10338fa906820ef53c7741f
 student/Undergraduate Students/Announcement/Academic calendar 2569/CMU-Academic-Calendar-2569-yearly.pdf||2e95d101cca299fc8e47a5a6f4da28e9
 student/Undergraduate Students/Announcement/Academic calendar 2569/CMU-Academic-Calendar-2569-yearly2.pdf||cda2ef998367dde63d57ecc67435b1e7
+student/Undergraduate Students/Announcement/Academic calendar 2569/CMU-Academic-Calendar-2569.pdf||234b743f18cb24c2fe9ce4080f3bc707
+student/Undergraduate Students/Announcement/First Semester Academic Year 2568/CMU-Announcement-Enrollment-1-2568.pdf||659c16083950c2c18695b82fee7dd38b
+student/Undergraduate Students/Announcement/First Semester Academic Year 2568/CMU-Important-Enrollment-1-2568.pdf||ff9417a63e157b01d2c541824b2c8e90
+student/Undergraduate Students/Announcement/Second Semester Academic Year 2568/CMU-Announcement-Enrollment-2-2568.pdf||5fc02b846a24394c45d41dce4705fbc7
+student/Undergraduate Students/Announcement/Second Semester Academic Year 2568/CMU-Important-Enrollment-2-2568.pdf||615bf4650caed33fbf9e62111d3ce32f
+student/Undergraduate Students/Announcement/Second Semester Academic Year 2568/MIDTERM_Exam_268.pdf||99e9afe327974a0388613919084a3e70
+student/Undergraduate Students/Announcement/Second Semester Academic Year 2568/Midterm-Examination-Scheduled-by-FacultyCollege-2_2568.pdf||7dfb6a33905870e11ab6ae4e2795db71
+student/Undergraduate Students/Announcement/Second Semester Academic Year 2568/cmu-reg-g-2-Modular-en.pdf||62813343c7082f4e7c67009eea6c7ffa
+student/Undergraduate Students/Announcement/Second Semester Academic Year 2568/เทอม2-2568.pdf||778c8dac7021625ab8d69c36a18f6a41
+student/Undergraduate Students/CMU regulations/cmu-reg-u-1.pdf||b603930bc2e168f0bffcd868d55d2974
+student/Undergraduate Students/CMU regulations/cmu-reg-u-10.pdf||41b3c9669bd1bbc67f4b880e70414a2b
+student/Undergraduate Students/CMU regulations/cmu-reg-u-11.pdf||4460803591a420255abf93862903133e
+student/Undergraduate Students/CMU regulations/cmu-reg-u-12.pdf||102f804e587d916dfbb29de9dbac1731
+student/Undergraduate Students/CMU regulations/cmu-reg-u-13.pdf||617bb3a92e0ce7d672f44346113c0e38
+student/Undergraduate Students/CMU regulations/cmu-reg-u-14.pdf||e232475a2ef88bfa298d83f509c61237
+student/Undergraduate Students/CMU regulations/cmu-reg-u-15-1.pdf||55e5733de7772b20332fb89e9d13a5c0
+student/Undergraduate Students/CMU regulations/cmu-reg-u-15.pdf||8dcc600b97327f79f0c93366b1026148
+student/Undergraduate Students/CMU regulations/cmu-reg-u-16.pdf||5fe6ee7fe58c213faba22905b6f2d84b
+student/Undergraduate Students/CMU regulations/cmu-reg-u-17.pdf||acb42df7c98c5020db7a2455dcd0cdb3
+student/Undergraduate Students/CMU regulations/cmu-reg-u-18.pdf||b0aa0e8a0cf0853706358b4a79c6b86b
+student/Undergraduate Students/CMU regulations/cmu-reg-u-19.pdf||4d2b019c807936ae53855e3d1c44b1ef
+student/Undergraduate Students/CMU regulations/cmu-reg-u-2.pdf||991e5eb21f25dbbb08327035a44165e8
+student/Undergraduate Students/CMU regulations/cmu-reg-u-20.pdf||7798736029b36ec1ef2d829769d42f2e
+student/Undergraduate Students/CMU regulations/cmu-reg-u-21.pdf||7aa5a436e18db82ccdf84dd93269ad2b
+student/Undergraduate Students/CMU regulations/cmu-reg-u-22.pdf||78b167c998e4778acab550d7b014c7f9
+student/Undergraduate Students/CMU regulations/cmu-reg-u-3.pdf||54498de7db9a75d105cfdb02a72d692d
+student/Undergraduate Students/CMU regulations/cmu-reg-u-4.pdf||75689d78c99a6c72e2c7933b9d41a406
+student/Undergraduate Students/CMU regulations/cmu-reg-u-5.pdf||25cca8528a44ed91204df380d3227299
+student/Undergraduate Students/CMU regulations/cmu-reg-u-6.pdf||d7523325dbb96eb466202bcb75a494e3
+student/Undergraduate Students/CMU regulations/cmu-reg-u-7.pdf||ac17b887e16e0023cdaaca53324fb244
+student/Undergraduate Students/CMU regulations/cmu-reg-u-8.pdf||6cfedea39cfe717dbb8ba1e55d9d44af
+student/Undergraduate Students/CMU regulations/cmu-reg-u-9.pdf||bc431ce4fb7005477ff59edf72c30ea9

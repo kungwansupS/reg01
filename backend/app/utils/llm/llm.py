@@ -84,28 +84,19 @@ async def ask_llm(msg, session_id, emit_fn=None):
             
             # Step 1: คุยกับ LLM ครั้งแรก
             if LLM_PROVIDER == "gemini":
-                response = await asyncio.to_thread(
-                    model.models.generate_content,
-                    model=GEMINI_MODEL_NAME,
-                    contents=full_prompt
-                )
-                reply = response.text.strip()
-
-                prompt_tokens = count_tokens(full_prompt, GEMINI_MODEL_NAME)
-                completion_tokens = count_tokens(reply, GEMINI_MODEL_NAME)
-
-                usage = {
-                    "prompt_tokens": prompt_tokens,
-                    "completion_tokens": completion_tokens,
-                    "total_tokens": prompt_tokens + completion_tokens
-                }
-
-                total_token_usage["prompt_tokens"] += prompt_tokens
-                total_token_usage["completion_tokens"] += completion_tokens
+                response = await model.generate_content(...)
+                if hasattr(response, 'usage') and response.usage:
+                    total_tokens += response.usage.total_tokens
+                else:
+                    total_tokens += 0
+                
+                # Track tokens
+                usage = get_token_usage(response, "gemini", GEMINI_MODEL_NAME)
+                total_token_usage["prompt_tokens"] += usage["prompt_tokens"]
+                total_token_usage["completion_tokens"] += usage["completion_tokens"]
                 total_token_usage["total_tokens"] += usage["total_tokens"]
-
+                
                 logger.info(f"📊 [Gemini Call 1] {format_token_usage(usage)}")
-
             else:
                 m_name = OPENAI_MODEL_NAME if LLM_PROVIDER == "openai" else LOCAL_MODEL_NAME
                 response = await model.chat.completions.create(
@@ -136,28 +127,16 @@ async def ask_llm(msg, session_id, emit_fn=None):
 
                 # Call LLM ครั้งที่ 2 ด้วยข้อมูลที่หามาได้
                 if LLM_PROVIDER == "gemini":
-                    response_rag = await asyncio.to_thread(
-                        model.models.generate_content,
-                        model=GEMINI_MODEL_NAME,
-                        contents=prompt_rag
-                    )
+                    response_rag = await model.aio.models.generate_content(model=GEMINI_MODEL_NAME, contents=prompt_rag)
                     reply = response_rag.text.strip()
-
-                    prompt_tokens_rag = count_tokens(prompt_rag, GEMINI_MODEL_NAME)
-                    completion_tokens_rag = count_tokens(reply, GEMINI_MODEL_NAME)
-
-                    usage_rag = {
-                        "prompt_tokens": prompt_tokens_rag,
-                        "completion_tokens": completion_tokens_rag,
-                        "total_tokens": prompt_tokens_rag + completion_tokens_rag
-                    }
-
-                    total_token_usage["prompt_tokens"] += prompt_tokens_rag
-                    total_token_usage["completion_tokens"] += completion_tokens_rag
+                    
+                    # Track tokens
+                    usage_rag = get_token_usage(response_rag, "gemini", GEMINI_MODEL_NAME)
+                    total_token_usage["prompt_tokens"] += usage_rag["prompt_tokens"]
+                    total_token_usage["completion_tokens"] += usage_rag["completion_tokens"]
                     total_token_usage["total_tokens"] += usage_rag["total_tokens"]
-
+                    
                     logger.info(f"📊 [Gemini Call 2 RAG] {format_token_usage(usage_rag)}")
-
                 else:
                     response_rag = await model.chat.completions.create(
                         model=m_name, 

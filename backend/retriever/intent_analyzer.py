@@ -7,16 +7,14 @@ logger = logging.getLogger("IntentAnalyzer")
 
 class QueryIntent(Enum):
     """ประเภทของความต้องการในคำถาม"""
-    FACTUAL = "factual"              # ถามข้อเท็จจริง (วันที่, เวลา, สถานที่)
-    PROCEDURAL = "procedural"        # ถามวิธีการ/ขั้นตอน
-    COMPARATIVE = "comparative"      # เปรียบเทียบ
-    ANALYTICAL = "analytical"        # วิเคราะห์/สรุป
-    CONVERSATIONAL = "conversational" # สนทนาทั่วไป
+    FACTUAL = "factual"
+    PROCEDURAL = "procedural"
+    COMPARATIVE = "comparative"
+    ANALYTICAL = "analytical"
+    CONVERSATIONAL = "conversational"
 
 class IntentAnalyzer:
-    """
-    วิเคราะห์ความต้องการจากคำถาม เพื่อปรับกลยุทธ์การค้นหา
-    """
+    """วิเคราะห์ความต้องการจากคำถาม เพื่อปรับกลยุทธ์การค้นหา"""
     
     @staticmethod
     async def analyze_intent(query: str) -> Dict:
@@ -27,8 +25,8 @@ class IntentAnalyzer:
             {
                 "intent": QueryIntent,
                 "keywords": List[str],
-                "temporal_refs": List[str],  # วันที่, ปี, ภาค
-                "entities": List[str],        # ชื่อเฉพาะ, หน่วยงาน
+                "temporal_refs": List[str],
+                "entities": List[str],
                 "confidence": float
             }
         """
@@ -39,28 +37,21 @@ class IntentAnalyzer:
             prompt = f"""วิเคราะห์คำถามนี้อย่างละเอียด:
 "{query}"
 
-ตอบเป็น JSON:
+ตอบเป็น JSON เท่านั้น (ไม่ต้องมีคำอธิบายเพิ่มเติม):
 {{
-    "intent": "factual|procedural|comparative|analytical|conversational",
-    "keywords": ["คำสำคัญ1", "คำสำคัญ2", ...],
-    "temporal_refs": ["2568", "ภาค 1", ...],
-    "entities": ["ชื่อหน่วยงาน", "ชื่อกิจกรรม", ...],
-    "confidence": 0.0-1.0
+    "intent": "factual",
+    "keywords": ["คำสำคัญ1", "คำสำคัญ2"],
+    "temporal_refs": ["2568", "ภาค 1"],
+    "entities": ["ชื่อหน่วยงาน"],
+    "confidence": 0.9
 }}
 
 คำอธิบาย intent:
-- factual: ถามข้อเท็จจริงเฉพาะเจาะจง (วันที่, เวลา, ชื่อ)
-- procedural: ถามวิธีการ/ขั้นตอน (ทำอย่างไร, สมัครยังไง)
-- comparative: เปรียบเทียบ (ต่างกันอย่างไร, ดีกว่า)
-- analytical: ขอวิเคราะห์/สรุป (สรุปให้หน่อย, เป็นยังไง)
-- conversational: สนทนาทั่วไป (สวัสดี, ขอบคุณ)
-
-กฎ:
-- keywords: คำที่มีน้ำหนักสูง 5-10 คำ
-- temporal_refs: ข้อมูลเวลา (ปี/ภาค/เดือน/วัน)
-- entities: ชื่อเฉพาะทุกประเภท
-- confidence: ความมั่นใจในการจัด intent (0.7+ = มั่นใจ)
-"""
+- factual: ถามข้อเท็จจริงเฉพาะเจาะจง
+- procedural: ถามวิธีการ/ขั้นตอน
+- comparative: เปรียบเทียบ
+- analytical: ขอวิเคราะห์/สรุป
+- conversational: สนทนาทั่วไป"""
             
             model = get_llm_model()
             
@@ -81,15 +72,36 @@ class IntentAnalyzer:
             
             import json
             import re
+            
+            # Clean response
             result = re.sub(r'```json\s*|\s*```', '', result).strip()
             
-            analysis = json.loads(result)
+            # Try to extract JSON object (handle extra text after JSON)
+            json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', result, re.DOTALL)
+            if json_match:
+                result = json_match.group(0)
+            
+            # Parse JSON with fallback
+            try:
+                # Try to decode just the first complete JSON object
+                decoder = json.JSONDecoder()
+                analysis, _ = decoder.raw_decode(result)
+            except json.JSONDecodeError:
+                # Fallback: standard parse
+                analysis = json.loads(result)
             
             # Convert intent string to enum
             try:
-                analysis['intent'] = QueryIntent(analysis['intent'])
-            except:
+                intent_str = analysis.get('intent', 'factual')
+                analysis['intent'] = QueryIntent(intent_str)
+            except (KeyError, ValueError):
                 analysis['intent'] = QueryIntent.FACTUAL
+            
+            # Ensure all required fields exist
+            analysis.setdefault('keywords', [])
+            analysis.setdefault('temporal_refs', [])
+            analysis.setdefault('entities', [])
+            analysis.setdefault('confidence', 0.5)
             
             logger.info(f"🎯 Intent: {analysis['intent'].value} (confidence: {analysis.get('confidence', 0):.2f})")
             
@@ -97,7 +109,6 @@ class IntentAnalyzer:
             
         except Exception as e:
             logger.error(f"❌ Intent analysis failed: {e}")
-            # Fallback: simple pattern matching
             return IntentAnalyzer._fallback_analysis(query)
     
     @staticmethod
@@ -132,28 +143,26 @@ class IntentAnalyzer:
         
         Returns:
             {
-                "k_multiplier": int,     # ดึงมากกว่า k เท่าไร
-                "dense_weight": float,   # น้ำหนัก semantic
-                "sparse_weight": float,  # น้ำหนัก keyword
-                "keyword_boost": float,  # boost สำหรับ keyword match
-                "need_diversity": bool   # ต้องการความหลากหลาย
+                "k_multiplier": int,
+                "dense_weight": float,
+                "sparse_weight": float,
+                "keyword_boost": float,
+                "need_diversity": bool
             }
         """
         intent = analysis.get('intent', QueryIntent.FACTUAL)
         confidence = analysis.get('confidence', 0.5)
         
         if intent == QueryIntent.FACTUAL:
-            # Factual: ต้องการความแม่นยำสูง
             return {
                 'k_multiplier': 2,
                 'dense_weight': 0.4,
-                'sparse_weight': 0.6,  # เน้น keyword
+                'sparse_weight': 0.6,
                 'keyword_boost': 0.4,
                 'need_diversity': False
             }
         
         elif intent == QueryIntent.PROCEDURAL:
-            # Procedural: ต้องการลำดับขั้นตอน
             return {
                 'k_multiplier': 3,
                 'dense_weight': 0.5,
@@ -163,7 +172,6 @@ class IntentAnalyzer:
             }
         
         elif intent == QueryIntent.COMPARATIVE:
-            # Comparative: ต้องการหลายแหล่ง
             return {
                 'k_multiplier': 4,
                 'dense_weight': 0.6,
@@ -173,7 +181,6 @@ class IntentAnalyzer:
             }
         
         elif intent == QueryIntent.ANALYTICAL:
-            # Analytical: ต้องการข้อมูลกว้าง
             return {
                 'k_multiplier': 4,
                 'dense_weight': 0.7,
@@ -183,7 +190,6 @@ class IntentAnalyzer:
             }
         
         else:  # CONVERSATIONAL
-            # Conversational: ไม่ต้องการมาก
             return {
                 'k_multiplier': 1,
                 'dense_weight': 0.6,

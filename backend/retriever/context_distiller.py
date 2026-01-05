@@ -2,7 +2,6 @@ import logging
 import asyncio
 from typing import List, Dict, Tuple
 from collections import defaultdict
-from retriever.intent_analyzer import QueryIntent
 
 logger = logging.getLogger("ContextDistiller")
 
@@ -54,7 +53,7 @@ class ContextDistiller:
         # Step 2: Ensure diversity
         diverse_chunks = ContextDistiller._ensure_diversity(
             unique_chunks,
-            max_chunks * 2,  # เอามากกว่าเพื่อจะได้เลือกได้
+            max_chunks * 2,
             intent_analysis
         )
         
@@ -94,9 +93,7 @@ class ContextDistiller:
         scored_chunks: List[Tuple[Dict, float, Dict]],
         similarity_threshold: float = 0.85
     ) -> List[Tuple[Dict, float, Dict]]:
-        """
-        ลบ chunks ที่ซ้ำกัน (โดยดูจาก text similarity)
-        """
+        """ลบ chunks ที่ซ้ำกัน"""
         if not scored_chunks:
             return []
         
@@ -106,7 +103,6 @@ class ContextDistiller:
         for chunk_dict, score, breakdown in scored_chunks:
             chunk_text = chunk_dict.get('chunk', '').lower()
             
-            # Check if similar to any seen text
             is_duplicate = False
             for seen_text in seen_texts:
                 similarity = ContextDistiller._text_similarity(chunk_text, seen_text)
@@ -140,10 +136,8 @@ class ContextDistiller:
         max_chunks: int,
         intent_analysis: Dict
     ) -> List[Tuple[Dict, float, Dict]]:
-        """
-        รักษาความหลากหลายของ sources และ perspectives
-        """
-        from intent_analyzer import QueryIntent
+        """รักษาความหลากหลายของ sources และ perspectives"""
+        from retriever.intent_analyzer import QueryIntent
         
         intent = intent_analysis.get('intent')
         
@@ -160,10 +154,7 @@ class ContextDistiller:
         k: int,
         lambda_param: float = 0.7
     ) -> List[Tuple[Dict, float, Dict]]:
-        """
-        MMR algorithm สำหรับ diversity
-        lambda_param: balance between relevance (1.0) and diversity (0.0)
-        """
+        """MMR algorithm สำหรับ diversity"""
         if not chunks:
             return []
         
@@ -178,10 +169,8 @@ class ContextDistiller:
             best_score = -float('inf')
             
             for i, (chunk_dict, score, breakdown) in enumerate(remaining):
-                # Relevance score
                 relevance = score
                 
-                # Diversity penalty (similarity to selected)
                 max_similarity = 0
                 chunk_text = chunk_dict.get('chunk', '').lower()
                 
@@ -190,7 +179,6 @@ class ContextDistiller:
                     sim = ContextDistiller._text_similarity(chunk_text, sel_text)
                     max_similarity = max(max_similarity, sim)
                 
-                # MMR score
                 mmr_score = lambda_param * relevance - (1 - lambda_param) * max_similarity
                 
                 if mmr_score > best_score:
@@ -212,25 +200,21 @@ class ContextDistiller:
         max_chunks: int,
         max_tokens: int
     ) -> List[Tuple[Dict, float, Dict]]:
-        """
-        เลือก chunks สำคัญที่สุดโดยคำนึงถึง token limit
-        """
+        """เลือก chunks สำคัญที่สุดโดยคำนึงถึง token limit"""
         selected = []
         total_tokens = 0
         
         for chunk_dict, score, breakdown in chunks:
             chunk_text = chunk_dict.get('chunk', '')
-            estimated_tokens = len(chunk_text.split()) * 1.3  # rough estimate
+            estimated_tokens = len(chunk_text.split()) * 1.3
             
             if total_tokens + estimated_tokens > max_tokens:
-                # Try to compress this chunk
                 compressed = ContextDistiller._compress_chunk(chunk_text, query)
                 estimated_tokens = len(compressed.split()) * 1.3
                 
                 if total_tokens + estimated_tokens > max_tokens:
-                    break  # Skip this chunk
+                    break
                 else:
-                    # Use compressed version
                     chunk_dict_copy = chunk_dict.copy()
                     chunk_dict_copy['chunk'] = compressed
                     selected.append((chunk_dict_copy, score, breakdown))
@@ -246,16 +230,12 @@ class ContextDistiller:
     
     @staticmethod
     def _compress_chunk(text: str, query: str) -> str:
-        """
-        บีบอัดข้อความให้กระชับโดยเก็บส่วนที่เกี่ยวข้องกับ query
-        """
-        # Split into sentences
+        """บีบอัดข้อความให้กระชับ"""
         sentences = text.split('.')
         
         query_lower = query.lower()
         query_words = set(query_lower.split())
         
-        # Score each sentence by relevance
         scored_sentences = []
         for sent in sentences:
             sent = sent.strip()
@@ -265,13 +245,11 @@ class ContextDistiller:
             sent_lower = sent.lower()
             sent_words = set(sent_lower.split())
             
-            # Jaccard similarity with query
             overlap = len(query_words & sent_words)
             score = overlap / len(query_words) if query_words else 0
             
             scored_sentences.append((sent, score))
         
-        # Keep top 50% most relevant sentences
         scored_sentences.sort(key=lambda x: x[1], reverse=True)
         keep_count = max(1, len(scored_sentences) // 2)
         
@@ -286,7 +264,7 @@ class ContextDistiller:
             len(chunk_dict.get('chunk', '').split())
             for chunk_dict, _, _ in chunks
         )
-        return int(total_words * 1.3)  # Thai has ~1.3 tokens per word
+        return int(total_words * 1.3)
     
     @staticmethod
     async def _generate_summary(
@@ -294,13 +272,10 @@ class ContextDistiller:
         query: str,
         intent_analysis: Dict
     ) -> str:
-        """
-        สร้าง summary สั้นๆ ของ context ที่เลือก
-        """
+        """สร้าง summary สั้นๆ ของ context"""
         if not chunks:
             return "ไม่พบข้อมูลที่เกี่ยวข้อง"
         
-        # Count sources and key info
         sources = set()
         has_dates = False
         has_steps = False

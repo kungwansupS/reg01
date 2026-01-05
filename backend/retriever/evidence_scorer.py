@@ -2,7 +2,6 @@ import logging
 import asyncio
 from typing import List, Dict, Tuple
 import re
-from retriever.intent_analyzer import QueryIntent
 
 logger = logging.getLogger("EvidenceScorer")
 
@@ -42,10 +41,10 @@ class EvidenceScorer:
             chunk_text = chunk_dict.get('chunk', '')
             source = chunk_dict.get('source', '')
             
-            # 1. Relevance Score (จาก retrieval + keyword match)
+            # 1. Relevance Score
             relevance = retrieval_score
             
-            # 2. Specificity Score (มีข้อมูลเฉพาะเจาะจงแค่ไหน)
+            # 2. Specificity Score
             specificity = EvidenceScorer._calculate_specificity(
                 chunk_text, 
                 keywords, 
@@ -53,7 +52,7 @@ class EvidenceScorer:
                 entities
             )
             
-            # 3. Completeness Score (ความสมบูรณ์ของข้อมูล)
+            # 3. Completeness Score
             completeness = EvidenceScorer._calculate_completeness(
                 chunk_text,
                 intent_analysis
@@ -62,7 +61,7 @@ class EvidenceScorer:
             # 4. Source Quality Score
             source_quality = EvidenceScorer._calculate_source_quality(source)
             
-            # 5. Recency Score (ปีการศึกษาล่าสุด)
+            # 5. Recency Score
             recency = EvidenceScorer._calculate_recency(chunk_text)
             
             # Combined score with weights
@@ -107,24 +106,19 @@ class EvidenceScorer:
         temporal_refs: List[str],
         entities: List[str]
     ) -> float:
-        """
-        คะแนนความเฉพาะเจาะจง
-        - มีวันที่/เวลาที่ชัดเจน
-        - มีชื่อเฉพาะ/หน่วยงาน
-        - มีตัวเลขที่เกี่ยวข้อง
-        """
+        """คะแนนความเฉพาะเจาะจง"""
         text_lower = text.lower()
         score = 0.0
         
-        # Check temporal refs (0.3)
+        # Check temporal refs
         temporal_count = sum(1 for t in temporal_refs if t.lower() in text_lower)
         score += min(temporal_count / max(len(temporal_refs), 1), 1.0) * 0.3
         
-        # Check entities (0.3)
+        # Check entities
         entity_count = sum(1 for e in entities if e.lower() in text_lower)
         score += min(entity_count / max(len(entities), 1), 1.0) * 0.3
         
-        # Check for specific patterns (0.4)
+        # Check for specific patterns
         has_date = bool(re.search(r'\d{1,2}[/-]\d{1,2}[/-]\d{2,4}', text))
         has_time = bool(re.search(r'\d{1,2}:\d{2}', text))
         has_numbers = bool(re.search(r'\d+', text))
@@ -136,46 +130,34 @@ class EvidenceScorer:
     
     @staticmethod
     def _calculate_completeness(text: str, intent_analysis: Dict) -> float:
-        """
-        คะแนนความสมบูรณ์ตาม intent
-        - Factual: มีคำตอบที่ชัดเจน
-        - Procedural: มีขั้นตอนครบ
-        - Comparative: มีทั้ง 2 ฝ่าย
-        """
-        from intent_analyzer import QueryIntent
+        """คะแนนความสมบูรณ์ตาม intent"""
+        from retriever.intent_analyzer import QueryIntent
         
         intent = intent_analysis.get('intent')
         text_lower = text.lower()
         
         if intent == QueryIntent.FACTUAL:
-            # มีคำตอบเฉพาะเจาะจง
             answer_indicators = ['คือ', 'ได้แก่', 'เท่ากับ', 'จำนวน']
             score = sum(0.25 for w in answer_indicators if w in text_lower)
             return min(score, 1.0)
         
         elif intent == QueryIntent.PROCEDURAL:
-            # มีลำดับขั้นตอน
             step_indicators = ['ขั้นตอน', 'ขั้น', 'ที่ 1', 'ที่ 2', 'ก่อน', 'หลัง', 'จากนั้น']
             score = sum(0.15 for w in step_indicators if w in text_lower)
             return min(score, 1.0)
         
         elif intent == QueryIntent.COMPARATIVE:
-            # มีการเปรียบเทียบ
             compare_indicators = ['แต่', 'ขณะที่', 'ในขณะ', 'ส่วน', 'กรณี']
             score = sum(0.25 for w in compare_indicators if w in text_lower)
             return min(score, 1.0)
         
         else:
-            # Default: ความยาวเหมาะสม
             length_score = min(len(text) / 500, 1.0)
             return length_score * 0.5 + 0.5
     
     @staticmethod
     def _calculate_source_quality(source: str) -> float:
-        """
-        คะแนนคุณภาพแหล่งที่มา
-        - เอกสารทางการ > ข้อมูลทั่วไป
-        """
+        """คะแนนคุณภาพแหล่งที่มา"""
         source_lower = source.lower()
         
         # Official documents
@@ -190,20 +172,15 @@ class EvidenceScorer:
         if any(w in source_lower for w in ['guide', 'manual', 'คู่มือ', 'แนวทาง']):
             return 0.8
         
-        # General info
         return 0.6
     
     @staticmethod
     def _calculate_recency(text: str) -> float:
-        """
-        คะแนนความใหม่ของข้อมูล (จากปีการศึกษา)
-        ปี 2568 = 1.0, ปี 2567 = 0.8, เก่ากว่า = 0.5
-        """
-        # Find academic year
+        """คะแนนความใหม่ของข้อมูล (จากปีการศึกษา)"""
         years = re.findall(r'25[0-9]{2}', text)
         
         if not years:
-            return 0.5  # ไม่มีปี = ข้อมูลทั่วไป
+            return 0.5
         
         latest_year = max(int(y) for y in years)
         
@@ -221,10 +198,7 @@ class EvidenceScorer:
         top_chunks: List[Tuple[Dict, float, Dict]],
         n: int = 3
     ) -> str:
-        """
-        สร้างคำอธิบายสำหรับ top N chunks
-        เพื่อ debug และเข้าใจการให้คะแนน
-        """
+        """สร้างคำอธิบายสำหรับ top N chunks"""
         if not top_chunks:
             return "ไม่พบหลักฐาน"
         

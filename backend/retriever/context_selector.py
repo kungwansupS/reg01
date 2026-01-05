@@ -55,66 +55,6 @@ def get_file_chunks(folder=PDF_QUICK_USE_FOLDER, separator="==================="
         _chunks_cache = new_chunks
         return _chunks_cache
 
-async def extract_query_keywords(query: str) -> List[str]:
-    """
-    สกัดคำสำคัญจากคำถาม เพื่อช่วยในการค้นหาและ ranking
-    """
-    try:
-        from app.utils.llm.llm_model import get_llm_model
-        from app.config import LLM_PROVIDER, GEMINI_MODEL_NAME, OPENAI_MODEL_NAME, LOCAL_MODEL_NAME
-        
-        prompt = f"""สกัดคำสำคัญจากคำถาม (5-10 คำ):
-"{query}"
-
-ตอบเป็น JSON array:
-["คำ1", "คำ2", ...]
-
-เลือกคำที่:
-- มีความหมายเฉพาะเจาะจง (ชื่อ, เลขที่, วันที่, สถานที่)
-- รวมเลขปี/ภาค/เทอม ถ้ามี
-- รวมชื่อเอกสาร/หน่วยงาน/กิจกรรม
-- ไม่ใส่คำทั่วไป เช่น "อะไร", "เมื่อไหร่", "ที่ไหน"
-"""
-        
-        model = get_llm_model()
-        
-        if LLM_PROVIDER == "gemini":
-            response = await model.aio.models.generate_content(
-                model=GEMINI_MODEL_NAME,
-                contents=prompt
-            )
-            result = response.text.strip()
-        else:
-            m_name = OPENAI_MODEL_NAME if LLM_PROVIDER == "openai" else LOCAL_MODEL_NAME
-            response = await model.chat.completions.create(
-                model=m_name,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0
-            )
-            result = response.choices[0].message.content.strip()
-        
-        import json
-        import re
-        result = re.sub(r'```json\s*|\s*```', '', result).strip()
-        
-        keywords = json.loads(result)
-        if keywords:
-            logger.info(f"🔑 Extracted keywords: {keywords}")
-        return keywords
-        
-    except Exception as e:
-        logger.warning(f"⚠️ Keyword extraction failed: {e}")
-        return []
-
-def keyword_match_score(chunk_text: str, keywords: List[str]) -> float:
-    """คำนวณคะแนนความตรงกันของ keywords ในข้อความ"""
-    if not keywords:
-        return 0.0
-    
-    chunk_lower = chunk_text.lower()
-    matches = sum(1 for kw in keywords if kw.lower() in chunk_lower)
-    return matches / len(keywords)
-
 def retrieve_top_k_chunks(
     query: str, 
     k: int = 5, 
@@ -143,33 +83,23 @@ def retrieve_top_k_chunks(
     try:
         # LAYER 0: Intent Analysis
         intent_analysis = {}
+        search_params = {
+            'k_multiplier': 3,
+            'dense_weight': 0.5,
+            'sparse_weight': 0.5,
+            'keyword_boost': 0.3,
+            'need_diversity': False
+        }
+        
         if use_advanced:
             try:
-                from intent_analyzer import intent_analyzer
                 intent_analysis = asyncio.run(intent_analyzer.analyze_intent(query))
-                
-                # Get adaptive search params
                 search_params = intent_analyzer.get_search_params(intent_analysis)
                 logger.info(f"🎯 Adaptive params: k_mult={search_params['k_multiplier']}, "
                           f"dense={search_params['dense_weight']:.2f}, "
                           f"sparse={search_params['sparse_weight']:.2f}")
             except Exception as e:
                 logger.warning(f"⚠️ Intent analysis failed, using defaults: {e}")
-                search_params = {
-                    'k_multiplier': 3,
-                    'dense_weight': 0.5,
-                    'sparse_weight': 0.5,
-                    'keyword_boost': 0.3,
-                    'need_diversity': False
-                }
-        else:
-            search_params = {
-                'k_multiplier': 3,
-                'dense_weight': 0.5,
-                'sparse_weight': 0.5,
-                'keyword_boost': 0.3,
-                'need_diversity': False
-            }
         
         # LAYER 1: Hybrid Search with adaptive params
         fetch_k = k * search_params['k_multiplier']
@@ -209,7 +139,6 @@ def retrieve_top_k_chunks(
         # LAYER 2: Evidence Scoring (if advanced mode)
         if use_advanced and intent_analysis:
             try:
-                from evidence_scorer import evidence_scorer
                 evidence_results = asyncio.run(
                     evidence_scorer.score_evidence(query, scored_chunks, intent_analysis)
                 )
@@ -220,16 +149,13 @@ def retrieve_top_k_chunks(
                     logger.info(f"📊 Top evidence: {breakdown}")
             except Exception as e:
                 logger.warning(f"⚠️ Evidence scoring failed: {e}")
-                # Convert to evidence format without scoring
                 evidence_results = [(chunk, score, {}) for chunk, score in scored_chunks]
         else:
-            # Simple format conversion
             evidence_results = [(chunk, score, {}) for chunk, score in scored_chunks]
         
         # LAYER 3: Context Distillation (if advanced mode)
         if use_advanced and intent_analysis:
             try:
-                from context_distiller import context_distiller
                 distilled = asyncio.run(
                     context_distiller.distill(
                         evidence_results,
@@ -244,15 +170,12 @@ def retrieve_top_k_chunks(
                 logger.info(f"🔬 Distilled: {distilled['metadata']}")
                 logger.info(f"📝 Summary: {distilled['summary']}")
                 
-                # Convert back to (entry, score) format
                 result_chunks = [(chunk, 1.0) for chunk in final_chunks]
                 
             except Exception as e:
                 logger.warning(f"⚠️ Distillation failed: {e}")
-                # Fallback: just take top k
                 result_chunks = [(chunk, score) for chunk, score, _ in evidence_results[:k]]
         else:
-            # Simple top k
             result_chunks = [(chunk, score) for chunk, score, _ in evidence_results[:k]]
         
         if result_chunks:

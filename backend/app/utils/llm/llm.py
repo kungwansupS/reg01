@@ -126,13 +126,14 @@ async def ask_llm(msg, session_id, emit_fn=None):
             if "query_request" in reply:
                 search_query = reply.split("query_request", 1)[1].strip()
                 print ("=====query=====\n"+ search_query +"\n=====query=====")
+                print ("=====msg=====\n"+ msg +"\n=====msg=====")
                 if emit_fn:
                     await emit_fn("ai_status", {"status": "🔍 กำลังหาข้อมูลจากระเบียบการให้นะครับ..."})
                 
                 top_chunks = await asyncio.to_thread(retrieve_top_k_chunks, search_query, k=5, folder=PDF_QUICK_USE_FOLDER)
                 context = "\n\n".join([c['chunk'] for c, _ in top_chunks])
                 print ("=====context=====\n"+ context +"\n=====context=====")
-                prompt_rag = request_prompt.format(question=search_query, context=context)
+                prompt_rag = request_prompt.format(question=msg, search_query=search_query, context=context)
 
                 # Call LLM ครั้งที่ 2 ด้วยข้อมูลที่หามาได้
                 if LLM_PROVIDER == "gemini":

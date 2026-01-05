@@ -1,6 +1,3 @@
-from datetime import datetime
-current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
 from app.prompt.multi_language.request_prompt_th import request_prompt_th
 from app.prompt.multi_language.request_prompt_en import request_prompt_en
 from app.prompt.multi_language.request_prompt_zh import request_prompt_zh

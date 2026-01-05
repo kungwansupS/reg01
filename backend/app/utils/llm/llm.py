@@ -38,23 +38,23 @@ async def ask_llm(msg, session_id, emit_fn=None):
     request_prompt = get_request_prompt(detected_lang)
 
     # 2. ตรวจสอบ FAQ (ค้นหาด้วย Semantic Search ใน Thread)
-    faq_answer = await asyncio.to_thread(get_faq_answer, msg)
-    if faq_answer:
-        logger.info(f"🎯 [FAQ Hit]: {msg}")
-        # Count tokens for FAQ response
-        model_name = GEMINI_MODEL_NAME if LLM_PROVIDER == "gemini" else OPENAI_MODEL_NAME
-        completion_tokens = count_tokens(faq_answer, model_name)
+    # faq_answer = await asyncio.to_thread(get_faq_answer, msg)
+    # if faq_answer:
+    #     logger.info(f"🎯 [FAQ Hit]: {msg}")
+    #     # Count tokens for FAQ response
+    #     model_name = GEMINI_MODEL_NAME if LLM_PROVIDER == "gemini" else OPENAI_MODEL_NAME
+    #     completion_tokens = count_tokens(faq_answer, model_name)
         
-        return {
-            "text": faq_answer, 
-            "from_faq": True,
-            "tokens": {
-                "prompt_tokens": 0,
-                "completion_tokens": completion_tokens,
-                "total_tokens": completion_tokens,
-                "cached": True
-            }
-        }
+    #     return {
+    #         "text": faq_answer, 
+    #         "from_faq": True,
+    #         "tokens": {
+    #             "prompt_tokens": 0,
+    #             "completion_tokens": completion_tokens,
+    #             "total_tokens": completion_tokens,
+    #             "cached": True
+    #         }
+    #     }
 
     # 3. เข้าคิวประมวลผล LLM
     async with llm_semaphore:
@@ -116,11 +116,13 @@ async def ask_llm(msg, session_id, emit_fn=None):
             # Step 2: ถ้าต้องใช้ RAG (AI จะตอบด้วย keyword 'query_request')
             if "query_request" in reply:
                 search_query = reply.split("query_request", 1)[1].strip()
+                print ("=====query=====\n"+ search_query +"\n=====query=====")
                 if emit_fn:
                     await emit_fn("ai_status", {"status": "🔍 กำลังหาข้อมูลจากระเบียบการให้นะครับ..."})
                 
                 top_chunks = await asyncio.to_thread(retrieve_top_k_chunks, search_query, k=5, folder=PDF_QUICK_USE_FOLDER)
                 context = "\n\n".join([c['chunk'] for c, _ in top_chunks])
+                print ("=====context=====\n"+ context +"\n=====context=====")
                 prompt_rag = request_prompt.format(question=search_query, context=context)
 
                 # Call LLM ครั้งที่ 2 ด้วยข้อมูลที่หามาได้

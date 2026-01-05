@@ -1,4 +1,3 @@
-# [FILE: backend/app/utils/token_counter.py - FULLCODE ONLY]
 import tiktoken
 import logging
 from typing import Dict, Any

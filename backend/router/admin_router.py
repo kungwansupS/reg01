@@ -1,8 +1,3 @@
-# ✅ FIXED VERSION - admin_router.py
-# Changes:
-# 1. Fixed get_secure_path to handle empty string for root directory
-# 2. Improved error responses with clear messages
-
 from fastapi import APIRouter, UploadFile, Form, HTTPException, Depends, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.security.api_key import APIKeyHeader

@@ -1,4 +1,3 @@
-# [FILE: main.py - FULLCODE ONLY]
 from fastapi import FastAPI, Request, UploadFile, Form, HTTPException, Depends, Response
 from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -126,8 +125,11 @@ app.mount("/assets", StaticFiles(directory="frontend/assets"), name="assets")
 async def sync_vector_db():
     """
     [PHASE 3] ตรวจสอบความเปลี่ยนแปลงของไฟล์ .txt และอัปเดตลง Vector DB อัตโนมัติ
+    พร้อม metadata extraction
     """
     def run_sync():
+        from app.utils.metadata_extractor import metadata_extractor
+        
         logger.info("🔍 [Vector DB] Starting startup synchronization...")
         if not os.path.exists(PDF_QUICK_USE_FOLDER):
             logger.warning(f"⚠️ [Vector DB] Quick-use folder not found: {PDF_QUICK_USE_FOLDER}")
@@ -149,7 +151,11 @@ async def sync_vector_db():
                             separator = "==================="
                             chunks = [c.strip() for c in content.split(separator) if c.strip()]
                             
-                            vector_manager.add_document(filepath, chunks)
+                            # ✅ Extract metadata
+                            metadata = metadata_extractor.extract(content, filepath)
+                            
+                            # ✅ Add with metadata
+                            vector_manager.add_document(filepath, chunks, metadata)
                             vector_manager.update_registry(filepath, file_hash)
                             sync_count += 1
                         except Exception as e:
@@ -162,6 +168,41 @@ async def sync_vector_db():
 
     # รันใน Thread เพื่อไม่ให้บล็อกการทำงานหลัก
     await asyncio.to_thread(run_sync)
+
+async def build_hybrid_index():
+    """
+    [PHASE 3] Build BM25 index for hybrid search
+    """
+    def run_build():
+        from retriever.hybrid_retriever import hybrid_retriever
+        
+        logger.info("🔨 [Hybrid] Building BM25 index...")
+        
+        # Get all chunks from vector database
+        chunks = vector_manager.get_all_chunks()
+        
+        if not chunks:
+            logger.warning("⚠️ [Hybrid] No chunks found in vector DB")
+            return
+        
+        # Build BM25 index
+        hybrid_retriever.build_index(chunks)
+        logger.info(f"✅ [Hybrid] BM25 index ready with {len(chunks)} chunks")
+    
+    await asyncio.to_thread(run_build)
+
+async def maintenance_loop():
+    """งานบำรุงรักษาระบบรายวัน"""
+    while True:
+        try:
+            # Cleanup old sessions (older than 7 days)
+            cleanup_old_sessions(days=7)
+            logger.info("🧹 Maintenance: Old sessions cleaned up")
+        except Exception as e:
+            logger.error(f"❌ Maintenance error: {e}")
+        
+        # Sleep for 24 hours
+        await asyncio.sleep(86400)
 
 async def fb_worker():
     """Worker สำหรับจัดการข้อความจาก Facebook Messenger"""
@@ -228,19 +269,19 @@ async def fb_worker():
 @app.on_event("startup")
 async def startup_event():
     logger.info("🚀 Starting application...")
+    
     # [PHASE 3] ซิงค์ข้อมูลลง Vector DB ตอนเริ่มต้น
     await sync_vector_db()
     
+    # ✅ [PHASE 3] Build hybrid search index
+    await build_hybrid_index()
+    
+    # Start background tasks
     asyncio.create_task(maintenance_loop())
     for _ in range(5): 
         asyncio.create_task(fb_worker())
-    logger.info("✅ Application and Vector DB are ready")
-
-async def maintenance_loop():
-    """งานบำรุงรักษาระบบรายวัน"""
-    while True:
-        cleanup_old_sessions(days=7)
-        await asyncio.sleep(86400)
+    
+    logger.info("✅ Application, Vector DB, and Hybrid Search are ready")
 
 # ----------------------------------------------------------------------------- #
 # PUBLIC ENDPOINTS

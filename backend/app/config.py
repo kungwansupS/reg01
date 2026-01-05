@@ -1,4 +1,3 @@
-# [FILE: backend/app/config.py - FULLCODE ONLY]
 import os
 from dotenv import load_dotenv
 

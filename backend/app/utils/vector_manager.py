@@ -7,6 +7,7 @@ import chromadb
 from chromadb.config import Settings
 from sentence_transformers import SentenceTransformer
 import torch
+from typing import List, Dict, Optional
 
 logger = logging.getLogger("VectorManager")
 
@@ -75,16 +76,46 @@ class VectorManager:
             )
             conn.commit()
 
-    def add_document(self, filepath, chunks):
-        """นำ Chunks ของไฟล์เข้าสู่ Vector DB"""
+    def add_document(self, filepath: str, chunks: List[str], metadata: Optional[Dict] = None):
+        """
+        นำ Chunks ของไฟล์เข้าสู่ Vector DB พร้อม metadata
+        
+        Args:
+            filepath: Path to source file
+            chunks: List of text chunks
+            metadata: Document-level metadata (from metadata_extractor)
+        """
         # ลบข้อมูลเก่าของไฟล์นี้ออกก่อน (ถ้ามี)
         self.collection.delete(where={"source": filepath})
         
         if not chunks:
+            logger.warning(f"⚠️ No chunks to index for {filepath}")
             return
 
+        # Prepare metadata for each chunk
+        base_metadata = metadata or {}
         ids = [f"{filepath}_{i}" for i in range(len(chunks))]
-        metadatas = [{"source": filepath, "index": i} for i in range(len(chunks))]
+        metadatas = []
+        
+        for i in range(len(chunks)):
+            chunk_metadata = {
+                "source": filepath,
+                "filename": base_metadata.get('filename', os.path.basename(filepath)),
+                "chunk_index": i,
+                "doc_type": base_metadata.get('doc_type', 'general'),
+                "language": base_metadata.get('language', 'th'),
+                "has_dates": base_metadata.get('has_dates', False),
+                "last_updated": base_metadata.get('last_updated', datetime.datetime.now().isoformat())
+            }
+            
+            # Add academic_years and semesters as JSON strings (ChromaDB limitation)
+            if 'academic_years' in base_metadata and base_metadata['academic_years']:
+                chunk_metadata['academic_years'] = ','.join(base_metadata['academic_years'])
+            
+            if 'semesters' in base_metadata and base_metadata['semesters']:
+                chunk_metadata['semesters'] = ','.join(map(str, base_metadata['semesters']))
+            
+            metadatas.append(chunk_metadata)
         
         # สร้าง Embeddings
         embeddings = self.model.encode(
@@ -92,35 +123,109 @@ class VectorManager:
             normalize_embeddings=True
         ).tolist()
 
+        # Add to ChromaDB
         self.collection.add(
             ids=ids,
             embeddings=embeddings,
             documents=chunks,
             metadatas=metadatas
         )
+        
         logger.info(f"✅ Indexed {len(chunks)} chunks from {os.path.basename(filepath)}")
 
-    def search(self, query, k=5):
-        """ค้นหาข้อมูลที่ใกล้เคียงที่สุด"""
+    def search(self, query: str, k: int = 5, filter_dict: Optional[Dict] = None) -> List[Dict]:
+        """
+        ค้นหาข้อมูลที่ใกล้เคียงที่สุด พร้อมกรอง metadata
+        
+        Args:
+            query: Search query
+            k: Number of results
+            filter_dict: Metadata filters (e.g., {'doc_type': 'calendar', 'academic_years': '2568'})
+        
+        Returns:
+            List of dicts with chunk, source, score, metadata
+        """
+        # Create query embedding
         query_embedding = self.model.encode(
             f"query: {query}",
             normalize_embeddings=True
         ).tolist()
 
-        results = self.collection.query(
-            query_embeddings=[query_embedding],
-            n_results=k
-        )
+        # Build ChromaDB where clause
+        where_clause = None
+        if filter_dict:
+            where_clause = {}
+            
+            # Simple equality filters
+            if 'doc_type' in filter_dict:
+                where_clause['doc_type'] = filter_dict['doc_type']
+            
+            if 'language' in filter_dict:
+                where_clause['language'] = filter_dict['language']
+            
+            # Contains filters for comma-separated values
+            if 'academic_year' in filter_dict:
+                where_clause['academic_years'] = {'$contains': filter_dict['academic_year']}
+            
+            if 'semester' in filter_dict:
+                where_clause['semesters'] = {'$contains': str(filter_dict['semester'])}
+            
+            logger.debug(f"🔍 Applying filters: {where_clause}")
 
+        # Query ChromaDB
+        try:
+            results = self.collection.query(
+                query_embeddings=[query_embedding],
+                n_results=k,
+                where=where_clause
+            )
+        except Exception as e:
+            logger.error(f"❌ ChromaDB query error: {e}")
+            # Fallback: query without filters
+            results = self.collection.query(
+                query_embeddings=[query_embedding],
+                n_results=k
+            )
+
+        # Format results
         formatted_results = []
-        if results['documents']:
+        if results['documents'] and results['documents'][0]:
             for i in range(len(results['documents'][0])):
                 formatted_results.append({
                     "chunk": results['documents'][0][i],
-                    "source": results['metadatas'][0][i]['source'],
-                    "score": results['distances'][0][i]
+                    "source": results['metadatas'][0][i].get('source', ''),
+                    "score": 1.0 - results['distances'][0][i],  # Convert distance to similarity
+                    "metadata": results['metadatas'][0][i]
                 })
+        
         return formatted_results
+    
+    def get_all_chunks(self) -> List[Dict]:
+        """
+        Get all chunks from database (for BM25 indexing)
+        
+        Returns:
+            List of dicts with chunk, source, index
+        """
+        try:
+            # Get all documents (ChromaDB limit is 100,000)
+            results = self.collection.get()
+            
+            chunks = []
+            if results['documents']:
+                for i, doc in enumerate(results['documents']):
+                    chunks.append({
+                        'chunk': doc,
+                        'source': results['metadatas'][i].get('source', ''),
+                        'index': results['metadatas'][i].get('chunk_index', i)
+                    })
+            
+            logger.info(f"📚 Retrieved {len(chunks)} chunks for indexing")
+            return chunks
+            
+        except Exception as e:
+            logger.error(f"❌ Error getting all chunks: {e}")
+            return []
 
 # Create a singleton instance
 vector_manager = VectorManager()

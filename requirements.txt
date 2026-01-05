@@ -23,6 +23,7 @@ langdetect
 tiktoken
 chromadb
 transformers
+rank-bm25
 
 # TTS / STT
 speechrecognition

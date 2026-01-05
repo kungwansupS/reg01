@@ -4,7 +4,9 @@ def current_time():
     time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     return time
 
-SELECTION_PROMPT = f"วันเวลาปัจจุบันใช้สำหรับอ้างอิงคำตอบ: {current_time()}" + """
+current_time = current_time()
+
+SELECTION_PROMPT = f"วันเวลาปัจจุบันใช้สำหรับอ้างอิงคำตอบ: {current_time}" + """
 คุณจะได้รับคำถาม และข้อความเนื้อหาหนึ่งชุด  
 โปรดตัดสินใจว่าเนื้อหานั้น "เกี่ยวข้อง" กับคำถามหรือไม่อย่างชัดเจน
 

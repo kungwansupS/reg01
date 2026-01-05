@@ -1,171 +1,523 @@
-===================
+### ข้อมูลทั่วไปของเอกสาร
+- ชื่อเรื่อง: Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks
+- ผู้เขียน: Patrick Lewis†‡, Ethan Perez⋆, Aleksandra Piktus†, Fabio Petroni†, Vladimir Karpukhin†, Naman Goyal†, Heinrich Küttler†, Mike Lewis†, Wen-tau Yih†, Tim Rocktäschel†‡, Sebastian Riedel†‡, Douwe Kiela†
+- สังกัด: †Facebook AI Research; ‡University College London; ⋆New York University
+- อีเมล: plewis@fb.com
+- วันที่: 12 Apr 2021
+- arXiv ID: 2005.11401v4 [cs.CL]
 
-**RAG (Retrieval-Augmented Generation) Paper Summary**
+### บทคัดย่อ (Abstract)
+- โมเดลภาษาขนาดใหญ่สามารถเก็บความรู้ข้อเท็จจริงไว้ในพารามิเตอร์ได้ และให้ผลลัพธ์ที่ดีเมื่อปรับแต่งสำหรับงาน NLP
+- ความสามารถในการเข้าถึงและจัดการความรู้ยังจำกัด ทำให้ประสิทธิภาพด้อยกว่าสถาปัตยกรรมเฉพาะงานในงานที่ต้องใช้ความรู้มาก
+- การให้แหล่งที่มาของการตัดสินใจและการปรับปรุงความรู้ยังเป็นปัญหาที่ต้องแก้ไข
+- การสำรวจสูตรการปรับแต่งทั่วไปสำหรับการสร้างแบบเพิ่มการดึงข้อมูล (Retrieval-Augmented Generation - RAG) ซึ่งรวมหน่วยความจำแบบพารามิเตอร์และไม่ใช่พารามิเตอร์สำหรับการสร้างภาษา
+- RAG ใช้โมเดล seq2seq ที่ผ่านการฝึกอบรมล่วงหน้าเป็นหน่วยความจำแบบพารามิเตอร์ และดัชนีเวกเตอร์หนาแน่นของ Wikipedia เป็นหน่วยความจำแบบไม่ใช่พารามิเตอร์ โดยเข้าถึงด้วยตัวดึงข้อมูลประสาทเทียมที่ผ่านการฝึกอบรมล่วงหน้า
+- เปรียบเทียบสองรูปแบบ RAG: แบบที่ใช้ passage ที่ดึงข้อมูลเดียวกันตลอดลำดับที่สร้าง และแบบที่สามารถใช้ passage ที่แตกต่างกันต่อ token
+- ปรับแต่งและประเมินโมเดลบนงาน NLP ที่ต้องใช้ความรู้หลากหลาย และทำลายสถิติบนงาน QA open domain สามงาน
+- RAG สร้างภาษาที่เฉพาะเจาะจง หลากหลาย และเป็นข้อเท็จจริงมากกว่า baseline seq2seq แบบพารามิเตอร์เท่านั้น
 
-*   **Title:** Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks
-*   **Authors:** Patrick Lewis, Ethan Perez, Aleksandra Piktus, Fabio Petroni, Vladimir Karpukhin, Naman Goyal, Heinrich Küttler, Mike Lewis, Wen-tau Yih, Tim Rocktäschel, Sebastian Riedel, Douwe Kiela
-*   **Affiliations:** Facebook AI Research, University College London, New York University
-*   **Abstract:** Introduces RAG models, combining pre-trained parametric and non-parametric memory for language generation. Uses Wikipedia as non-parametric memory accessed via a neural retriever. Achieves state-of-the-art on open domain QA and generates more specific, diverse, and factual language.
-
-===================
-
-**Introduction**
-
-*   **Problem:** Large language models store factual knowledge but have limitations in accessing and manipulating it, providing provenance, and updating knowledge. They also may produce "hallucinations".
-*   **Solution:** Hybrid models combining parametric and non-parametric memory.
-*   **RAG Approach:** Fine-tuning pre-trained seq2seq models with a non-parametric memory (Wikipedia) accessed via a neural retriever.
-*   **Benefits:** Knowledge can be directly revised, expanded, inspected, and interpreted.
-*   **RAG can be fine-tuned on any seq2seq task, whereby both the generator and retriever are jointly learned.**
-
-===================
-
-**Methods**
-
-*   **RAG Models:** Use input sequence x to retrieve text documents z and use them as additional context for generating the target sequence y.
-*   **Components:**
-    *   Retriever pη(z|x): Returns distributions over text passages given a query x.
-    *   Generator pθ(yi|x, z, y1:i−1): Generates current token based on previous tokens, input x, and retrieved passage z.
-*   **Training:** Treat retrieved document as a latent variable and marginalize over latent documents.
-*   **RAG-Sequence:** Uses the same retrieved document to generate the complete sequence.
-*   **RAG-Token:** Can predict each target token based on a different document.
+### บทนำ (Introduction)
+- โมเดลภาษาสามารถเรียนรู้ความรู้เชิงลึกจากข้อมูลได้โดยไม่ต้องเข้าถึงหน่วยความจำภายนอก
+- ข้อเสียของโมเดลเหล่านี้คือ ไม่สามารถขยายหรือแก้ไขหน่วยความจำได้ง่าย ไม่สามารถให้ข้อมูลเชิงลึกเกี่ยวกับการคาดการณ์ได้ และอาจสร้าง "ภาพหลอน"
+- โมเดลแบบผสมผสานที่รวมหน่วยความจำแบบพารามิเตอร์และไม่ใช่พารามิเตอร์สามารถแก้ไขปัญหาเหล่านี้ได้
+- REALM และ ORQA เป็นโมเดลที่รวม masked language models กับตัวดึงข้อมูลที่สามารถแยกความแตกต่างได้ และให้ผลลัพธ์ที่น่าสนใจ
 
 ===================
 
-**Retriever: DPR (Dense Passage Retriever)**
+### โมเดล Retrieval-Augmented Generation (RAG) และองค์ประกอบหลัก
+- Retriever pη (Non-Parametric)
+- Query Encoder
+- Document Index
+- Generator pθ (Parametric)
+- MIPS (Maximum Inner Product Search)
+- End-to-End Backprop through q and pθ
+- Marginalize (การหาค่าเฉลี่ย)
 
-*   **Architecture:** Bi-encoder architecture
-    *   pη(z|x) ∝exp(d(z)⊤q(x))
-    *   d(z) = BERTd(z), q(x) = BERTq(x)
-*   **Implementation:** Uses a pre-trained bi-encoder from DPR trained on TriviaQA and Natural Questions.
-*   **Non-parametric Memory:** Document index.
+### งาน (Tasks) ที่ใช้โมเดล RAG
+- Question Answering: Question Query, Answer Generation
+- Question Generation
+- Fact Verification: Fact Query, Label Generation
+- Jeopardy Question Generation: Answer Query
+- Open-Domain Extractive Question Answering
+- Knowledge-Intensive Generation (MS-MARCO)
+- FEVER Fact Verification
 
-===================
+### ชุดข้อมูล (Datasets) ที่ใช้ในการทดลอง
+- Natural Questions [29]
+- WebQuestions [3]
+- CuratedTrec [2]
+- TriviaQA [24]
+- MS-MARCO [1]
+- FEVER [56]
 
-**Generator: BART**
+### ตัวอย่างข้อมูล (Examples)
+- The Divine Comedy (x) - This 14th century work is divided into 3 sections: "Inferno", "Purgatorio" & "Paradiso" (y)
+- Barack Obama was born in Hawaii.(x) - Fact Verification: Fact Query supports (y)
+- Define "middle ear"(x) - The middle ear includes the tympanic cavity and the three ossicles. (y)
 
-*   **Model:** BART-large (400M parameters), a pre-trained seq2seq transformer.
-*   **Combination:** Concatenate input x with retrieved content z when generating from BART.
-*   **Parametric Memory:** BART generator parameters θ.
+### เทคนิคและแนวคิดที่เกี่ยวข้อง
+- Sequence-to-Sequence (seq2seq) models
+- Pre-trained models (BART [32], T5 [51], DPR [26])
+- Dense vector index of Wikipedia
+- Latent variable z
+- Top-K approximation
+- Parametric memory vs. Non-parametric memory
+- Jointly learned generator and retriever
+- Pre-trained access mechanisms
+- Knowledge-intensive tasks
 
-===================
-
-**Training Details**
-
-*   Jointly train retriever and generator without direct supervision on retrieved documents.
-*   Minimize negative marginal log-likelihood of each target using stochastic gradient descent with Adam.
-*   Document encoder (BERTd) is kept fixed during training; only the query encoder (BERTq) and BART generator are fine-tuned.
-
-===================
-
-**Decoding**
-
-*   **RAG-Token:** Standard autoregressive seq2seq generator with modified transition probability.  Beam decoder used.
-*   **RAG-Sequence:**
-    *   Cannot be solved with a single beam search. Run beam search for each document z.
-    *   Thorough Decoding: Estimate probability of an hypothesis y by running forward passes for each document z.
-    *   Fast Decoding: Approximate pθ(y|x, zi) ≈ 0 if y was not generated during beam search from x, zi.
-
-===================
-
-**Experiments**
-
-*   **Tasks:** Knowledge-intensive tasks.
-*   **Knowledge Source:** Single Wikipedia dump (December 2018), split into 100-word chunks (21M documents).
-*   **MIPS Index:** FAISS with Hierarchical Navigable Small World approximation.
-*   **Retrieval:** Top k documents for each query (k ∈ {5, 10} for training).
-
-===================
-
-**Evaluation Tasks**
-
-*   **Open-domain Question Answering (QA):**
-    *   Datasets: Natural Questions (NQ), TriviaQA (TQA), WebQuestions (WQ), CuratedTrec (CT).
-    *   Evaluation Metric: Exact Match (EM) scores.
-*   **Abstractive Question Answering:**
-    *   Dataset: MSMARCO NLG task v2.1.
-*   **Jeopardy Question Generation:**
-    *   Dataset: SearchQA splits.
-    *   Evaluation Metric: SQuAD-tuned Q-BLEU-1, human evaluations (factuality, specificity).
-*   **Fact Verification:**
-    *   Dataset: FEVER.
-    *   Evaluation Metric: Label accuracy (3-way and 2-way classification).
+### ข้อมูลเพิ่มเติม
+- Figure 1: Overview of our approach.
+- Code and interactive demo available on HuggingFace Transformers Library.
+- การอัปเดตความรู้ของโมเดลเมื่อโลกเปลี่ยนแปลง
 
 ===================
 
-**Results: Open-domain QA**
+### บทนำ (Introduction)
+- การสร้างโทเค็นปัจจุบัน (current token) โดย θ จากบริบทของโทเค็นก่อนหน้า i-1 โทเค็น (y1:i−1), อินพุตเดิม x และ passage ที่ดึงมา z
+- การฝึก retriever และ generator แบบ end-to-end โดยถือว่าเอกสารที่ดึงมาเป็นตัวแปรแฝง (latent variable)
+- การนำเสนอสองโมเดลที่ marginalize เหนือเอกสารแฝงในรูปแบบที่แตกต่างกันเพื่อสร้าง distribution เหนือข้อความที่สร้างขึ้น
+    - RAG-Sequence: ใช้เอกสารเดียวกันในการทำนายแต่ละโทเค็นเป้าหมาย
+    - RAG-Token: สามารถทำนายแต่ละโทเค็นเป้าหมายโดยอิงตามเอกสารที่แตกต่างกัน
 
-*   RAG sets a new state of the art on all four open-domain QA tasks.
-*   Combines generation flexibility of "closed-book" approaches with performance of retrieval-based approaches.
-*   RAG retriever initialized using DPR's retriever.
+### โมเดล (Models)
+- **RAG-Sequence Model:**
+    - ใช้เอกสารที่ดึงมาเดียวกันเพื่อสร้างลำดับที่สมบูรณ์
+    - Marginalize เอกสารที่ดึงมาเพื่อรับ seq2seq probability p(y|x) ผ่าน top-K approximation
+    - pRAG-Sequence(y|x) ≈ Σz∈top-k(p(·|x)) pη(z|x)pθ(y|x, z) = Σz∈top-k(p(·|x)) pη(z|x) ∏i pθ(yi|x, z, y1:i−1)
+- **RAG-Token Model:**
+    - ดึงเอกสารแฝงที่แตกต่างกันสำหรับแต่ละโทเค็นเป้าหมายและ marginalize ตามนั้น
+    - อนุญาตให้ generator เลือกเนื้อหาจากเอกสารหลายฉบับเมื่อสร้างคำตอบ
+    - pRAG-Token(y|x) ≈ ∏i Σz∈top-k(p(·|x)) pη(z|x)pθ(yi|x, z, y1:i−1)
+- RAG สามารถใช้สำหรับงาน classification ลำดับ (sequence classification) โดยพิจารณา class เป้าหมายเป็นลำดับเป้าหมายที่มีความยาวหนึ่ง ซึ่งในกรณีนี้ RAG-Sequence และ RAG-Token จะเทียบเท่ากัน
 
-===================
+### Retriever: DPR
+- ส่วนประกอบการดึงข้อมูล pη(z|x) อิงตาม DPR [26]
+- DPR ใช้สถาปัตยกรรม bi-encoder: pη(z|x) ∝ exp d(z)⊤q(x)
+- d(z) = BERTd(z), q(x) = BERTq(x)
+- d(z) คือ dense representation ของเอกสารที่สร้างโดย BERTBASE document encoder [8]
+- q(x) คือ query representation ที่สร้างโดย query encoder ซึ่งอิงตาม BERTBASE
+- การคำนวณ top-k(pη(·|x)) คือปัญหา Maximum Inner Product Search (MIPS) ซึ่งสามารถแก้ไขได้โดยประมาณในเวลา sub-linear [23]
+- ใช้ bi-encoder ที่ผ่านการฝึกอบรมล่วงหน้าจาก DPR เพื่อเริ่มต้น retriever และสร้าง document index
+- Retriever ได้รับการฝึกฝนเพื่อดึงเอกสารที่มีคำตอบสำหรับคำถาม TriviaQA [24] และ Natural Questions [29]
+- Document index ถูกอ้างถึงว่าเป็น non-parametric memory
 
-**Results: Abstractive Question Answering**
+### Generator: BART
+- ส่วนประกอบ generator pθ(yi|x, z, y1:i−1) สามารถสร้างแบบจำลองโดยใช้ encoder-decoder ใดก็ได้
+- ใช้ BART-large [32] ซึ่งเป็น seq2seq transformer ที่ผ่านการฝึกอบรมล่วงหน้า [58] ที่มี 400M พารามิเตอร์
+- การรวมอินพุต x กับเนื้อหาที่ดึงมา z เมื่อสร้างจาก BART โดยการต่อกัน (concatenation)
+- BART ได้รับการฝึกอบรมล่วงหน้าโดยใช้ objective การลดสัญญาณรบกวน (denoising objective) และฟังก์ชันการลดสัญญาณรบกวนที่หลากหลาย
+- ได้ผลลัพธ์ที่ทันสมัย (state-of-the-art) ในชุดงานสร้างที่หลากหลายและมีประสิทธิภาพเหนือกว่าโมเดล T5 ที่มีขนาดใกล้เคียงกัน [32]
+- พารามิเตอร์ generator ของ BART θ ถูกอ้างถึงว่าเป็น parametric memory
 
-*   RAG-Sequence outperforms BART on Open MS-MARCO NLG.
-*   RAG models hallucinate less and generate more factually correct text.
-
-===================
-
-**Results: Jeopardy Question Generation**
-
-*   RAG-Token performs better than RAG-Sequence and BART on Q-BLEU-1.
-*   Human evaluations: RAG is more factual and specific than BART.
-*   Parametric and non-parametric memories work together.
-
-===================
-
-**Results: Fact Verification**
-
-*   RAG scores within 4.3% of state-of-the-art models on FEVER (3-way classification) without retrieval supervision.
-*   Achieves accuracy within 2.7% of a model trained with gold evidence sentences on FEVER (2-way classification).
-*   71% of top retrieved documents are from a gold article, 90% within top 10.
-
-===================
-
-**Additional Results**
-
-*   **Generation Diversity:** RAG-Sequence's generations are more diverse than RAG-Token's, and both are more diverse than BART.
-*   **Retrieval Ablations:** Learned retrieval improves results for all tasks. Differentiable retrieval superior to BM25 except on FEVER.
-*   **Index Hot-Swapping:** Replacing the non-parametric memory updates RAG's world knowledge.
-*   **Effect of Retrieving more documents:** Retrieving more documents at test time improves Open-domain QA results for RAG-Sequence (performance peaks for RAG-Token at 10 documents).
-
-===================
-
-**Related Work**
-
-*   Single-Task Retrieval
-*   General-Purpose Architectures for NLP
-*   Learned Retrieval
-*   Memory-based Architectures
-*   Retrieve-and-Edit approaches
+### การฝึกอบรม (Training)
+- ฝึกส่วนประกอบ retriever และ generator ร่วมกันโดยไม่มีการกำกับดูแลโดยตรงเกี่ยวกับเอกสารที่ควรดึงมา
+- กำหนด corpus การฝึกอบรม fine-tuning ของคู่ input/output (xj, yj)
 
 ===================
 
-**Discussion**
+### การฝึกอบรม (Training)
+- ใช้ stochastic gradient descent with Adam [28] เพื่อ minimize the negative marginal log-likelihood ของแต่ละ target, P j −log p(yj|xj)
+- ไม่จำเป็นต้อง update document encoder BERTd และ index ระหว่างการฝึกอบรม, ทำการ fine-tune เฉพาะ query encoder BERTq และ BART generator
+- การ update document encoder BERTd เป็น costly เนื่องจากต้อง update document index เป็นระยะๆ เหมือนที่ REALM ทำระหว่าง pre-training [20]
 
-*   RAG models obtain state-of-the-art results on open-domain QA.
-*   People prefer RAG's generation over purely parametric BART.
-*   Learned retrieval component is effective.
-*   Retrieval index can be hot-swapped to update the model.
+### การถอดรหัส (Decoding)
+- **RAG-Token:** ใช้ transition probability: p′ θ(yi|x, y1:i−1) = P z∈top-k(p(·|x)) pη(zi|x)pθ(yi|x, zi, y1:i−1) และสามารถใช้ beam decoder มาตรฐานได้
+- **RAG-Sequence:**
+    - ไม่สามารถใช้ beam search เดียวได้ เนื่องจาก likelihood p(y|x) ไม่ได้แยกเป็น per-token likelihood
+    - ใช้ beam search สำหรับแต่ละ document z, scoring แต่ละ hypothesis ด้วย pθ(yi|x, z, y1:i−1)
+    - **Thorough Decoding:** ทำ forward pass เพิ่มเติมสำหรับแต่ละ document z ที่ hypothesis y ไม่ปรากฏใน beam, คูณ generator probability ด้วย pη(z|x) และรวม probabilities
+    - **Fast Decoding:** ประมาณ pθ(y|x, zi) ≈0 เมื่อ y ไม่ได้ถูกสร้างขึ้นระหว่าง beam search จาก x, zi เพื่อหลีกเลี่ยง forward pass เพิ่มเติม
+
+### การทดลอง (Experiments)
+- ใช้ Wikipedia dump เดียวสำหรับ non-parametric knowledge source (December 2018 dump, แบ่งเป็น 100-word chunks, รวม 21M documents)
+- ใช้ document encoder เพื่อคำนวณ embedding สำหรับแต่ละ document และสร้าง MIPS index ด้วย FAISS [23] และ Hierarchical Navigable Small World approximation
+- ใช้ k ∈{5, 10} สำหรับการ retrieve top k documents ระหว่างการฝึกอบรม และตั้งค่า k สำหรับ test time โดยใช้ dev data
+
+### การตอบคำถามแบบเปิด (Open-domain Question Answering)
+- ถือคำถามและคำตอบเป็น input-output text pairs (x, y) และฝึก RAG โดย minimize negative log-likelihood ของคำตอบ
+- เปรียบเทียบ RAG กับ extractive QA paradigm [5, 7, 31, 26] และ “Closed-Book QA” approaches [52]
+- ใช้ datasets: Natural Questions (NQ) [29], TriviaQA (TQA) [24], WebQuestions (WQ) [3] และ CuratedTrec (CT) [2]
+- ใช้ Exact Match (EM) scores ในการประเมินผล
+
+### การตอบคำถามแบบสรุป (Abstractive Question Answering)
+- ใช้ MSMARCO NLG task v2.1 [43] เพื่อทดสอบ natural language generation (NLG) ของ RAG
+- Task ประกอบด้วยคำถาม, ten gold passages ที่ retrieve จาก search engine และ full sentence answer ที่ annotated จาก passages
+- ใช้เฉพาะคำถามและคำตอบในการฝึกอบรม
 
 ===================
 
-**Broader Impact**
+### MSMARCO as an Open-Domain Abstractive QA Task
+- MSMARCO มีคำถามบางข้อที่ไม่สามารถตอบให้ตรงกับคำตอบอ้างอิงได้หากไม่มีแหล่งข้อมูลที่ถูกต้อง
+- ประสิทธิภาพจะต่ำลงหากไม่ใช้แหล่งข้อมูลที่ถูกต้อง
+- คำถาม MSMARCO บางข้อไม่สามารถตอบได้โดยใช้ Wikipedia เพียงอย่างเดียว
+- RAG สามารถใช้ความรู้เชิงพารามิเตอร์เพื่อสร้างคำตอบที่สมเหตุสมผลได้
 
-*   Offers positive societal benefits over previous work (more factual generations, more control and interpretability).
-*   Potential downsides: Biases and inaccuracies from external knowledge sources (Wikipedia), potential misuse for generating misleading content.
+### Jeopardy Question Generation
+- การประเมินความสามารถในการสร้างของ RAG ในรูปแบบที่ไม่ใช่ QA
+- ใช้การสร้างคำถาม Jeopardy ซึ่งเป็นรูปแบบที่ท้าทายกว่าคำถาม QA ทั่วไป
+- Jeopardy เกี่ยวข้องกับการคาดเดาเอนทิตีจากข้อเท็จจริงเกี่ยวกับเอนทิตีนั้น
+- ใช้ชุดข้อมูลจาก SearchQA (100K train, 14K dev, 27K test)
+- ฝึกโมเดล BART เพื่อเปรียบเทียบ
+- ประเมินโดยใช้เมตริก Q-BLEU-1 (ปรับแต่งจาก SQuAD)
+- ทำการประเมินโดยมนุษย์สองครั้ง: ความถูกต้องของข้อเท็จจริงและความเฉพาะเจาะจง
+- ใช้การประเมินแบบ pairwise comparative
+
+### Fact Verification
+- ใช้ FEVER [56] ซึ่งเกี่ยวข้องกับการจำแนกประเภทว่าข้อความอ้างอิงได้รับการสนับสนุน ปฏิเสธ หรือไม่มีข้อมูลเพียงพอจาก Wikipedia
+- ต้องดึงหลักฐานจาก Wikipedia และให้เหตุผลเกี่ยวกับหลักฐานนั้น
+- FEVER เป็นปัญหาการดึงข้อมูลที่เชื่อมโยงกับงานการให้เหตุผลที่ท้าทาย
+- RAG ไม่ใช้การกำกับดูแลในการดึงข้อมูล (retrieval supervision) ซึ่งเป็นประโยชน์ในสถานการณ์จริง
+- สำรวจสองรูปแบบ: การจำแนกประเภท 3 ทาง (สนับสนุน/ปฏิเสธ/ไม่เพียงพอ) และ 2 ทาง (สนับสนุน/ปฏิเสธ)
+- รายงานความแม่นยำของป้ายกำกับ (label accuracy)
+
+### Results - Open-domain Question Answering
+- RAG ได้ผลลัพธ์ใหม่ที่เป็นสถานะล่าสุด (state-of-the-art) ในงาน QA แบบ open-domain ทั้งสี่งาน
+- RAG ผสมผสานความยืดหยุ่นในการสร้างของวิธีการ "closed-book" และประสิทธิภาพของวิธีการ "open-book" ที่ใช้การดึงข้อมูล
+- RAG ได้ผลลัพธ์ที่ดีโดยไม่ต้องใช้การฝึกอบรมล่วงหน้าแบบ "salient span masking" ที่มีราคาแพง
+- RAG ใช้ตัวดึงข้อมูล (retriever) ที่เริ่มต้นด้วย DPR’s retriever ซึ่งใช้การกำกับดูแลในการดึงข้อมูลบน Natural Questions และ TriviaQA
+- RAG เปรียบเทียบได้ดีกับระบบ DPR QA ซึ่งใช้ "cross-encoder" ที่ใช้ BERT ในการจัดลำดับเอกสารใหม่ พร้อมกับตัวอ่านแบบ extractive
+- RAG แสดงให้เห็นว่าไม่จำเป็นต้องมีตัวจัดลำดับใหม่หรือตัวอ่านแบบ extractive เพื่อให้ได้ประสิทธิภาพที่เป็นสถานะล่าสุด
+- การสร้างคำตอบมีข้อดีแม้ว่าจะเป็นไปได้ที่จะดึงออกมาได้ เนื่องจากเอกสารที่มีเบาะแสเกี่ยวกับคำตอบแต่ไม่ได้มีคำตอบที่เหมือนกันสามารถมีส่วนช่วยในการสร้างคำตอบที่ถูกต้องได้
 
 ===================
 
-**Appendices**
+### ตารางผลการทดสอบ Open-Domain QA (หน้า 6)
+- ตารางที่ 1: แสดงผลการทดสอบ Open-Domain QA สำหรับโมเดลต่างๆ บนชุดข้อมูล NQ, TQA, WQ, CT และ Closed Book
+- TQA มีสองคอลัมน์: คอลัมน์ซ้ายใช้ชุดทดสอบมาตรฐานสำหรับ Open-Domain QA และคอลัมน์ขวาใช้ชุดทดสอบ TQA-Wiki
+- โมเดลที่แสดง: T5-11B, T5-11B+SSM, REALM, DPR, RAG-Token, RAG-Seq.
 
-*   **A: Implementation Details**
-*   **B: Human Evaluation**
-*   **C: Training setup Details**
-*   **D: Further Details on Open-Domain QA**
-*   **E: Further Details on FEVER**
-*   **F: Null Document Probabilities**
-*   **G: Parameters**
-*   **H: Retrieval Collapse**
-*   **I: Number of instances per dataset**
+### ตารางผลการทดสอบ Generation และ Classification (หน้า 6)
+- ตารางที่ 2: แสดงผลการทดสอบ Generation และ Classification สำหรับโมเดลต่างๆ บนชุดข้อมูล Jeopardy, MS-MARCO, FEVER-3 และ FEVER-2
+- โมเดลที่แสดง: SotA, BART, RAG-Tok., RAG-Seq.
+- ผลการทดสอบแสดงค่า B-1, QB-1, R-L และ Label Acc.
+- โมเดลที่ดีที่สุดที่ไม่มีการเข้าถึง gold context/evidence ขีดเส้นใต้
+
+### Abstractive Question Answering (หน้า 6)
+- RAG-Sequence ทำคะแนนได้ดีกว่า BART บน Open MS-MARCO NLG โดยมีคะแนน Bleu และ Rouge-L สูงกว่า 2.6 คะแนน
+- RAG มีประสิทธิภาพใกล้เคียงกับโมเดล state-of-the-art แม้ว่าโมเดลเหล่านั้นจะเข้าถึง gold passages
+- RAG สามารถสร้างคำตอบที่ถูกต้องได้แม้ว่าคำตอบนั้นจะไม่ได้อยู่ในเอกสารที่ดึงมา
+
+### Jeopardy Question Generation (หน้า 6)
+- RAG-Token ทำคะแนนได้ดีกว่า RAG-Sequence บน Jeopardy question generation โดยทั้งสองโมเดลมีประสิทธิภาพดีกว่า BART บน Q-BLEU-1
+- การประเมินโดยมนุษย์พบว่า RAG มีความถูกต้องมากกว่า BART ใน 42.7% ของกรณี
+- RAG สร้างคำตอบที่เฉพาะเจาะจงมากกว่า BART อย่างมีนัยสำคัญ
+- RAG-Token อาจทำงานได้ดีที่สุดเนื่องจากสามารถรวมเนื้อหาจากเอกสารหลายฉบับได้
+
+### Fact Verification (หน้า 6)
+- ตารางที่ 2 แสดงผลการทดสอบบน FEVER
+- RAG มีคะแนนใกล้เคียงกับโมเดล state-of-the-art ซึ่งเป็นระบบ pipeline ที่ซับซ้อนและต้องการการฝึกฝนด้วย intermediate retrieval supervision
+- RAG ไม่จำเป็นต้องใช้ intermediate retrieval supervision
+
+===================
+
+### บทนำเกี่ยวกับเอกสารและข้อมูลพื้นฐาน
+- Document 1 กล่าวถึงผลงานที่เป็นที่ยอมรับในวรรณกรรมอเมริกันและประสบการณ์สงครามของผู้เขียน ซึ่งเป็นพื้นฐานของนวนิยาย "A Farewell to Arms" (1929)
+- Document 2 กล่าวถึงผู้เขียนที่เป็นศิลปินในชุมชนชาวต่างชาติ "Lost Generation" ในช่วงทศวรรษ 1920 และนวนิยายเรื่องแรกของเขา "The Sun Also Rises" ที่ตีพิมพ์ในปี 1926
+- Figure 2 แสดงค่า posterior p(zi|x, yi, y−i) ของ RAG-Token สำหรับแต่ละ token ที่สร้างขึ้นสำหรับ input "Hemingway" สำหรับการสร้างคำถาม Jeopardy โดยแสดงให้เห็นว่า posterior สำหรับ Document 1 สูงเมื่อสร้าง "A Farewell to Arms" และสำหรับ Document 2 เมื่อสร้าง "The Sun Also Rises"
+
+### การเปรียบเทียบประสิทธิภาพของโมเดล RAG กับ BART
+- Table 3 แสดงตัวอย่างจากงาน generation tasks โดยเปรียบเทียบผลลัพธ์ของโมเดล BART, RAG-T และ RAG-S ในงานต่างๆ เช่น การนิยาม middle ear, การระบุสกุลเงินที่ใช้ในสกอตแลนด์ และการสร้างคำถาม Jeopardy
+- RAG models สร้างการตอบสนองที่เฉพาะเจาะจงและถูกต้องตามข้อเท็จจริงมากกว่า BART
+- มีการระบุการตอบสนองที่ไม่ถูกต้อง (indicated by '?') และการตอบสนองที่ถูกต้องบางส่วน (indicated by '*')
+
+### การประเมินผลการจำแนกประเภท (2-way classification)
+- RAG ได้รับความแม่นยำใกล้เคียงกับโมเดล RoBERTa ในงานจำแนกประเภท claim ว่าเป็นจริงหรือเท็จ โดยใช้ gold evidence sentence
+- RAG สามารถทำได้โดยใช้เพียง claim และการดึงข้อมูลหลักฐานเอง
+
+### การวิเคราะห์ความสอดคล้องของเอกสารที่ดึงมากับหลักฐานที่เป็นทองคำ (Gold Evidence)
+- การวิเคราะห์ความสอดคล้องของเอกสารที่ RAG ดึงมากับเอกสารที่ระบุว่าเป็น gold evidence ใน FEVER
+- พบว่าเอกสารที่ดึงมาอันดับต้นๆ มาจาก gold article ใน 71% ของกรณี และ gold article อยู่ใน 10 อันดับแรกใน 90% ของกรณี
+
+### ผลลัพธ์เพิ่มเติม
+- **Generation Diversity:** RAG-Sequence สร้างผลลัพธ์ที่หลากหลายกว่า RAG-Token และทั้งคู่มีความหลากหลายมากกว่า BART โดยไม่ต้องใช้เทคนิค diversity-promoting decoding
+- **Retrieval Ablations:** การเรียนรู้การดึงข้อมูลที่เกี่ยวข้องช่วยปรับปรุงผลลัพธ์สำหรับทุกงาน
+- **การเปรียบเทียบ Dense Retriever กับ BM25 Retriever:** BM25 ทำงานได้ดีที่สุดสำหรับ FEVER เนื่องจาก FEVER claims เน้นที่ entity และเหมาะกับการดึงข้อมูลโดยใช้ word overlap แต่ differentiable retrieval ช่วยปรับปรุงผลลัพธ์สำหรับงานอื่นๆ โดยเฉพาะ Open-Domain QA
+- **Index hot-swapping:** RAG สามารถอัปเดตความรู้ได้ง่ายที่ runtime ในขณะที่ parametric-only models เช่น T5 หรือ BART ต้องมีการฝึกอบรมเพิ่มเติมเพื่อปรับปรุงพฤติกรรมเมื่อโลกเปลี่ยนแปลง
+
+===================
+
+### ตารางเปรียบเทียบผลการประเมิน (Human Assessments)
+- ตารางที่ 4: การประเมินโดยมนุษย์สำหรับงานสร้างคำถาม Jeopardy (Factuality, Specificity) เปรียบเทียบระหว่าง BART และ RAG
+
+### ตารางสัดส่วน Tri-gram ที่ไม่ซ้ำกัน
+- ตารางที่ 5: อัตราส่วนของ tri-gram ที่ไม่ซ้ำกันต่อ tri-gram ทั้งหมดสำหรับงานสร้างคำถาม (MSMARCO, Jeopardy QGen, Gold, BART, RAG-Token, RAG-Seq.)
+
+### ผลการทดลอง Ablation Study
+- ตารางที่ 6: ผลการทดลอง Ablation บนชุดข้อมูล dev (NQ, TQA, WQ, CT, Jeopardy-QGen, MSMarco, FVR-3, FVR-2) วัดผลด้วย Exact Match, B-1, QB-1, R-L, Label Accuracy สำหรับ RAG-Token-BM25, RAG-Sequence-BM25, RAG-Token-Frozen, RAG-Sequence-Frozen, RAG-Token, RAG-Sequence
+
+### การอัปเดตความรู้ของ RAG
+- การทดลองกับข้อมูลผู้นำโลก (2016 และ 2018) แสดงให้เห็นว่า RAG สามารถอัปเดตความรู้ได้โดยการเปลี่ยนหน่วยความจำที่ไม่เป็นพารามิเตอร์
+
+### ผลของการดึงเอกสารเพิ่มเติม
+- การฝึกโมเดลด้วยเอกสารที่ดึงมา 5 หรือ 10 ฉบับ ไม่พบความแตกต่างอย่างมีนัยสำคัญ
+- การดึงเอกสารเพิ่มเติมที่เวลาทดสอบช่วยปรับปรุงผลลัพธ์ Open-domain QA สำหรับ RAG-Sequence แต่ประสิทธิภาพสูงสุดสำหรับ RAG-Token คือ 10 เอกสาร
+- การดึงเอกสารเพิ่มเติมส่งผลให้ Rouge-L สูงขึ้นสำหรับ RAG-Token แต่ Bleu-1 ลดลง และผลกระทบนี้ไม่ชัดเจนสำหรับ RAG-Sequence
+- รูปที่ 3: แสดงผลการทดลองเกี่ยวกับการดึงเอกสารเพิ่มเติม (NQ performance, Retrieval recall performance, MS-MARCO Bleu-1 and Rouge-L)
+
+### งานวิจัยที่เกี่ยวข้อง (Related Work)
+- งานวิจัยก่อนหน้านี้แสดงให้เห็นว่าการดึงข้อมูลช่วยปรับปรุงประสิทธิภาพในงาน NLP ต่างๆ (Open-domain question answering, fact checking, fact completion, long-form question answering, Wikipedia article generation, dialogue, translation, language modeling)
+- งานวิจัยนี้รวมความสำเร็จก่อนหน้านี้ในการรวมการดึงข้อมูลเข้ากับงานแต่ละงาน แสดงให้เห็นว่าสถาปัตยกรรมที่ใช้การดึงข้อมูลเพียงอย่างเดียวสามารถให้ประสิทธิภาพที่แข็งแกร่งในหลายงานได้
+
+===================
+
+### General-Purpose Architectures for NLP
+- งานวิจัยก่อนหน้านี้เกี่ยวกับสถาปัตยกรรมทั่วไปสำหรับงาน NLP ประสบความสำเร็จอย่างมากโดยไม่ต้องใช้การดึงข้อมูล
+- โมเดลภาษาที่ได้รับการฝึกฝนล่วงหน้าเพียงตัวเดียวสามารถให้ประสิทธิภาพที่แข็งแกร่งในงานจำแนกประเภทต่างๆ ในเกณฑ์มาตรฐาน GLUE หลังจากปรับแต่ง
+- GPT-2 แสดงให้เห็นว่าโมเดลภาษาที่ได้รับการฝึกฝนล่วงหน้าแบบ left-to-right เพียงตัวเดียวสามารถให้ประสิทธิภาพที่แข็งแกร่งในงานทั้งแบบจำแนกประเภทและสร้างสรรค์
+- BART และ T5 เสนอโมเดลเข้ารหัส-ถอดรหัสที่ได้รับการฝึกฝนล่วงหน้าเพียงตัวเดียวที่ใช้ประโยชน์จาก attention แบบสองทิศทางเพื่อให้ได้ประสิทธิภาพที่แข็งแกร่งขึ้นในงานทั้งแบบจำแนกประเภทและสร้างสรรค์
+- งานวิจัยนี้มีจุดมุ่งหมายเพื่อขยายขอบเขตของงานที่เป็นไปได้ด้วยสถาปัตยกรรมที่เป็นหนึ่งเดียว โดยการเรียนรู้โมดูลการดึงข้อมูลเพื่อเพิ่มประสิทธิภาพโมเดลภาษาเชิงสร้างสรรค์ที่ได้รับการฝึกฝนล่วงหน้า
+
+### Learned Retrieval
+- มีงานวิจัยจำนวนมากเกี่ยวกับการเรียนรู้การดึงเอกสารใน information retrieval โดยล่าสุดมีการใช้โมเดลภาษาประสาทเทียมที่ได้รับการฝึกฝนล่วงหน้า
+- บางงานจะปรับปรุงโมดูลการดึงข้อมูลเพื่อช่วยในงานเฉพาะ เช่น การตอบคำถาม โดยใช้การค้นหา, reinforcement learning หรือแนวทางตัวแปรแฝง
+- งานเหล่านี้ประสบความสำเร็จโดยใช้สถาปัตยกรรมที่ใช้การดึงข้อมูลและเทคนิคการปรับปรุงที่แตกต่างกันเพื่อให้ได้ประสิทธิภาพที่แข็งแกร่งในงานเดียว ในขณะที่งานวิจัยนี้แสดงให้เห็นว่าสถาปัตยกรรมที่ใช้การดึงข้อมูลเพียงตัวเดียวสามารถปรับแต่งให้ได้ประสิทธิภาพที่แข็งแกร่งในงานที่หลากหลาย
+
+### Memory-based Architectures
+- ดัชนีเอกสารของเราสามารถมองได้ว่าเป็นหน่วยความจำภายนอกขนาดใหญ่สำหรับ neural networks เพื่อให้ความสนใจ ซึ่งคล้ายกับ memory networks
+- งานวิจัยอื่นๆ เรียนรู้ที่จะดึง embedding ที่ได้รับการฝึกฝนสำหรับแต่ละ entity ใน input แทนที่จะดึงข้อความดิบ
+- คุณสมบัติที่สำคัญของหน่วยความจำของเราคือประกอบด้วยข้อความดิบมากกว่าการแสดงแบบ distributed ซึ่งทำให้หน่วยความจำทั้ง (i) สามารถอ่านได้โดยมนุษย์ ทำให้เกิดรูปแบบของการตีความ และ (ii) สามารถเขียนได้โดยมนุษย์ ทำให้เราสามารถอัปเดตหน่วยความจำของโมเดลแบบไดนามิกโดยการแก้ไขดัชนีเอกสาร
+- แนวทางนี้ยังถูกใช้ใน knowledge-intensive dialog โดยที่ generators ได้รับการปรับสภาพจากข้อความที่ดึงมาโดยตรง แม้ว่าจะได้มาผ่าน TF-IDF แทนที่จะเป็นการดึงข้อมูลที่เรียนรู้แบบ end-to-end
+
+### Retrieve-and-Edit approaches
+- วิธีการของเรามีความคล้ายคลึงกับแนวทาง retrieve-and-edit โดยที่ input-output pair ที่คล้ายกันจะถูกดึงมาสำหรับ input ที่กำหนด และจากนั้นจะถูกแก้ไขเพื่อให้ได้ output สุดท้าย
+- แนวทางเหล่านี้ประสบความสำเร็จในหลายโดเมน รวมถึง Machine Translation และ Semantic Parsing
+- วิธีการของเรามีความแตกต่างกันหลายประการ รวมถึงการเน้นน้อยลงในการแก้ไขรายการที่ดึงมาเล็กน้อย แต่เน้นที่การรวมเนื้อหาจากชิ้นส่วนที่ดึงมาหลายชิ้น รวมถึงการเรียนรู้การดึงข้อมูลแบบแฝง และการดึงเอกสารหลักฐานแทนที่จะเป็นคู่การฝึกอบรมที่เกี่ยวข้อง
+
+### Discussion
+- งานวิจัยนี้ได้นำเสนอโมเดลการสร้างแบบไฮบริดที่มีการเข้าถึงหน่วยความจำแบบ parametric และ non-parametric
+- พบว่าโมเดล RAG ได้รับผลลัพธ์ที่ทันสมัยใน open-domain QA
+- พบว่าผู้คนชอบการสร้างของ RAG มากกว่า BART แบบ parametric โดยพบว่า RAG มีความเป็นจริงและเฉพาะเจาะจงมากกว่า
+- มีการตรวจสอบอย่างละเอียดเกี่ยวกับส่วนประกอบการดึงข้อมูลที่เรียนรู้ ซึ่งยืนยันประสิทธิภาพ และแสดงให้เห็นว่าดัชนีการดึงข้อมูลสามารถสลับร้อนได้เพื่ออัปเดตโมเดลโดยไม่ต้องฝึกอบรมใหม่
+- ในอนาคต อาจเป็นประโยชน์ที่จะตรวจสอบว่าทั้งสองส่วนประกอบสามารถได้รับการฝึกฝนล่วงหน้าร่วมกันตั้งแต่เริ่มต้นได้หรือไม่ โดยใช้ objective แบบ denoising ที่คล้ายกับ BART หรือ objective อื่นๆ
+- งานวิจัยนี้เปิดทิศทางการวิจัยใหม่ๆ เกี่ยวกับวิธีที่หน่วยความจำแบบ parametric และ non-parametric มีปฏิสัมพันธ์กัน และวิธีรวมเข้าด้วยกันอย่างมีประสิทธิภาพที่สุด โดยแสดงให้เห็นถึงแนวโน้มที่จะนำไปใช้กับงาน NLP ที่หลากหลาย
+
+===================
+
+### Broader Impact
+- งานวิจัยนี้มีประโยชน์ต่อสังคมในหลายด้าน: การใช้ข้อมูลที่เป็นข้อเท็จจริงจาก Wikipedia ทำให้การสร้างข้อความมีความถูกต้องมากขึ้น ลดการ "hallucinate" และเพิ่มการควบคุมและความสามารถในการตีความได้
+- RAG สามารถนำไปใช้ในสถานการณ์ต่างๆ ที่เป็นประโยชน์ต่อสังคม เช่น การใช้ดัชนีทางการแพทย์เพื่อตอบคำถาม หรือช่วยให้ผู้คนทำงานได้อย่างมีประสิทธิภาพมากขึ้น
+- อย่างไรก็ตาม ก็มีข้อเสียที่อาจเกิดขึ้น: Wikipedia หรือแหล่งข้อมูลภายนอกอื่นๆ อาจไม่ถูกต้องทั้งหมดและอาจมีอคติ
+- RAG อาจถูกใช้เพื่อสร้างเนื้อหาที่ละเมิด สร้างข่าวปลอม หรือหลอกลวงผู้อื่น รวมถึงการสร้างสแปม/ฟิชชิ่ง
+- โมเดลภาษาขั้นสูงอาจนำไปสู่การทำให้งานบางอย่างเป็นอัตโนมัติในอนาคต
+- การใช้ระบบ AI เพื่อต่อสู้กับเนื้อหาที่หลอกลวงและสแปม/ฟิชชิ่งสามารถช่วยลดความเสี่ยงเหล่านี้ได้
+
+### Acknowledgments
+- ผู้เขียนขอขอบคุณผู้ตรวจสอบสำหรับการให้ข้อเสนอแนะที่เป็นประโยชน์
+- ผู้เขียนขอขอบคุณ HuggingFace สำหรับการเปิดซอร์สโค้ดเพื่อรันโมเดล RAG
+- ผู้เขียนขอขอบคุณ Kyunghyun Cho และ Sewon Min สำหรับการสนทนาและคำแนะนำที่มีประโยชน์
+- EP ได้รับทุนสนับสนุนจาก NSF Graduate Research Fellowship
+- PL ได้รับทุนสนับสนุนจาก FAIR PhD program
+
+### References
+- [1] Payal Bajaj, Daniel Campos, Nick Craswell, Li Deng, Jianfeng Gao, Xiaodong Liu, Rangan Majumder, Andrew McNamara, Bhaskar Mitra, Tri Nguyen, Mir Rosenberg, Xia Song, Alina Stoica, Saurabh Tiwary, and Tong Wang. MS MARCO: A Human Generated MAchine Reading COmprehension Dataset. arXiv:1611.09268 [cs], November 2016. URL http://arxiv.org/abs/1611.09268. arXiv: 1611.09268.
+- [2] Petr Baudiš and Jan Šediv`y. Modeling of the question answering task in the yodaqa system. In International Conference of the Cross-Language Evaluation Forum for European Languages, pages 222–228. Springer, 2015. URL https://link.springer.com/chapter/10.1007%2F978-3-319-24027-5_20.
+- [3] Jonathan Berant, Andrew Chou, Roy Frostig, and Percy Liang. Semantic Parsing on Freebase from Question-Answer Pairs. In Proceedings of the 2013 Conference on Empirical Methods in Natural Language Processing, pages 1533–1544, Seattle, Washington, USA, October 2013. Association for Computational Linguistics. URL http://www.aclweb.org/anthology/D13-1160.
+- [4] Bin Bi, Chenliang Li, Chen Wu, Ming Yan, and Wei Wang. Palm: Pre-training an autoencod-ing&autoregressive language model for context-conditioned generation. ArXiv, abs/2004.07159, 2020. URL https://arxiv.org/abs/2004.07159.
+- [5] Danqi Chen, Adam Fisch, Jason Weston, and Antoine Bordes. Reading Wikipedia to Answer Open-Domain Questions. In Proceedings of the 55th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers), pages 1870–1879, Vancouver, Canada, July 2017. Association for Computational Linguistics. doi: 10.18653/v1/P17-1171. URL https://www.aclweb.org/anthology/P17-1171.
+- [6] Eunsol Choi, Daniel Hewlett, Jakob Uszkoreit, Illia Polosukhin, Alexandre Lacoste, and Jonathan Berant. Coarse-to-ﬁne question answering for long documents. In Proceedings of the 55th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers), pages 209–220, Vancouver, Canada, July 2017. Association for Computational Linguistics. doi: 10.18653/v1/P17-1020. URL https://www.aclweb.org/anthology/P17-1020.
+
+===================
+
+### เอกสารอ้างอิง (arXiv)
+- [7] Christopher Clark and Matt Gardner. Simple and Effective Multi-Paragraph Reading Compre-hension. arXiv:1710.10723 [cs], October 2017. URL http://arxiv.org/abs/1710.10723. arXiv: 1710.10723.
+- [10] Matthew Dunn, Levent Sagun, Mike Higgins, V. Ugur Guney, Volkan Cirik, and Kyunghyun Cho. SearchQA: A New Q&A Dataset Augmented with Context from a Search Engine. arXiv:1704.05179 [cs], April 2017. URL http://arxiv.org/abs/1704.05179. arXiv: 1704.05179.
+- [14] Thibault Févry, Livio Baldini Soares, Nicholas FitzGerald, Eunsol Choi, and Tom Kwiatkowski. Entities as experts: Sparse memory access with entity supervision. ArXiv, abs/2004.07202, 2020. URL https://arxiv.org/abs/2004.07202.
+- [16] Katja Grace, John Salvatier, Allan Dafoe, Baobao Zhang, and Owain Evans. When will AI exceed human performance? evidence from AI experts. CoRR, abs/1705.08807, 2017. URL http://arxiv.org/abs/1705.08807.
+
+### เอกสารอ้างอิง (Conference Proceedings - Association for Computational Linguistics)
+- [8] Jacob Devlin, Ming-Wei Chang, Kenton Lee, and Kristina Toutanova. BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding. In Proceedings of the 2019 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies, Volume 1 (Long and Short Papers), pages 4171–4186, Minneapolis, Minnesota, June 2019. Association for Computational Linguistics. doi: 10.18653/v1/N19-1423. URL https://www.aclweb.org/anthology/N19-1423.
+- [11] Angela Fan, Mike Lewis, and Yann Dauphin. Hierarchical neural story generation. In Proceedings of the 56th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers), pages 889–898, Melbourne, Australia, July 2018. Association for Computational Linguistics. doi: 10.18653/v1/P18-1082. URL https://www.aclweb.org/anthology/P18-1082.
+- [12] Angela Fan, Yacine Jernite, Ethan Perez, David Grangier, Jason Weston, and Michael Auli. ELI5: Long form question answering. In Proceedings of the 57th Annual Meeting of the Association for Computational Linguistics, pages 3558–3567, Florence, Italy, July 2019. Association for Computational Linguistics. doi: 10.18653/v1/P19-1346. URL https://www.aclweb.org/anthology/P19-1346.
+- [19] Kelvin Guu, Tatsunori B. Hashimoto, Yonatan Oren, and Percy Liang. Generating sentences by editing prototypes. Transactions of the Association for Computational Linguistics, 6:437–450, 2018. doi: 10.1162/tacl_a_00030. URL https://www.aclweb.org/anthology/Q18-1031.
+
+### เอกสารอ้างอิง (Conference Proceedings - AAAI)
+- [15] Marjan Ghazvininejad, Chris Brockett, Ming-Wei Chang, Bill Dolan, Jianfeng Gao, Wen tau Yih, and Michel Galley. A knowledge-grounded neural conversation model. In AAAI Conference on Artiﬁcial Intelligence, 2018. URL https://www.aaai.org/ocs/index.php/AAAI/AAAI18/paper/view/16710.
+- [17] Jiatao Gu, Yong Wang, Kyunghyun Cho, and Victor O.K. Li. Search engine guided neural machine translation. In AAAI Conference on Artiﬁcial Intelligence, 2018. URL https://www.aaai.org/ocs/index.php/AAAI/AAAI18/paper/view/17282.
+- [18] Jiatao Gu, Yong Wang, Kyunghyun Cho, and Victor O.K. Li. Search engine guided neural machine translation. In 32nd AAAI Conference on Artiﬁcial Intelligence, AAAI 2018, 32nd AAAI Conference on Artiﬁcial Intelligence, AAAI 2018, pages 5133–5140. AAAI press, 2018. 32nd AAAI Conference on Artiﬁcial Intelligence, AAAI 2018 ; Conference date: 02-02-2018 Through 07-02-2018.
+
+### เอกสารอ้างอิง (OpenReview)
+- [9] Emily Dinan, Stephen Roller, Kurt Shuster, Angela Fan, Michael Auli, and Jason Weston. Wizard of wikipedia: Knowledge-powered conversational agents. In International Conference on Learning Representations, 2019. URL https://openreview.net/forum?id=r1l73iRqKm.
+- [13] Angela Fan, Claire Gardent, Chloe Braud, and Antoine Bordes. Augmenting transformers with KNN-based composite memory, 2020. URL https://openreview.net/forum?id=H1gx1CNKPH.
+
+===================
+
+### เอกสารอ้างอิง (ตามลำดับเลขที่)
+- [20] Kelvin Guu, Kenton Lee, Zora Tung, Panupong Pasupat, and Ming-Wei Chang. REALM: Retrieval-augmented language model pre-training. ArXiv, abs/2002.08909, 2020. URL https://arxiv.org/abs/2002.08909.
+- [21] Tatsunori B Hashimoto, Kelvin Guu, Yonatan Oren, and Percy S Liang. A retrieve-and-edit framework for predicting structured outputs. In S. Bengio, H. Wallach, H. Larochelle, K. Grauman, N. Cesa-Bianchi, and R. Garnett, editors, Advances in Neural Information Processing Systems 31, pages 10052–10062. Curran Associates, Inc., 2018. URL http://papers.nips.cc/paper/8209-a-retrieve-and-edit-framework-for-predicting-structured-outputs.pdf.
+- [22] Nabil Hossain, Marjan Ghazvininejad, and Luke Zettlemoyer. Simple and effective retrieve-edit-rerank text generation. In Proceedings of the 58th Annual Meeting of the Association for Computational Linguistics, pages 2532–2538, Online, July 2020. Association for Computational Linguistics. doi: 10.18653/v1/2020.acl-main.228. URL https://www.aclweb.org/anthology/2020.acl-main.228.
+- [23] Jeff Johnson, Matthijs Douze, and Hervé Jégou. Billion-scale similarity search with gpus. arXiv preprint arXiv:1702.08734, 2017. URL https://arxiv.org/abs/1702.08734.
+- [24] Mandar Joshi, Eunsol Choi, Daniel Weld, and Luke Zettlemoyer. TriviaQA: A Large Scale Distantly Supervised Challenge Dataset for Reading Comprehension. In Proceedings of the 55th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers), pages 1601–1611, Vancouver, Canada, July 2017. Association for Computational Linguistics. doi: 10.18653/v1/P17-1147. URL https://www.aclweb.org/anthology/P17-1147.
+- [25] Armand Joulin and Tomas Mikolov. Inferring algorithmic patterns with stack-augmented recurrent nets. In Proceedings of the 28th International Conference on Neural Information Processing Systems - Volume 1, NIPS’15, page 190–198, Cambridge, MA, USA, 2015. MIT Press. URL https://papers.nips.cc/paper/5857-inferring-algorithmic-patterns-with-stack-augmented-recurrent-nets.
+- [26] Vladimir Karpukhin, Barlas Oguz, Sewon Min, Ledell Wu, Sergey Edunov, Danqi Chen, and Wen-tau Yih. Dense passage retrieval for open-domain question answering. arXiv preprint arXiv:2004.04906, 2020. URL https://arxiv.org/abs/2004.04906.
+- [27] Urvashi Khandelwal, Omer Levy, Dan Jurafsky, Luke Zettlemoyer, and Mike Lewis. Generalization through memorization: Nearest neighbor language models. In International Conference on Learning Representations, 2020. URL https://openreview.net/forum?id=HklBjCEKvH.
+- [28] Diederik P. Kingma and Jimmy Ba. Adam: A method for stochastic optimization. In Yoshua Bengio and Yann LeCun, editors, 3rd International Conference on Learning Representations, ICLR 2015, San Diego, CA, USA, May 7-9, 2015, Conference Track Proceedings, 2015. URL http://arxiv.org/abs/1412.6980.
+- [29] Tom Kwiatkowski, Jennimaria Palomaki, Olivia Redﬁeld, Michael Collins, Ankur Parikh, Chris Alberti, Danielle Epstein, Illia Polosukhin, Matthew Kelcey, Jacob Devlin, Ken-ton Lee, Kristina N. Toutanova, Llion Jones, Ming-Wei Chang, Andrew Dai, Jakob Uszkoreit, Quoc Le, and Slav Petrov. Natural Questions: a Benchmark for Question Answering Research. Transactions of the Association of Computational Linguistics, 2019. URL https://tomkwiat.users.x20web.corp.google.com/papers/natural-questions/main-1455-kwiatkowski.pdf.
+- [30] Guillaume Lample, Alexandre Sablayrolles, Marc’ Aurelio Ranzato, Ludovic Denoyer, and Herve Jegou. Large memory layers with product keys. In H. Wallach, H. Larochelle, A. Beygelzimer, F. d’ Alché-Buc, E. Fox, and R. Garnett, editors, Advances in Neural In-formation Processing Systems 32, pages 8548–8559. Curran Associates, Inc., 2019. URL http://papers.nips.cc/paper/9061-large-memory-layers-with-product-keys.pdf.
+- [31] Kenton Lee, Ming-Wei Chang, and Kristina Toutanova. Latent retrieval for weakly supervised open domain question answering. In Proceedings of the 57th Annual Meeting of the Association
+
+===================
+
+### เอกสารอ้างอิงจากงานวิจัย (Conference Proceedings)
+- [33] Jiwei Li, Michel Galley, Chris Brockett, Jianfeng Gao, and Bill Dolan. A diversity-promoting objective function for neural conversation models. In Proceedings of the 2016 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies, pages 110–119, San Diego, California, June 2016. Association for Computational Linguistics. doi: 10.18653/v1/N16-1014. URL https://www.aclweb.org/anthology/N16-1014.
+- [35] Hairong Liu, Mingbo Ma, Liang Huang, Hao Xiong, and Zhongjun He. Robust neural machine translation with joint textual and phonetic embedding. In Proceedings of the 57th Annual Meeting of the Association for Computational Linguistics, pages 3044–3049, Florence, Italy, July 2019. Association for Computational Linguistics. doi: 10.18653/v1/P19-1291. URL https://www.aclweb.org/anthology/P19-1291.
+- [41] Nikita Moghe, Siddhartha Arora, Suman Banerjee, and Mitesh M. Khapra. Towards exploiting background knowledge for building conversation systems. In Proceedings of the 2018 Conference on Empirical Methods in Natural Language Processing, pages 2322–2332, Brussels, Belgium, October-November 2018. Association for Computational Linguistics. doi: 10.18653/v1/D18-1255. URL https://www.aclweb.org/anthology/D18-1255.
+- [42] Preksha Nema and Mitesh M. Khapra. Towards a better metric for evaluating question generation systems. In Proceedings of the 2018 Conference on Empirical Methods in Natural Language Processing, pages 3950–3959, Brussels, Belgium, October-November 2018. Association for Computational Linguistics. doi: 10.18653/v1/D18-1429. URL https://www.aclweb.org/anthology/D18-1429.
+
+### เอกสารอ้างอิงจากวารสาร (Journal Articles)
+- [37] Yury A. Malkov and D. A. Yashunin. Efﬁcient and robust approximate nearest neighbor search using hierarchical navigable small world graphs. IEEE Transactions on Pattern Analysis and Machine Intelligence, 42:824–836, 2016. URL https://arxiv.org/abs/1603.09320.
+
+### เอกสารอ้างอิงแบบ Pre-print (arXiv)
+- [32] Mike Lewis, Yinhan Liu, Naman Goyal, Marjan Ghazvininejad, Abdelrahman Mohamed, Omer Levy, Veselin Stoyanov, and Luke Zettlemoyer. BART: Denoising sequence-to-sequence pre-training for natural language generation, translation, and comprehension. arXiv preprint arXiv:1910.13461, 2019. URL https://arxiv.org/abs/1910.13461.
+- [34] Margaret Li, Jason Weston, and Stephen Roller. Acute-eval: Improved dialogue evaluation with optimized questions and multi-turn comparisons. ArXiv, abs/1909.03087, 2019. URL https://arxiv.org/abs/1909.03087.
+- [38] Gary Marcus. The next decade in ai: four steps towards robust artiﬁcial intelligence. arXiv preprint arXiv:2002.06177, 2020. URL https://arxiv.org/abs/2002.06177.
+- [39] Luca Massarelli, Fabio Petroni, Aleksandra Piktus, Myle Ott, Tim Rocktäschel, Vassilis Plachouras, Fabrizio Silvestri, and Sebastian Riedel. How decoding strategies affect the veriﬁability of generated text. arXiv preprint arXiv:1911.03587, 2019. URL https://arxiv.org/abs/1911.03587.
+
+### เอกสารอ้างอิงจาก Workshop/Conference อื่นๆ
+- [36] Peter J. Liu*, Mohammad Saleh*, Etienne Pot, Ben Goodrich, Ryan Sepassi, Lukasz Kaiser, and Noam Shazeer. Generating wikipedia by summarizing long sequences. In International Conference on Learning Representations, 2018. URL https://openreview.net/forum?id=Hyg0vbWC-.
+- [40] Paulius Micikevicius, Sharan Narang, Jonah Alben, Gregory Diamos, Erich Elsen, David Garcia, Boris Ginsburg, Michael Houston, Oleksii Kuchaiev, Ganesh Venkatesh, and Hao Wu. Mixed precision training. In ICLR, 2018. URL https://openreview.net/forum?id=r1gs9JgRZ.
+- [13] (หมายเหตุ: เลขหน้า 13 ไม่ได้เป็นส่วนหนึ่งของรายการอ้างอิง แต่ถูกรวมไว้ในข้อมูลเดิม)
+
+===================
+
+### เอกสารอ้างอิง (ปี 2015-2020)
+
+- **2015:**
+    - [55] Sainbayar Sukhbaatar, Arthur Szlam, Jason Weston, and Rob Fergus. End-to-end memory networks. In C. Cortes, N. D. Lawrence, D. D. Lee, M. Sugiyama, and R. Garnett, editors, Advances in Neural Information Processing Systems 28, pages 2440–2448. Curran Associates, Inc., 2015. URL http://papers.nips.cc/paper/5846-end-to-end-memory-networks.pdf.
+
+- **2016:**
+    - [44] Rodrigo Nogueira and Kyunghyun Cho. Passage re-ranking with BERT. arXiv preprint arXiv:1901.04085, 2019. URL https://arxiv.org/abs/1901.04085.
+    - approaches 2016 co-located with the 30th Annual Conference on Neural Information Processing Systems (NIPS 2016), Barcelona, Spain, December 9, 2016, volume 1773 of CEUR Workshop Proceedings. CEUR-WS.org, 2016. URL http://ceur-ws.org/Vol-1773/CoCoNIPS_2016_paper9.pdf.
+
+- **2018:**
+    - [49] Alec Radford, Karthik Narasimhan, Tim Salimans, and Ilya Sutskever. Improving Language Understanding by Generative Pre-Training, 2018. URL https://s3-us-west-2.amazonaws.com/openai-assets/research-covers/language-unsupervised/language_understanding_paper.pdf.
+
+- **2019:**
+    - [45] Myle Ott, Sergey Edunov, Alexei Baevski, Angela Fan, Sam Gross, Nathan Ng, David Grangier, and Michael Auli. fairseq: A fast, extensible toolkit for sequence modeling. In Proceedings of the 2019 Conference of the North American Chapter of the Association for Computational Linguistics (Demonstrations), pages 48–53, Minneapolis, Minnesota, June 2019. Association for Computational Linguistics. doi: 10.18653/v1/N19-4009. URL https://www.aclweb.org/anthology/N19-4009.
+    - [46] Ethan Perez, Siddharth Karamcheti, Rob Fergus, Jason Weston, Douwe Kiela, and Kyunghyun Cho. Finding generalizable evidence by learning to convince q&a models. In Proceedings of the 2019 Conference on Empirical Methods in Natural Language Processing and the 9th International Joint Conference on Natural Language Processing (EMNLP-IJCNLP), pages 2402–2411, Hong Kong, China, November 2019. Association for Computational Linguistics. doi: 10.18653/v1/D19-1244. URL https://www.aclweb.org/anthology/D19-1244.
+    - [47] Fabio Petroni, Tim Rocktäschel, Sebastian Riedel, Patrick Lewis, Anton Bakhtin, Yuxiang Wu, and Alexander Miller. Language models as knowledge bases? In Proceedings of the 2019 Conference on Empirical Methods in Natural Language Processing and the 9th International Joint Conference on Natural Language Processing (EMNLP-IJCNLP), pages 2463–2473, Hong Kong, China, November 2019. Association for Computational Linguistics. doi: 10.18653/v1/D19-1250. URL https://www.aclweb.org/anthology/D19-1250.
+    - [50] Alec Radford, Jeff Wu, Rewon Child, David Luan, Dario Amodei, and Ilya Sutskever. Language models are unsupervised multitask learners, 2019. URL https://d4mucfpksywv.cloudfront.net/better-language-models/language_models_are_unsupervised_multitask_learners.pdf.
+    - [51] Colin Raffel, Noam Shazeer, Adam Roberts, Katherine Lee, Sharan Narang, Michael Matena, Yanqi Zhou, Wei Li, and Peter J. Liu. Exploring the limits of transfer learning with a uniﬁed text-to-text transformer. arXiv e-prints, 2019. URL https://arxiv.org/abs/1910.10683.
+    - [54] Irene Solaiman, Miles Brundage, Jack Clark, Amanda Askell, Ariel Herbert-Voss, Jeff Wu, Alec Radford, and Jian-Bing Wang. Release strategies and the social impacts of language models. ArXiv, abs/1908.09203, 2019.
+
+- **2020:**
+    - [48] Fabio Petroni, Patrick Lewis, Aleksandra Piktus, Tim Rocktäschel, Yuxiang Wu, Alexander H. Miller, and Sebastian Riedel. How context affects language models’ factual predictions. In Automated Knowledge Base Construction, 2020. URL https://openreview.net/forum?id=025X0zPfn.
+    - [52] Adam Roberts, Colin Raffel, and Noam Shazeer. How much knowledge can you pack into the parameters of a language model? arXiv e-prints, 2020. URL https://arxiv.org/abs/2002.08910.
+    - [53] Stephen Robertson and Hugo Zaragoza. The probabilistic relevance framework: Bm25 and beyond. Found. Trends Inf. Retr., 3(4):333–389, April 2009. ISSN 1554-0669. doi: 10.1561/1500000019. URL https://doi.org/10.1561/1500000019.
+
+===================
+
+### เอกสารการอ้างอิง (ปี 2015-2020)
+- **2015:** Jason Weston, Sumit Chopra, and Antoine Bordes. Memory networks. In Yoshua Bengio and Yann LeCun, editors, 3rd International Conference on Learning Representations, ICLR 2015, San Diego, CA, USA, May 7-9, 2015, Conference Track Proceedings, 2015. URL http://arxiv.org/abs/1410.3916.
+- **2017:** Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez, Ł ukasz Kaiser, and Illia Polosukhin. Attention is all you need. In I. Guyon, U. V. Luxburg, S. Bengio, H. Wallach, R. Fergus, S. Vishwanathan, and R. Garnett, editors, Advances in Neural Information Processing Systems 30, pages 5998–6008. Curran Associates, Inc., 2017. URL http://papers.nips.cc/paper/7181-attention-is-all-you-need.pdf.
+- **2018:** James Thorne, Andreas Vlachos, Christos Christodoulopoulos, and Arpit Mittal. FEVER: a large-scale dataset for fact extraction and VERiﬁcation. In Proceedings of the 2018 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies, Volume 1 (Long Papers), pages 809–819, New Orleans, Louisiana, June 2018. Association for Computational Linguistics. doi: 10.18653/v1/N18-1074. URL https://www.aclweb.org/anthology/N18-1074.
+- **2018:** Ashwin Vijayakumar, Michael Cogswell, Ramprasaath Selvaraju, Qing Sun, Stefan Lee, David Crandall, and Dhruv Batra. Diverse beam search for improved description of complex scenes. AAAI Conference on Artiﬁcial Intelligence, 2018. URL https://www.aaai.org/ocs/index.php/AAAI/AAAI18/paper/view/17329.
+- **2018:** Shuohang Wang, Mo Yu, Xiaoxiao Guo, Zhiguo Wang, Tim Klinger, Wei Zhang, Shiyu Chang, Gerry Tesauro, Bowen Zhou, and Jing Jiang. R3: Reinforced ranker-reader for open-domain question answering. In Sheila A. McIlraith and Kilian Q. Weinberger, editors, Proceedings of the Thirty-Second AAAI Conference on Artiﬁcial Intelligence, (AAAI-18), the 30th innovative Applications of Artiﬁcial Intelligence (IAAI-18), and the 8th AAAI Symposium on Educational Advances in Artiﬁcial Intelligence (EAAI-18), New Orleans, Louisiana, USA, February 2-7, 2018, pages 5981–5988. AAAI Press, 2018. URL https://www.aaai.org/ocs/index.php/AAAI/AAAI18/paper/view/16712.
+- **2018:** Alex Wang, Amanpreet Singh, Julian Michael, Felix Hill, Omer Levy, and Samuel Bowman. GLUE: A multi-task benchmark and analysis platform for natural language understanding. In Proceedings of the 2018 EMNLP Workshop BlackboxNLP: Analyzing and Interpreting Neural Networks for NLP, pages 353–355, Brussels, Belgium, November 2018. Association for Computational Linguistics. doi: 10.18653/v1/W18-5446. URL https://www.aclweb.org/anthology/W18-5446.
+- **2018:** Jason Weston, Emily Dinan, and Alexander Miller. Retrieve and reﬁne: Improved sequence generation models for dialogue. In Proceedings of the 2018 EMNLP Workshop SCAI: The 2nd International Workshop on Search-Oriented Conversational AI, pages 87–92, Brussels, Belgium, October 2018. Association for Computational Linguistics. doi: 10.18653/v1/W18-5713. URL https://www.aclweb.org/anthology/W18-5713.
+- **2018:** Shuohang Wang, Mo Yu, Jing Jiang, Wei Zhang, Xiaoxiao Guo, Shiyu Chang, Zhiguo Wang, Tim Klinger, Gerald Tesauro, and Murray Campbell. Evidence aggregation for answer re-ranking in open-domain question answering. In ICLR, 2018. URL https://openreview.net/forum?id=rJl3yM-Ab.
+- **2019:** Alex Wang, Yada Pruksachatkun, Nikita Nangia, Amanpreet Singh, Julian Michael, Felix Hill, Omer Levy, and Samuel Bowman. SuperGLUE: A Stickier Benchmark for General-Purpose Language Understanding Systems. In H. Wallach, H. Larochelle, A. Beygelzimer, F. d\textquotesingle Alché-Buc, E. Fox, and R. Garnett, editors, Advances in Neural Information Processing Systems 32, pages 3261–3275. Curran Associates, Inc., 2019. URL https://arxiv.org/abs/1905.00537.
+- **2020:** James H. Thorne and Andreas Vlachos. Avoiding catastrophic forgetting in mitigating model biases in sentence-pair classiﬁcation with elastic weight consolidation. ArXiv, abs/2004.14366, 2020. URL https://arxiv.org/abs/2004.14366.
+
+===================
+
+### เอกสารวิจัย (Research Papers)
+- Thomas Wolf, Lysandre Debut, Victor Sanh, Julien Chaumond, Clement Delangue, Anthony
+Moi, Pierric Cistac, Tim Rault, Rémi Louf, Morgan Funtowicz, Joe Davison, Sam Shleifer,
+Patrick von Platen, Clara Ma, Yacine Jernite, Julien Plu, Canwen Xu, Teven Le Scao, Sylvain
+Gugger, Mariama Drame, Quentin Lhoest, and Alexander M. Rush. Huggingface’s transformers:
+State-of-the-art natural language processing. ArXiv, abs/1910.03771, 2019.
+- Shiyue Zhang and Mohit Bansal. Addressing semantic drift in question generation for semi-
+supervised question answering. In Proceedings of the 2019 Conference on Empirical Meth-
+ods in Natural Language Processing and the 9th International Joint Conference on Natural
+Language Processing (EMNLP-IJCNLP), pages 2495–2509, Hong Kong, China, Novem-
+ber 2019. Association for Computational Linguistics. doi: 10.18653/v1/D19-1253. URL
+https://www.aclweb.org/anthology/D19-1253.
+- Wanjun Zhong, Jingjing Xu, Duyu Tang, Zenan Xu, Nan Duan, Ming Zhou, Jiahai Wang, and
+Jian Yin. Reasoning over semantic-level graph for fact checking. ArXiv, abs/1909.03745, 2019.
+URL https://arxiv.org/abs/1909.03745.
+
+===================
+
+### Implementation Details
+- For Open-domain QA, 15 retrieved documents were used for RAG-Token models.
+- For RAG-Sequence models, 50 retrieved documents were used with Thorough Decoding.
+- Greedy decoding was used for QA as beam search did not improve results.
+- For Open-MSMarco and Jeopardy question generation, 10 retrieved documents were used for both RAG-Token and RAG-Sequence.
+- A BART-large model was trained as a baseline.
+- Beam size of four was used, and Fast Decoding was used for RAG-Sequence models.
+
+### Human Evaluation
+- Figure 4 shows the annotation interface for human evaluation of factuality, with a tool guide available.
+- Model correspondence (A or B) was randomized to avoid screen position bias.
+- Annotators were encouraged to research topics online and were given detailed instructions and examples.
+- Gold sentences were included to assess annotator accuracy.
+- Annotations from two poorly performing annotators were removed.
+
+### Training Setup Details
+- All RAG models and BART baselines were trained using Fairseq.
+- Mixed precision floating point arithmetic was used, distributed across 8, 32GB NVIDIA V100 GPUs (but can run on one GPU).
+- Maximum Inner Product Search with FAISS was used on CPU, requiring ∼100 GB of CPU memory for Wikipedia.
+- Code was ported to HuggingFace Transformers, achieving equivalent performance with a cleaner implementation and is open-sourced.
+- Document index compression using FAISS reduced CPU memory requirement to 36GB.
+- Scripts and an interactive demo are available at: https://github.com/huggingface/transformers/blob/master/examples/rag/README.md and https://huggingface.co/rag/
+- Fairseq link: https://github.com/pytorch/fairseq
+- HuggingFace Transformers link: https://github.com/huggingface/transformers
+
+===================
+
+### Open-Domain QA
+- สำหรับ Open-Domain QA มักมีคำตอบหลายแบบสำหรับคำถามหนึ่งๆ ซึ่งถูกนำไปใช้ในการฝึกโมเดลแบบ Extractive
+- สำหรับ Natural Questions และ WebQuestions ใช้ (q, a) แต่ละคู่ในการฝึกโมเดล RAG ทำให้ความแม่นยำเพิ่มขึ้นเล็กน้อย
+- สำหรับ TriviaQA มีคำตอบที่ถูกต้องหลายแบบ แต่บางแบบไม่เหมาะกับการฝึก เช่น อีโมจิ หรือตัวสะกดที่ต่างกัน จึงมีการกรองคำตอบที่ไม่ปรากฏใน 1000 อันดับแรกของเอกสารที่เกี่ยวข้อง
+
+### CuratedTrec Preprocessing
+- คำตอบสำหรับ CuratedTrec อยู่ในรูปแบบ Regular Expression ซึ่งอาจไม่เหมาะกับโมเดลสร้างคำตอบ
+- แก้ไขโดยการดึงเอกสาร 1000 อันดับแรกสำหรับแต่ละคำถาม และใช้คำตอบที่ตรงกับรูปแบบ Regex บ่อยที่สุดเป็นเป้าหมายในการเรียนรู้
+- หากไม่พบการจับคู่ จะใช้ Heuristic โดยการสร้าง Permutation ทั้งหมดของ Regex และแทนที่สัญลักษณ์ที่ไม่แน่นอนด้วยช่องว่าง
+
+### TriviaQA Evaluation Setups
+- ชุมชน Open-Domain QA มักใช้ชุดข้อมูลพัฒนาสาธารณะเป็นชุดข้อมูลทดสอบ เนื่องจากชุดข้อมูลทดสอบ QA มักถูกจำกัดและใช้สำหรับการอ่านเพื่อความเข้าใจ
+- รายงานผลลัพธ์โดยใช้ชุดข้อมูลที่ใช้ใน DPR ซึ่งสอดคล้องกับแนวทางปฏิบัติทั่วไปใน Open-Domain QA
+- ใช้ทั้ง TriviaQA Web Development split และ TriviaQA official Wikipedia test set เพื่อเปรียบเทียบกับงานวิจัยอื่นๆ
+- พบว่าประสิทธิภาพสูงกว่าเมื่อใช้ official Wiki test set เนื่องจากคำถามในชุดข้อมูลนี้ง่ายต่อการตอบจาก Wikipedia
+
+### FEVER
+- สำหรับ FEVER classification ทำตามแนวทางจาก [32] โดยการสร้าง Claim ใหม่ และจำแนกประเภทโดยใช้ Representation ของ hidden state สุดท้าย ก่อนที่จะ Marginalize ข้ามเอกสารเพื่อหาค่าความน่าจะเป็นของ Class
+- FEVER มีสอง Sub-task คือการจำแนกประเภท Claim เป็น "Supported", "Refuted" หรือ "Not Enough Info" และการดึงประโยคจาก Wikipedia เป็นหลักฐานสนับสนุนการทำนาย
+- การจัดการ Sub-task ที่สองเป็นเรื่องยากเนื่องจาก FEVER ใช้ Wikipedia dump ที่แตกต่างกัน
+
+### Null Document Probabilities
+- ทดลองเพิ่มกลไก "Null document" ใน RAG เพื่อจำลองกรณีที่ไม่สามารถดึงข้อมูลที่เป็นประโยชน์สำหรับ Input ที่กำหนดได้
+- เพิ่ม "เอกสารว่าง" และทำนาย Logit สำหรับเอกสาร Null ก่อนที่จะ Marginalize ข้ามการทำนาย k + 1 ครั้ง
+- ทดลองใช้ (i) Document embedding สำหรับเอกสาร Null, (ii) Static learnt bias term, หรือ (iii) Neural network ในการทำนาย Logit แต่ไม่พบว่าปรับปรุงประสิทธิภาพ
+- สำหรับ Open MS-MARCO พบว่าโมเดลเรียนรู้ที่จะดึงเอกสารชุดเฉพาะสำหรับคำถามที่ไม่น่าจะได้รับประโยชน์จากการดึงข้อมูล ซึ่งบ่งชี้ว่ากลไกเอกสาร Null อาจไม่จำเป็นสำหรับ RAG
+
+### Parameters
+- โมเดล RAG ประกอบด้วย Parameter ที่สามารถฝึกได้สำหรับ BERT-base query และ document encoder ของ DPR (110M parameters แต่ละตัว โดยไม่ได้ฝึก document encoder เอง) และ 406M parameters จาก BART-large
+- รวมทั้งหมด 626M trainable parameters
+
+===================
+
+### สถิติข้อมูล (Number of instances per dataset)
+- ตารางที่ 7 แสดงจำนวนข้อมูลในแต่ละชุดข้อมูลที่ใช้ในการทดลอง
+- Natural Questions: Train 79169, Development 8758, Test 3611
+- TriviaQA: Train 78786, Development 8838, Test 11314
+- WebQuestions: Train 3418, Development 362, Test 2033
+- CuratedTrec: Train 635, Development 134, Test 635
+- Jeopardy Question Generation: Train 97392, Development 13714, Test 26849
+- MS-MARCO: Train 153726, Development 12468, Test 101093
+- FEVER-3-way: Train 145450, Development 10000, Test 10000
+- FEVER-2-way: Train 96966, Development 6666, Test 6666
+
+### ประสิทธิภาพของโมเดล (Model Performance)
+- โมเดล T5-11B (11 พันล้านพารามิเตอร์) เป็นโมเดล open-domain QA ที่มีประสิทธิภาพสูงสุดแบบ "closed-book"
+- T5-large (770 ล้านพารามิเตอร์) ได้คะแนน 28.9 EM บน Natural Questions ซึ่งต่ำกว่า RAG-Sequence (44.5) อย่างมาก
+- โมเดลแบบผสม (parametric/non-parametric) ต้องการพารามิเตอร์ที่ฝึกได้น้อยกว่าเพื่อประสิทธิภาพที่ดีในการตอบคำถามแบบ open-domain
+- ดัชนีหน่วยความจำแบบ non-parametric ประกอบด้วยเวกเตอร์ 21 ล้านตัว (728 มิติ) หรือ 15.3 พันล้านค่า
+
+### ปัญหาการยุบตัวของการดึงข้อมูล (Retrieval Collapse)
+- ในการทดลองเบื้องต้น พบว่าส่วนประกอบการดึงข้อมูลอาจ "ยุบตัว" และดึงเอกสารเดิมซ้ำๆ โดยไม่คำนึงถึงอินพุต
+- เมื่อการดึงข้อมูลยุบตัวแล้ว ตัวสร้างจะเรียนรู้ที่จะละเลยเอกสาร และโมเดล RAG จะทำงานได้เทียบเท่ากับ BART
+- การยุบตัวอาจเกิดจากข้อกำหนดที่ไม่ชัดเจนสำหรับความรู้ที่เป็นข้อเท็จจริงในบางงาน หรือลำดับเป้าหมายที่ยาวขึ้น ซึ่งอาจส่งผลให้ gradients ที่ไม่ให้ข้อมูลสำหรับตัวดึงข้อมูล
+- Perez et al. [46] พบผลลัพธ์การดึงข้อมูลที่ผิดพลาดเมื่อปรับส่วนประกอบการดึงข้อมูลเพื่อปรับปรุงประสิทธิภาพในงานปลายทาง

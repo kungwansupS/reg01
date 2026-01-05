@@ -1,3 +1,22 @@
 RAG_paper.pdf||2bd227682ddb17d259d48455a8b9d951
 REG_payment.pdf||93dcb58efa75d069833f21372eb7bc4f
+forms/CMU-REG-Form-681223.pdf||7b676782a26c40f40853983e1ab8989c
+forms/reg-attestation.pdf||b744c4b832f17630a62d37f9206fead6
+forms/reg-cmr40.pdf||7697c4ec42f9ca2f117dae9be59596ac
+forms/reg-cmr42.pdf||cdef44f5fff39361b36e38e7735fd510
+forms/reg-cmr44-overload-th.pdf||3d366bc9825086a54d017b62cedcc328
+forms/reg-cmr44.pdf||cb889a2fcda9b1870ebcf4d5af4185b2
+forms/reg-cmr46.pdf||732b0ee7302b38424a1efa0895e76700
 calendar/CMU-Academic-Calendar-2568.pdf||3f98a23f2fd87397cd14de4ff970908b
+forms/reg-consent-form-medical-en.pdf||88b132655b06cd20cb0e8ee1e09476bc
+forms/reg-consent-form-medical-th.pdf||682df7e59f7ca4b5a066c2740de1cf32
+forms/reg-file-form.pdf||0bf26b5c6e9642b8d86cd893a6bc738c
+forms/reg-movesecspecial.pdf||0c428920113b1402199e1328984c5a61
+forms/reg-request-data.pdf||e274bc715047ddc7d2b29628c65d764b
+student/Undergraduate Students/Announcement/Academic calendar 2568/CMU-Academic-Calendar-2568-no2.pdf||6ddf0680a98889ee66385e687cc8ac0c
+student/Undergraduate Students/Announcement/Academic calendar 2568/CMU-Academic-Calendar-2568-yearly.pdf||ddac450c08c81f0e3d9fa53b4a10e454
+student/Undergraduate Students/Announcement/Academic calendar 2568/CMU-Academic-Calendar-2568.pdf||9c0cdb79742edad47b185005afe7609a
+student/Undergraduate Students/Announcement/Academic calendar 2568/REG-Academic-Calendar-2568-c1.pdf||0b17d13481710cfeec576b6cda8a6917
+student/Undergraduate Students/Announcement/Academic calendar 2568/REG-Academic-Calendar-2568-c2.pdf||6cbf429f3e53dae126a6073c311942ef
+student/Undergraduate Students/Announcement/Academic calendar 2568/REG-Academic-Calendar-2568-c3-eGrad.pdf||6c4bdd5ba10338fa906820ef53c7741f
+student/Undergraduate Students/Announcement/Academic calendar 2569/CMU-Academic-Calendar-2569-yearly.pdf||2e95d101cca299fc8e47a5a6f4da28e9

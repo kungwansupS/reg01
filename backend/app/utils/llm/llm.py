@@ -84,8 +84,11 @@ async def ask_llm(msg, session_id, emit_fn=None):
             
             # Step 1: คุยกับ LLM ครั้งแรก
             if LLM_PROVIDER == "gemini":
-                response = await model.aio.models.generate_content(model=GEMINI_MODEL_NAME, contents=full_prompt)
-                reply = response.text.strip()
+                response = await model.generate_content(...)
+                if hasattr(response, 'usage') and response.usage:
+                    total_tokens += response.usage.total_tokens
+                else:
+                    total_tokens += 0
                 
                 # Track tokens
                 usage = get_token_usage(response, "gemini", GEMINI_MODEL_NAME)

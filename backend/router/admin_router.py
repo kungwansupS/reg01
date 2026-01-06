@@ -16,6 +16,7 @@ from concurrent.futures import ThreadPoolExecutor
 from app.config import PDF_INPUT_FOLDER, PDF_QUICK_USE_FOLDER, BOT_SETTINGS_FILE, SESSION_DIR
 from memory.faq_cache import get_faq_analytics
 from memory.session import get_bot_enabled, set_bot_enabled
+from memory.session_db import session_db  # ✅ ใช้ database แทน
 from pdf_to_txt import process_pdfs
 
 # สร้าง Router สำหรับ Admin
@@ -57,8 +58,6 @@ def save_bot_settings(settings):
 def get_secure_path(root: str, path: str):
     """
     แมป Root และตรวจสอบความปลอดภัยของ Path
-    
-    FIXED: รองรับ empty string สำหรับ root directory
     """
     if root in ["data", "docs"]:
         base_path = PDF_INPUT_FOLDER
@@ -67,7 +66,6 @@ def get_secure_path(root: str, path: str):
     else:
         base_path = PDF_INPUT_FOLDER
     
-    # ✅ Handle empty path (root directory)
     if not path or path.strip() == "":
         target = os.path.abspath(base_path)
         logger.info(f"📁 Resolved empty path to root: {target}")
@@ -76,7 +74,6 @@ def get_secure_path(root: str, path: str):
         target = os.path.abspath(os.path.join(base_path, clean_path))
         logger.info(f"📁 Resolved path '{path}' to: {target}")
     
-    # Security check
     if not target.startswith(os.path.abspath(base_path)):
         logger.error(f"🚨 Security violation: {target} not in {base_path}")
         raise HTTPException(status_code=403, detail="Access Denied: Path escape detected")
@@ -218,15 +215,12 @@ async def rename_item(root: str = Form(...), old_path: str = Form(...), new_name
 @router.post("/move", dependencies=[Depends(verify_admin)])
 async def move_items(
     root: str = Form(...), 
-    source_paths: str = Form(...),  # เปลี่ยนจาก src_paths เป็น source_paths
-    target_path: str = Form("")    # เปลี่ยนจาก dest_dir เป็น target_path
+    source_paths: str = Form(...),
+    target_path: str = Form("")
 ):
-    """
-    ย้ายไฟล์/โฟลเดอร์
-    """
+    """ย้ายไฟล์/โฟลเดอร์"""
     try:
         paths = json.loads(source_paths)
-        # ตรวจสอบว่า target_path ที่รับมาคืออะไร
         logger.info(f"📥 API Move Request: root={root}, target={target_path}")
         
         base_dest = get_secure_path(root, target_path)
@@ -267,15 +261,10 @@ async def move_items(
 
 @router.post("/copy", dependencies=[Depends(verify_admin)])
 async def copy_items(root: str = Form(...), source_paths: str = Form(...), target_path: str = Form(...)):
-    """
-    คัดลอกไฟล์/โฟลเดอร์ไปยังตำแหน่งใหม่
-    
-    FIXED: รองรับ target_path = "" สำหรับ root directory
-    """
+    """คัดลอกไฟล์/โฟลเดอร์"""
     try:
         paths = json.loads(source_paths)
         
-        # ✅ Handle empty target_path (root directory)
         base_dest = get_secure_path(root, target_path)
         logger.info(f"📋 Copying {len(paths)} items to: {base_dest}")
         
@@ -289,7 +278,6 @@ async def copy_items(root: str = Form(...), source_paths: str = Form(...), targe
             
             dest = os.path.join(base_dest, os.path.basename(src))
             
-            # Handle duplicates
             counter = 1
             original_dest = dest
             while os.path.exists(dest):
@@ -300,7 +288,6 @@ async def copy_items(root: str = Form(...), source_paths: str = Form(...), targe
                     dest = f"{name}_copy_{counter}{ext}"
                 counter += 1
             
-            # Copy
             if os.path.isdir(src):
                 shutil.copytree(src, dest)
                 logger.info(f"  ✅ Copied folder: {os.path.basename(src)}")
@@ -383,7 +370,7 @@ async def delete_items(root: str, paths: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 # ----------------------------------------------------------------------------- #
-# CHAT & BOT CONTROL ENDPOINTS
+# ✅ CHAT & BOT CONTROL ENDPOINTS (ใช้ Database)
 # ----------------------------------------------------------------------------- #
 
 @router.post("/bot-toggle", dependencies=[Depends(verify_admin)])
@@ -405,16 +392,14 @@ async def toggle_all_bots(status: bool = Form(...)):
     """เปิด/ปิด Bot ทั้งหมดทุก Session"""
     logger.info(f"🔄 Toggling ALL bots: {status}")
     
-    if not os.path.exists(SESSION_DIR):
-        return {"status": "success", "updated_count": 0}
-    
-    updated_count = 0
     try:
-        for filename in os.listdir(SESSION_DIR):
-            if filename.endswith(".json"):
-                session_id = filename.replace(".json", "")
-                if set_bot_enabled(session_id, status):
-                    updated_count += 1
+        # ✅ ดึง sessions ทั้งหมดจาก database
+        sessions = await asyncio.to_thread(session_db.get_all_sessions)
+        
+        updated_count = 0
+        for session in sessions:
+            if set_bot_enabled(session['session_id'], status):
+                updated_count += 1
         
         logger.info(f"✅ Updated {updated_count} sessions")
         return {"status": "success", "updated_count": updated_count, "bot_enabled": status}
@@ -424,81 +409,28 @@ async def toggle_all_bots(status: bool = Form(...)):
 
 @router.get("/chat/sessions", dependencies=[Depends(verify_admin)])
 async def get_chat_sessions():
-    """ดึงรายชื่อ Session การแชทล่าสุด"""
-    logger.info(f"📋 Loading chat sessions from {SESSION_DIR}")
-    
-    if not os.path.exists(SESSION_DIR): 
-        logger.warning(f"⚠️ SESSION_DIR not found: {SESSION_DIR}")
-        os.makedirs(SESSION_DIR, exist_ok=True)
-        return []
-    
-    sessions = []
-    file_count = 0
+    """ดึงรายชื่อ Session การแชทล่าสุด (จาก Database)"""
+    logger.info("📋 Loading chat sessions from database")
     
     try:
-        files = [f for f in os.listdir(SESSION_DIR) if f.endswith(".json")]
-        logger.info(f"📂 Found {len(files)} session files")
+        # ✅ ดึงจาก database แทนไฟล์
+        sessions = await asyncio.to_thread(session_db.get_all_sessions)
         
-        for filename in files:
-            file_count += 1
-            path = os.path.join(SESSION_DIR, filename)
-            
-            try:
-                mtime = os.path.getmtime(path)
-                
-                with open(path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    
-                    session_id = filename.replace(".json", "")
-                    logger.debug(f"  [{file_count}/{len(files)}] Processing: {session_id}")
-                    
-                    bot_enabled = data.get("bot_enabled", True)
-                    
-                    if isinstance(data, dict) and "user_info" in data:
-                        info = data["user_info"]
-                        history = data.get("history", [])
-                        
-                        sessions.append({
-                            "id": session_id,
-                            "platform": info.get("platform", "web"),
-                            "profile": {
-                                "name": info.get("name", f"User {session_id[:8]}"),
-                                "picture": info.get("picture", "https://www.gravatar.com/avatar/?d=mp")
-                            },
-                            "bot_enabled": bot_enabled,
-                            "last_active": mtime
-                        })
-                        logger.debug(f"    ✅ Valid session: {info.get('name')} (Bot: {bot_enabled})")
-                        
-                    elif isinstance(data, list):
-                        is_fb = filename.startswith("fb_")
-                        
-                        sessions.append({
-                            "id": session_id,
-                            "platform": "facebook" if is_fb else "web",
-                            "profile": {
-                                "name": f"User {session_id[:8]}",
-                                "picture": "https://www.gravatar.com/avatar/?d=mp"
-                            },
-                            "bot_enabled": True,
-                            "last_active": mtime
-                        })
-                        logger.debug(f"    ⚠️ Old format (migrating): {session_id}")
-                        
-                    else:
-                        logger.warning(f"    ❌ Unknown format: {session_id}")
-                        
-            except json.JSONDecodeError as e:
-                logger.error(f"    ❌ JSON decode error in {filename}: {e}")
-                continue
-            except Exception as e:
-                logger.error(f"    ❌ Error loading {filename}: {e}")
-                continue
+        formatted_sessions = []
+        for session in sessions:
+            formatted_sessions.append({
+                "id": session['session_id'],
+                "platform": session['platform'],
+                "profile": {
+                    "name": session['user_name'],
+                    "picture": session['user_picture'] or "https://www.gravatar.com/avatar/?d=mp"
+                },
+                "bot_enabled": bool(session['bot_enabled']),
+                "last_active": session['last_active']
+            })
         
-        sessions.sort(key=lambda x: x["last_active"], reverse=True)
-        logger.info(f"✅ Successfully loaded {len(sessions)}/{file_count} sessions")
-        
-        return sessions
+        logger.info(f"✅ Successfully loaded {len(formatted_sessions)} sessions")
+        return formatted_sessions
         
     except Exception as e:
         logger.error(f"❌ Failed to load sessions: {e}")
@@ -506,46 +438,16 @@ async def get_chat_sessions():
 
 @router.get("/chat/history/{platform}/{uid}", dependencies=[Depends(verify_admin)])
 async def get_chat_history(platform: str, uid: str):
-    """ดึงประวัติการแชทรายคน"""
+    """ดึงประวัติการแชทรายคน (จาก Database)"""
     logger.info(f"📖 Loading history for {platform}/{uid}")
     
-    filename = f"{uid}.json"
-    path = os.path.join(SESSION_DIR, filename)
-    
-    logger.info(f"   Looking for: {path}")
-    
-    if not os.path.exists(path):
-        logger.warning(f"   ⚠️ History file not found: {path}")
-        return []
-    
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            
-            if isinstance(data, dict) and "history" in data:
-                history = data["history"]
-                logger.info(f"   ✅ Loaded {len(history)} messages (new format)")
-            elif isinstance(data, list):
-                history = data
-                logger.info(f"   ✅ Loaded {len(history)} messages (old format)")
-            else:
-                logger.error(f"   ❌ Unknown data format")
-                return []
-            
-            filtered = [
-                msg for msg in history
-                if msg.get("role") in ["user", "model"]
-                and msg.get("parts")
-                and len(msg["parts"]) > 0
-                and msg["parts"][0].get("text")
-            ]
-            
-            logger.info(f"   ✅ Returning {len(filtered)} valid messages")
-            return filtered
-            
-    except json.JSONDecodeError as e:
-        logger.error(f"   ❌ JSON decode error: {e}")
-        return []
+        # ✅ ดึงจาก database
+        history = await asyncio.to_thread(session_db.get_history, uid)
+        
+        logger.info(f"   ✅ Returning {len(history)} valid messages")
+        return history
+        
     except Exception as e:
         logger.error(f"   ❌ Error reading history: {e}")
         return []

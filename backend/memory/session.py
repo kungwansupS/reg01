@@ -1,198 +1,209 @@
-import os
-import json
-import time
-from app.config import SESSION_DIR
+import logging
+from typing import Optional, List, Dict
+from memory.session_db import session_db
 from memory.memory import summarize_chat_history
 
-# ตรวจสอบและสร้างโฟลเดอร์เก็บ Session และ Logs
-if not os.path.exists(SESSION_DIR):
-    os.makedirs(SESSION_DIR, exist_ok=True)
-if not os.path.exists("logs"):
-    os.makedirs("logs", exist_ok=True)
+logger = logging.getLogger(__name__)
 
 MAX_HISTORY_LENGTH = 30
 NUM_RECENT_TO_KEEP = 10
 
-def get_session_path(session_id):
-    """สร้าง Path สำหรับไฟล์ JSON โดยล้างอักขระพิเศษเพื่อความปลอดภัย"""
-    safe_id = "".join([c for c in str(session_id) if c.isalnum() or c in ("-", "_")])
-    return os.path.join(SESSION_DIR, f"{safe_id}.json")
 
-def get_or_create_history(session_id, context="", user_name=None, user_picture=None, platform=None):
-    """ดึงหรือสร้างประวัติการแชท พร้อมจัดการ Migration ข้อมูลเก่าอัตโนมัติ"""
-    path = get_session_path(session_id)
+def get_or_create_history(
+    session_id: str, 
+    context: str = "", 
+    user_name: Optional[str] = None, 
+    user_picture: Optional[str] = None, 
+    platform: Optional[str] = None
+) -> List[Dict]:
+    """
+    ดึงหรือสร้างประวัติการสนทนา (ใช้ Database)
     
-    is_fb = str(session_id).startswith("fb_")
-    detected_platform = platform or ("facebook" if is_fb else "web")
-    clean_uid = str(session_id).replace("fb_", "")
+    Args:
+        session_id: Session ID
+        context: ข้อความเริ่มต้น (optional)
+        user_name: ชื่อผู้ใช้
+        user_picture: รูปโปรไฟล์
+        platform: แพลตฟอร์ม (web, facebook, line)
     
-    default_name = f"{detected_platform.capitalize()} User {clean_uid[:5]}"
-    final_pic = user_picture or "https://www.gravatar.com/avatar/?d=mp"
-
-    data_to_save = None
-
-    if os.path.exists(path):
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                
-                # Migration Logic: เปลี่ยนจาก List เป็น Dict อัตโนมัติ
-                if isinstance(data, list):
-                    data = {
-                        "user_info": {
-                            "name": user_name or default_name,
-                            "picture": final_pic,
-                            "platform": detected_platform
-                        },
-                        "bot_enabled": True,  # ✅ Default เปิด Bot
-                        "history": data
-                    }
-                    data_to_save = data
-                
-                # อัปเดต Metadata หากมีข้อมูลใหม่ส่งเข้ามา
-                if "user_info" not in data:
-                    data["user_info"] = {"name": default_name, "picture": final_pic, "platform": detected_platform}
-                    data_to_save = data
-                
-                # ✅ เพิ่ม bot_enabled ถ้ายังไม่มี (Default = True)
-                if "bot_enabled" not in data:
-                    data["bot_enabled"] = True
-                    data_to_save = data
-                
-                if user_name and data["user_info"].get("name") != user_name:
-                    data["user_info"]["name"] = user_name
-                    data_to_save = data
-                
-                if user_picture and data["user_info"].get("picture") != user_picture:
-                    data["user_info"]["picture"] = user_picture
-                    data_to_save = data
-
-                if data_to_save:
-                    save_history(session_id, data.get("history", []), **data["user_info"])
-                
-                return data.get("history", [])
-        except Exception as e:
-            print(f"Error reading session {session_id}: {e}")
-            return []
-
-    # กรณีสร้างใหม่
-    initial_history = [{"role": "user", "parts": [{"text": context}]}] if context else []
-    new_session_data = {
-        "user_info": {
-            "name": user_name or default_name,
-            "picture": final_pic,
-            "platform": detected_platform
-        },
-        "bot_enabled": True,  # ✅ Default เปิด Bot
-        "history": initial_history
-    }
-
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(new_session_data, f, ensure_ascii=False, indent=2)
-    return new_session_data["history"]
-
-def save_history(session_id, history, user_name=None, user_picture=None, platform=None):
-    path = get_session_path(session_id)
-    
-    is_fb = str(session_id).startswith("fb_")
-    detected_platform = platform or ("facebook" if is_fb else "web")
-    clean_uid = str(session_id).replace("fb_", "")
-    
-    # ดึงข้อมูลเดิมมาตั้งต้น
-    user_info = {
-        "name": user_name or f"{detected_platform.capitalize()} User {clean_uid[:5]}", 
-        "picture": user_picture or "https://www.gravatar.com/avatar/?d=mp", 
-        "platform": detected_platform
-    }
-    
-    bot_enabled = True  # Default
-    
-    if os.path.exists(path):
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                old_data = json.load(f)
-                if isinstance(old_data, dict):
-                    user_info = old_data.get("user_info", user_info)
-                    bot_enabled = old_data.get("bot_enabled", True)  # ✅ เก็บค่าเดิม
-        except: pass
-
-    # อัปเดต Metadata ใหม่ถ้ามีข้อมูลส่งมา
-    if user_name: user_info["name"] = user_name
-    if user_picture: user_info["picture"] = user_picture
-    if detected_platform: user_info["platform"] = detected_platform
-
-    deduped_history = []
-    for entry in history:
-        if not deduped_history or deduped_history[-1] != entry:
-            deduped_history.append(entry)
-
-    if len(deduped_history) > MAX_HISTORY_LENGTH:
-        to_summarize = deduped_history[:-NUM_RECENT_TO_KEEP]
-        recent = deduped_history[-NUM_RECENT_TO_KEEP:]
-        summary_text = summarize_chat_history(to_summarize)
-        deduped_history = [{
-            "role": "system",
-            "parts": [{"text": f"สรุปบทสนทนาก่อนหน้านี้:\n{summary_text}"}]
-        }] + recent
-
-    final_data = {
-        "user_info": user_info,
-        "bot_enabled": bot_enabled,  # ✅ เก็บสถานะ Bot
-        "history": deduped_history
-    }
-
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(final_data, f, ensure_ascii=False, indent=2)
-
-def get_bot_enabled(session_id):
-    """✅ ฟังก์ชันใหม่: ดึงสถานะ Bot ของ Session นี้"""
-    path = get_session_path(session_id)
-    if not os.path.exists(path):
-        return True  # Default เปิด
-    
+    Returns:
+        ประวัติการสนทนาในรูปแบบ list of dict
+    """
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            return data.get("bot_enabled", True)
-    except:
-        return True
-
-def set_bot_enabled(session_id, enabled):
-    """✅ ฟังก์ชันใหม่: ตั้งค่าสถานะ Bot ของ Session นี้"""
-    path = get_session_path(session_id)
-    if not os.path.exists(path):
-        # สร้าง session ใหม่ถ้ายังไม่มี
-        get_or_create_history(session_id)
-    
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
+        session_data = session_db.get_or_create_session(
+            session_id=session_id,
+            user_name=user_name,
+            user_picture=user_picture,
+            platform=platform or "web"
+        )
         
-        data["bot_enabled"] = enabled
+        history = session_data['history']
         
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        # ถ้ามี context และยังไม่มีข้อความใด ให้เพิ่ม
+        if context and len(history) == 0:
+            session_db.add_message(session_id, "user", context)
+            history.append({
+                "role": "user",
+                "parts": [{"text": context}]
+            })
         
-        return True
+        logger.debug(f"✅ Loaded {len(history)} messages for {session_id}")
+        return history
+        
     except Exception as e:
-        print(f"Error setting bot_enabled for {session_id}: {e}")
+        logger.error(f"❌ Error loading session {session_id}: {e}")
+        return []
+
+
+def save_history(
+    session_id: str, 
+    history: List[Dict], 
+    user_name: Optional[str] = None, 
+    user_picture: Optional[str] = None, 
+    platform: Optional[str] = None
+):
+    """
+    บันทึกประวัติการสนทนา (ใช้ Database)
+    
+    Args:
+        session_id: Session ID
+        history: ประวัติการสนทนา
+        user_name: ชื่อผู้ใช้ (optional)
+        user_picture: รูปโปรไฟล์ (optional)
+        platform: แพลตฟอร์ม (optional)
+    """
+    try:
+        # อัปเดต session info ถ้ามี
+        if user_name or user_picture or platform:
+            session_db.get_or_create_session(
+                session_id=session_id,
+                user_name=user_name,
+                user_picture=user_picture,
+                platform=platform
+            )
+        
+        # ลบข้อความซ้ำ
+        deduped_history = []
+        for entry in history:
+            if not deduped_history or deduped_history[-1] != entry:
+                deduped_history.append(entry)
+        
+        # จัดการความยาวของ history
+        if len(deduped_history) > MAX_HISTORY_LENGTH:
+            # สรุปข้อความเก่า
+            to_summarize = deduped_history[:-NUM_RECENT_TO_KEEP]
+            recent = deduped_history[-NUM_RECENT_TO_KEEP:]
+            
+            summary_text = summarize_chat_history(to_summarize)
+            
+            # ล้างประวัติเก่าและเพิ่มสรุป + ข้อความล่าสุด
+            session_db.clear_history(session_id)
+            
+            # เพิ่มข้อความสรุป
+            if summary_text:
+                session_db.add_message(
+                    session_id, 
+                    "system", 
+                    f"สรุปบทสนทนาก่อนหน้านี้:\n{summary_text}"
+                )
+            
+            # เพิ่มข้อความล่าสุด
+            for msg in recent:
+                role = msg.get("role", "user")
+                text = msg.get("parts", [{}])[0].get("text", "")
+                
+                if text:
+                    session_db.add_message(session_id, role, text)
+        else:
+            # เพิ่มเฉพาะข้อความใหม่
+            current_messages = session_db.get_history(session_id)
+            current_count = len(current_messages)
+            
+            # เพิ่มเฉพาะข้อความที่ยังไม่มีใน DB
+            for msg in deduped_history[current_count:]:
+                role = msg.get("role", "user")
+                text = msg.get("parts", [{}])[0].get("text", "")
+                
+                if text:
+                    session_db.add_message(session_id, role, text)
+        
+        logger.debug(f"✅ Saved history for {session_id}")
+        
+    except Exception as e:
+        logger.error(f"❌ Error saving session {session_id}: {e}")
+
+
+def get_bot_enabled(session_id: str) -> bool:
+    """
+    ดึงสถานะ Bot ของ Session นี้
+    
+    Args:
+        session_id: Session ID
+    
+    Returns:
+        True ถ้าเปิด Bot, False ถ้าปิด
+    """
+    try:
+        return session_db.get_bot_enabled(session_id)
+    except Exception as e:
+        logger.error(f"❌ Error getting bot status for {session_id}: {e}")
+        return True  # Default เปิด
+
+
+def set_bot_enabled(session_id: str, enabled: bool) -> bool:
+    """
+    ตั้งค่าสถานะ Bot ของ Session นี้
+    
+    Args:
+        session_id: Session ID
+        enabled: True เพื่อเปิด, False เพื่อปิด
+    
+    Returns:
+        True ถ้าสำเร็จ
+    """
+    try:
+        success = session_db.set_bot_enabled(session_id, enabled)
+        
+        if success:
+            logger.info(f"✅ Bot {'enabled' if enabled else 'disabled'} for {session_id}")
+        
+        return success
+        
+    except Exception as e:
+        logger.error(f"❌ Error setting bot status for {session_id}: {e}")
         return False
 
-def cleanup_old_sessions(days=7):
-    """ลบเซสชันที่ไม่มีความเคลื่อนไหวเกินจำนวนวันที่กำหนด"""
-    try:
-        cutoff = time.time() - (days * 86400)
-        count = 0
-        for filename in os.listdir(SESSION_DIR):
-            if filename.endswith(".json"):
-                path = os.path.join(SESSION_DIR, filename)
-                if os.path.getmtime(path) < cutoff:
-                    os.remove(path)
-                    count += 1
-        return count
-    except: return 0
 
-def clear_history(session_id):
-    path = get_session_path(session_id)
-    if os.path.exists(path):
-        os.remove(path)
+def cleanup_old_sessions(days: int = 7) -> int:
+    """
+    ลบ sessions ที่ไม่มีกิจกรรมเกินจำนวนวันที่กำหนด
+    
+    Args:
+        days: จำนวนวันที่ไม่มีกิจกรรม
+    
+    Returns:
+        จำนวน sessions ที่ถูกลบ
+    """
+    try:
+        count = session_db.cleanup_old_sessions(days)
+        logger.info(f"🧹 Cleaned up {count} old sessions")
+        return count
+        
+    except Exception as e:
+        logger.error(f"❌ Error cleaning up sessions: {e}")
+        return 0
+
+
+def clear_history(session_id: str):
+    """
+    ลบประวัติการสนทนาทั้งหมดของ session
+    
+    Args:
+        session_id: Session ID
+    """
+    try:
+        session_db.clear_history(session_id)
+        logger.info(f"🗑️ Cleared history for {session_id}")
+        
+    except Exception as e:
+        logger.error(f"❌ Error clearing history for {session_id}: {e}")

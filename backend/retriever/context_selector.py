@@ -6,19 +6,22 @@ from typing import List, Dict, Tuple, Optional
 from app.config import PDF_QUICK_USE_FOLDER, debug_list_files
 from app.utils.vector_manager import vector_manager
 from retriever.hybrid_retriever import hybrid_retriever
-from retriever.intent_analyzer import intent_analyzer
-from retriever.evidence_scorer import evidence_scorer
-from retriever.context_distiller import context_distiller
 
-
+# ตั้งค่า Logging สำหรับการตรวจสอบการทำงาน
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("ContextSelector")
 
+# ------------------------------------------------------------------
+# Global Cache & Lock
+# ------------------------------------------------------------------
 _chunks_cache = []
 _cache_lock = threading.Lock()
 
 def get_file_chunks(folder=PDF_QUICK_USE_FOLDER, separator="===================", force_reload=False):
-    """ดึงข้อมูล Chunks จากไฟล์ต้นทาง (.txt) พร้อมระบบ Caching"""
+    """
+    ดึงข้อมูล Chunks จากไฟล์ต้นทาง (.txt) พร้อมระบบ Caching 
+    ใช้สำหรับการทำ Indexing ลงฐานข้อมูล หรือตรวจสอบเนื้อหาดิบ
+    """
     global _chunks_cache
     
     with _cache_lock:
@@ -55,73 +58,150 @@ def get_file_chunks(folder=PDF_QUICK_USE_FOLDER, separator="==================="
         _chunks_cache = new_chunks
         return _chunks_cache
 
+async def extract_query_filters(query: str) -> Dict:
+    """
+    Extract metadata filters from query using LLM
+    
+    Args:
+        query: User query
+    
+    Returns:
+        Dict of filters (academic_year, semester, doc_type)
+    """
+    try:
+        from app.utils.llm.llm_model import get_llm_model
+        from app.config import LLM_PROVIDER, GEMINI_MODEL_NAME, OPENAI_MODEL_NAME, LOCAL_MODEL_NAME
+        
+        prompt = f"""วิเคราะห์คำถามและระบุ metadata ที่ต้องการ:
+คำถาม: "{query}"
+
+ตอบเป็น JSON เท่านั้น (ไม่ต้องมี markdown):
+{{
+    "academic_year": "256X" หรือ null,
+    "semester": 1 หรือ 2 หรือ 3 หรือ null,
+    "doc_type": "calendar" หรือ "regulation" หรือ null
+}}
+
+กฎ:
+- academic_year: หากพบคำว่า "ปี 2568", "2568" → "2568"
+- semester: หากพบ "ภาค 1", "เทอม 1" → 1
+- doc_type: หากพบ "ปฏิทิน", "calendar" → "calendar"
+"""
+        
+        model = get_llm_model()
+        
+        if LLM_PROVIDER == "gemini":
+            response = await model.aio.models.generate_content(
+                model=GEMINI_MODEL_NAME,
+                contents=prompt
+            )
+            result = response.text.strip()
+        else:
+            m_name = OPENAI_MODEL_NAME if LLM_PROVIDER == "openai" else LOCAL_MODEL_NAME
+            response = await model.chat.completions.create(
+                model=m_name,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0
+            )
+            result = response.choices[0].message.content.strip()
+        
+        # Parse JSON
+        import json
+        import re
+        
+        # Remove markdown code blocks if present
+        result = re.sub(r'```json\s*|\s*```', '', result).strip()
+        
+        filters = json.loads(result)
+        
+        # Clean None values
+        cleaned = {k: v for k, v in filters.items() if v is not None}
+        
+        if cleaned:
+            logger.info(f"🔍 Extracted filters: {cleaned}")
+        
+        return cleaned
+        
+    except Exception as e:
+        logger.warning(f"⚠️ Filter extraction failed: {e}")
+        return {}
+
 def retrieve_top_k_chunks(
     query: str, 
     k: int = 5, 
     folder: str = PDF_QUICK_USE_FOLDER,
     use_hybrid: bool = True,
-    use_advanced: bool = True,
-    max_tokens: int = 2000
+    use_filters: bool = True
 ) -> List[Tuple[Dict, float]]:
     """
-    Advanced retrieval pipeline with 3 layers:
-    1. Intent Analysis
-    2. Evidence Scoring
-    3. Context Distillation
+    ค้นหาข้อมูลที่ใกล้เคียงที่สุด พร้อม Hybrid Search และ Smart Filtering
     
     Args:
-        query: คำค้นหา
-        k: จำนวนผลลัพธ์
-        folder: โฟลเดอร์ต้นทาง
-        use_hybrid: เปิด hybrid search
-        use_advanced: เปิด advanced pipeline (intent + evidence + distill)
-        max_tokens: จำนวน tokens สูงสุด
+        query: Search query
+        k: Number of results
+        folder: Source folder (kept for compatibility)
+        use_hybrid: Enable hybrid search (dense + sparse)
+        use_filters: Enable smart filtering from query
     
     Returns:
-        List of (entry, score) tuples
+        List of (entry, score) tuples where entry has 'chunk' and 'source'
     """
     try:
-        # LAYER 0: Intent Analysis
-        intent_analysis = {}
-        search_params = {
-            'k_multiplier': 3,
-            'dense_weight': 0.5,
-            'sparse_weight': 0.5,
-            'keyword_boost': 0.3,
-            'need_diversity': False
-        }
-        
-        if use_advanced:
+        # Step 1: Extract filters from query (if enabled)
+        filters = {}
+        if use_filters:
             try:
-                intent_analysis = asyncio.run(intent_analyzer.analyze_intent(query))
-                search_params = intent_analyzer.get_search_params(intent_analysis)
-                logger.info(f"🎯 Adaptive params: k_mult={search_params['k_multiplier']}, "
-                          f"dense={search_params['dense_weight']:.2f}, "
-                          f"sparse={search_params['sparse_weight']:.2f}")
+                filters = asyncio.run(extract_query_filters(query))
+            except RuntimeError:
+                # Already in async context
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    logger.warning("⚠️ Already in async loop, skipping filter extraction")
+                else:
+                    filters = loop.run_until_complete(extract_query_filters(query))
             except Exception as e:
-                logger.warning(f"⚠️ Intent analysis failed, using defaults: {e}")
+                logger.warning(f"⚠️ Filter extraction error: {e}")
         
-        # LAYER 1: Hybrid Search with adaptive params
-        fetch_k = k * search_params['k_multiplier']
-        
+        # Step 2: Hybrid Search
         if use_hybrid and hybrid_retriever.bm25_index is not None:
-            dense_results = vector_manager.search(query, k=fetch_k)
-            sparse_results = hybrid_retriever.bm25_search(query, k=fetch_k)
+            # Dense search with filters
+            dense_results = vector_manager.search(query, k=k*2, filter_dict=filters)
             
-            fused_results = hybrid_retriever.rrf_fusion(
-                dense_results, 
-                sparse_results, 
-                k=fetch_k,
-                dense_weight=search_params['dense_weight'],
-                sparse_weight=search_params['sparse_weight']
-            )
+            # Sparse search (BM25 doesn't support filters, so we filter after)
+            sparse_results = hybrid_retriever.bm25_search(query, k=k*2)
             
-            logger.info(f"🔀 Hybrid: {len(dense_results)} dense + {len(sparse_results)} sparse → {len(fused_results)}")
+            # Apply filters to sparse results if needed
+            if filters:
+                filtered_sparse = []
+                for doc, score in sparse_results:
+                    # Simple filtering based on source filepath
+                    include = True
+                    
+                    if 'doc_type' in filters:
+                        if filters['doc_type'] not in doc.get('source', '').lower():
+                            include = False
+                    
+                    if 'academic_year' in filters:
+                        # Read chunk content to check
+                        if filters['academic_year'] not in doc.get('chunk', ''):
+                            include = False
+                    
+                    if include:
+                        filtered_sparse.append((doc, score))
+                
+                sparse_results = filtered_sparse
+            
+            # RRF Fusion
+            fused_results = hybrid_retriever.rrf_fusion(dense_results, sparse_results, k=k)
+            
+            logger.info(f"🔀 Hybrid retrieval: {len(dense_results)} dense + {len(sparse_results)} sparse → {len(fused_results)} fused")
+            
         else:
-            logger.info("📡 Pure semantic search")
-            fused_results = vector_manager.search(query, k=fetch_k)
+            # Fallback to pure semantic search
+            logger.info("📡 Using pure semantic search")
+            fused_results = vector_manager.search(query, k=k, filter_dict=filters)
         
-        # Convert to (entry, score) format
+        # Step 3: Convert to old format (entry, score) tuples
         scored_chunks = []
         for result in fused_results:
             entry = {
@@ -129,62 +209,19 @@ def retrieve_top_k_chunks(
                 'source': result.get('source', ''),
                 'index': result.get('metadata', {}).get('chunk_index', 0)
             }
-            score = result.get('hybrid_score', result.get('score', 0))
+            score = result.get('rrf_score', result.get('score', 0))
             scored_chunks.append((entry, score))
         
         if not scored_chunks:
-            logger.warning(f"⚠️ No results for: '{query}'")
-            return []
-        
-        # LAYER 2: Evidence Scoring (if advanced mode)
-        if use_advanced and intent_analysis:
-            try:
-                evidence_results = asyncio.run(
-                    evidence_scorer.score_evidence(query, scored_chunks, intent_analysis)
-                )
-                
-                # Log score breakdown for top result
-                if evidence_results:
-                    _, top_score, breakdown = evidence_results[0]
-                    logger.info(f"📊 Top evidence: {breakdown}")
-            except Exception as e:
-                logger.warning(f"⚠️ Evidence scoring failed: {e}")
-                evidence_results = [(chunk, score, {}) for chunk, score in scored_chunks]
+            logger.warning(f"⚠️ No results found for query: '{query}'")
         else:
-            evidence_results = [(chunk, score, {}) for chunk, score in scored_chunks]
+            logger.info(f"✅ Retrieved {len(scored_chunks)} chunks")
         
-        # LAYER 3: Context Distillation (if advanced mode)
-        if use_advanced and intent_analysis:
-            try:
-                distilled = asyncio.run(
-                    context_distiller.distill(
-                        evidence_results,
-                        query,
-                        intent_analysis,
-                        max_chunks=k,
-                        max_tokens=max_tokens
-                    )
-                )
-                
-                final_chunks = distilled['chunks']
-                logger.info(f"🔬 Distilled: {distilled['metadata']}")
-                logger.info(f"📝 Summary: {distilled['summary']}")
-                
-                result_chunks = [(chunk, 1.0) for chunk in final_chunks]
-                
-            except Exception as e:
-                logger.warning(f"⚠️ Distillation failed: {e}")
-                result_chunks = [(chunk, score) for chunk, score, _ in evidence_results[:k]]
-        else:
-            result_chunks = [(chunk, score) for chunk, score, _ in evidence_results[:k]]
-        
-        if result_chunks:
-            logger.info(f"✅ Final: {len(result_chunks)} chunks selected")
-        
-        return result_chunks
+        return scored_chunks
 
     except Exception as e:
         logger.error(f"❌ Retrieval Error: {e}")
         import traceback
         traceback.print_exc()
+        # Return empty list on error (no-error policy)
         return []

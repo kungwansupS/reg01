@@ -1,6 +1,6 @@
 /**
- * Database Management Module - Production Ready (Fixed)
- * แก้ไขให้ทุกปุ่มใช้งานได้และป้องกัน XSS
+ * Database Management Module - Production Ready with Realtime Updates
+ * แก้ไขให้ทุกปุ่มใช้งานได้ และป้องกัน XSS พร้อม Realtime + Dark Mode Fix
  */
 
 function initDatabaseModule(app) {
@@ -51,11 +51,48 @@ function initDatabaseModule(app) {
         editingMessage: null,
         bulkSelection: new Set(),
         
+        // Realtime
+        autoRefreshInterval: null,
+        
+        /**
+         * Start Auto Refresh
+         */
+        startAutoRefresh() {
+            // กันการซ้อน interval
+            if (this.autoRefreshInterval) {
+                clearInterval(this.autoRefreshInterval);
+                this.autoRefreshInterval = null;
+            }
+
+            // 🔹 refresh ทันทีเมื่อคลิก
+            this.loadSessions(true);
+
+            // 🔹 จากนั้นค่อย auto refresh ทุก 5 วินาที
+            this.autoRefreshInterval = setInterval(() => {
+                this.loadSessions(true); // silent refresh
+            }, 10000);
+
+            console.log('✅ Database auto-refresh started (click-triggered, 5s interval)');
+        },
+        
+        /**
+         * Stop Auto Refresh
+         */
+        stopAutoRefresh() {
+            if (this.autoRefreshInterval) {
+                clearInterval(this.autoRefreshInterval);
+                this.autoRefreshInterval = null;
+                console.log('🛑 Database auto-refresh stopped');
+            }
+        },
+        
         /**
          * Load Sessions from API
          */
-        async loadSessions() {
-            this.loading = true;
+        async loadSessions(silent = false) {
+            if (!silent) {
+                this.loading = true;
+            }
             this.error = null;
             
             try {
@@ -73,16 +110,23 @@ function initDatabaseModule(app) {
                     this.sessions = data.sessions || [];
                     this.stats = data.stats || this.stats;
                     this.renderSessionsList();
-                    console.log(`✅ Loaded ${this.sessions.length} sessions`);
+                    
+                    if (!silent) {
+                        console.log(`✅ Loaded ${this.sessions.length} sessions`);
+                    }
                 } else {
                     throw new Error(data.message || 'Failed to load sessions');
                 }
             } catch (error) {
                 console.error('❌ Error loading sessions:', error);
-                this.error = 'ไม่สามารถโหลดข้อมูล Session ได้: ' + error.message;
-                app.showToast('ไม่สามารถโหลดข้อมูล Session', 'error');
+                if (!silent) {
+                    this.error = 'ไม่สามารถโหลดข้อมูล Session ได้: ' + error.message;
+                    app.showToast('ไม่สามารถโหลดข้อมูล Session', 'error');
+                }
             } finally {
-                this.loading = false;
+                if (!silent) {
+                    this.loading = false;
+                }
             }
         },
         
@@ -541,7 +585,7 @@ function initDatabaseModule(app) {
                 `;
             }).join('');
             
-            // ✅ Add event listeners (ไม่ใช้ inline onclick)
+            // ✅ Add event listeners
             container.querySelectorAll('.session-item').forEach(item => {
                 item.addEventListener('click', (e) => {
                     if (!e.target.closest('.bulk-checkbox')) {
@@ -608,7 +652,6 @@ function initDatabaseModule(app) {
                 </div>
             `;
             
-            // ✅ Add event listeners
             const prevBtn = container.querySelector('.btn-prev-page');
             const nextBtn = container.querySelector('.btn-next-page');
             
@@ -704,7 +747,7 @@ function initDatabaseModule(app) {
                 </div>
             `).join('');
             
-            // ✅ Add event listeners
+            // Add event listeners
             container.querySelectorAll('.message-item').forEach(item => {
                 const messageId = parseInt(item.dataset.messageId);
                 
@@ -743,7 +786,7 @@ function initDatabaseModule(app) {
             
             contentDiv.innerHTML = `
                 <textarea class="edit-textarea w-full p-3 border-2 rounded-lg transition-all focus:ring-2 focus:ring-purple-500" 
-                          style="border-color: var(--border-primary);" 
+                          style="border-color: var(--border-primary); background-color: var(--bg-secondary); color: var(--text-primary);" 
                           rows="4">${this.escapeHtml(message.content)}</textarea>
                 <div class="flex gap-2 mt-3">
                     <button class="btn-save-msg px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-all font-bold">
@@ -886,7 +929,7 @@ function initDatabaseModule(app) {
                             </div>
                             <div class="flex flex-wrap gap-1 mt-2">
                                 ${Object.entries(this.stats.platforms || {}).map(([platform, count]) => 
-                                    `<span class="px-2 py-1 text-xs rounded-full bg-gray-100 font-bold" style="color: var(--text-primary);">${this.escapeHtml(platform)}: ${count}</span>`
+                                    `<span class="px-2 py-1 text-xs rounded-full font-bold" style="background-color: var(--bg-tertiary); color: var(--text-primary);">${this.escapeHtml(platform)}: ${count}</span>`
                                 ).join('')}
                             </div>
                         </div>
@@ -899,10 +942,10 @@ function initDatabaseModule(app) {
                                    id="filter-search"
                                    placeholder="🔍 ค้นหา Session..." 
                                    class="px-3 py-2 border-2 rounded-lg transition-all focus:ring-2 focus:ring-purple-500"
-                                   style="border-color: var(--border-primary);">
+                                   style="border-color: var(--border-primary); background-color: var(--bg-secondary); color: var(--text-primary);">
                             
                             <select id="filter-platform" class="px-3 py-2 border-2 rounded-lg font-bold transition-all focus:ring-2 focus:ring-purple-500"
-                                    style="border-color: var(--border-primary);">
+                                    style="border-color: var(--border-primary); background-color: var(--bg-secondary); color: var(--text-primary);">
                                 <option value="all">ทุก Platform</option>
                                 <option value="line">LINE</option>
                                 <option value="facebook">Facebook</option>
@@ -910,21 +953,21 @@ function initDatabaseModule(app) {
                             </select>
                             
                             <select id="filter-bot-status" class="px-3 py-2 border-2 rounded-lg font-bold transition-all focus:ring-2 focus:ring-purple-500"
-                                    style="border-color: var(--border-primary);">
+                                    style="border-color: var(--border-primary); background-color: var(--bg-secondary); color: var(--text-primary);">
                                 <option value="all">ทุกสถานะ Bot</option>
                                 <option value="enabled">Bot เปิด</option>
                                 <option value="disabled">Bot ปิด</option>
                             </select>
                             
                             <select id="filter-sort-by" class="px-3 py-2 border-2 rounded-lg font-bold transition-all focus:ring-2 focus:ring-purple-500"
-                                    style="border-color: var(--border-primary);">
+                                    style="border-color: var(--border-primary); background-color: var(--bg-secondary); color: var(--text-primary);">
                                 <option value="last_active">เรียง: ใช้ล่าสุด</option>
                                 <option value="created_at">เรียง: สร้าง</option>
                                 <option value="user_name">เรียง: ชื่อ</option>
                             </select>
                             
                             <select id="filter-sort-order" class="px-3 py-2 border-2 rounded-lg font-bold transition-all focus:ring-2 focus:ring-purple-500"
-                                    style="border-color: var(--border-primary);">
+                                    style="border-color: var(--border-primary); background-color: var(--bg-secondary); color: var(--text-primary);">
                                 <option value="desc">↓ มาก → น้อย</option>
                                 <option value="asc">↑ น้อย → มาก</option>
                             </select>
@@ -977,11 +1020,13 @@ function initDatabaseModule(app) {
                 </div>
             `;
             
-            // ✅ Attach all event listeners
             this.attachEventListeners();
             
             lucide.createIcons();
             this.renderSessionsList();
+            
+            // Start realtime updates
+            this.startAutoRefresh();
         },
         
         /**
@@ -1177,13 +1222,21 @@ function initDatabaseModule(app) {
         this.updateMessagesSection();
     };
     
-    // Override switchTab to auto-load when switching to database tab
+    // Override switchTab to auto-load and start/stop auto-refresh
     const originalSwitchTab = app.switchTab.bind(app);
     app.switchTab = function(tab) {
+        // Stop auto-refresh when leaving database tab
+        if (this.activeTab === 'database' && tab !== 'database' && this.database) {
+            this.database.stopAutoRefresh();
+        }
+        
         originalSwitchTab(tab);
+        
+        // Start auto-refresh when entering database tab
         if (tab === 'database') {
             app.database.render();
             app.database.loadSessions();
+            app.database.startAutoRefresh();
         }
     };
 }

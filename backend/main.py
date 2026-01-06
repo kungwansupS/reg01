@@ -356,7 +356,7 @@ async def handle_speech(
     model_name = GEMINI_MODEL_NAME if LLM_PROVIDER == "gemini" else (OPENAI_MODEL_NAME if LLM_PROVIDER == "openai" else LOCAL_MODEL_NAME)
     write_audit_log(user_id, "web", text, reply, time.time() - start_time, tokens=tokens, model_name=model_name)
     
-    display_text = f"[Bot พี่เร็ก] {reply.replace('//', ' ')}"
+    display_text = f"[Bot พี่เร็ก] {reply.replace('//', '')}"
     await sio.emit("admin_bot_reply", {"platform": "web", "uid": final_session_id, "text": display_text})
     await sio.emit("ai_response", {"motion": motion, "text": display_text})
     

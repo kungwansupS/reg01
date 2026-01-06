@@ -114,6 +114,15 @@
                     <i data-lucide="file-text" class="w-5 h-5"></i>
                     <span>Audit Logs</span>
                 </button>
+                
+                <button 
+                    @click="switchTab('database')" 
+                    :class="activeTab === 'database' ? 'active' : ''"
+                    class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl font-semibold transition-all"
+                    :style="activeTab === 'database' ? 'background-color: var(--bg-tertiary); color: var(--cmu-purple);' : 'color: var(--text-secondary);'">
+                    <i data-lucide="database" class="w-5 h-5"></i>
+                    <span>Database</span>
+                </button>
             </nav>
 
             <div class="p-4 border-t space-y-1" style="border-color: var(--border-secondary);">
@@ -532,6 +541,8 @@
                 <div x-show="activeTab === 'files'" x-cloak id="files-container"></div>
 
                 <div x-show="activeTab === 'logs'" x-cloak id="logs-container"></div>
+
+                <div x-show="activeTab === 'database'" x-cloak id="database-container"></div>
             </div>
         </main>
     </div>
@@ -541,6 +552,7 @@
     <script src="/static/js/admin/app-chat.js"></script>
     <script src="/static/js/admin/app-files.js"></script>
     <script src="/static/js/admin/app-logs.js"></script>
+    <script src="/static/js/admin/app-database.js"></script>
     <script>
         lucide.createIcons();
         document.addEventListener('alpine:initialized', () => {

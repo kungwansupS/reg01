@@ -12,6 +12,20 @@ function adminApp() {
             darkMode: false
         },
         
+        // Context Menu (for files module)
+        contextMenu: {
+            show: false,
+            x: 0,
+            y: 0,
+            entry: null
+        },
+        
+        // Module instances
+        chat: null,
+        files: null,
+        logs: null,
+        database: null,
+        
         // Data State
         stats: {
             recent_logs: [],
@@ -37,6 +51,20 @@ function adminApp() {
             this.loadSettings();
             if (this.isLoggedIn) {
                 this.startClock();
+            }
+            
+            // Initialize modules
+            if (typeof initChatModule === 'function') {
+                initChatModule(this);
+            }
+            if (typeof initFilesModule === 'function') {
+                initFilesModule(this);
+            }
+            if (typeof initLogsModule === 'function') {
+                initLogsModule(this);
+            }
+            if (typeof initDatabaseModule === 'function') {
+                initDatabaseModule(this);
             }
         },
 
@@ -105,10 +133,23 @@ function adminApp() {
             this.mobileMenuOpen = false;
             
             // Load tab-specific content
-            if (tab === 'files' && window.loadFilesTab) {
-                window.loadFilesTab();
-            } else if (tab === 'logs' && window.loadLogsTab) {
-                window.loadLogsTab();
+            if (tab === 'chat' && this.chat) {
+                this.chat.loadSessions();
+            } else if (tab === 'files') {
+                if (this.files) {
+                    this.files.render();
+                } else if (window.loadFilesTab) {
+                    window.loadFilesTab();
+                }
+            } else if (tab === 'logs') {
+                if (this.logs) {
+                    this.logs.render();
+                } else if (window.loadLogsTab) {
+                    window.loadLogsTab();
+                }
+            } else if (tab === 'database' && this.database) {
+                this.database.render();
+                this.database.loadSessions();
             }
         },
 
@@ -314,6 +355,13 @@ function adminApp() {
             } else {
                 alert('ℹ️ ' + message);
             }
+        },
+        
+        /**
+         * Show Toast (alias for modules that use showToast)
+         */
+        showToast(message, type = 'info') {
+            this.showNotification(message, type);
         }
     };
 }

@@ -39,6 +39,9 @@ from app.utils.vector_manager import vector_manager
 # นำเข้า Admin Router
 from router.admin_router import router as admin_router
 
+# นำเข้า Database Router
+from backend.router.database_router import router as database_router
+
 # ----------------------------------------------------------------------------- #
 # SETUP & CONFIG
 # ----------------------------------------------------------------------------- #
@@ -115,6 +118,9 @@ app = FastAPI(middleware=[Middleware(CORSMiddleware, allow_origins=["*"], allow_
 
 # ติดตั้ง Admin Router
 app.include_router(admin_router)
+
+# ติดตั้ง Database Router
+app.include_router(database_router)
 
 asgi_app = socketio.ASGIApp(sio, app)
 

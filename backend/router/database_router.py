@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Header
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from typing import Optional, Dict, Any
+from typing import Optional
 import os
 from datetime import datetime, timedelta
 from memory.session_db import SessionDatabase
@@ -18,15 +18,12 @@ class MessageUpdate(BaseModel):
     content: str
 
 def verify_admin_token(x_admin_token: str = Header(None)):
-    """Verify admin token from X-Admin-Token header (same as other endpoints)"""
+    """Verify admin token"""
     admin_token = os.getenv("ADMIN_TOKEN", "your-secure-admin-token-here")
-    
     if not x_admin_token:
         raise HTTPException(status_code=401, detail="X-Admin-Token header missing")
-    
     if x_admin_token != admin_token:
         raise HTTPException(status_code=401, detail="Invalid admin token")
-    
     return True
 
 @router.get("/sessions")
@@ -36,12 +33,10 @@ async def get_all_sessions(x_admin_token: str = Header(None)):
     
     try:
         db = SessionDatabase()
-        try:
-            # Get all sessions
-            cursor = db.conn.execute("""
-                SELECT 
-                    session_id, user_name, user_picture, platform, 
-                    bot_enabled, created_at, last_active
+        with db.get_connection() as conn:
+            cursor = conn.execute("""
+                SELECT session_id, user_name, user_picture, platform, 
+                       bot_enabled, created_at, last_active
                 FROM sessions
                 ORDER BY last_active DESC
             """)
@@ -63,16 +58,13 @@ async def get_all_sessions(x_admin_token: str = Header(None)):
                 }
                 sessions.append(session)
                 
-                # Count platforms
                 platform = row[3]
                 platforms[platform] = platforms.get(platform, 0) + 1
                 
-                # Count active today
                 if datetime.fromisoformat(row[6]) >= today:
                     active_today += 1
             
-            # Get total messages
-            cursor = db.conn.execute("SELECT COUNT(*) FROM messages")
+            cursor = conn.execute("SELECT COUNT(*) FROM messages")
             total_messages = cursor.fetchone()[0]
             
             stats = {
@@ -82,30 +74,23 @@ async def get_all_sessions(x_admin_token: str = Header(None)):
                 'platforms': platforms
             }
             
-            return {
-                'success': True,
-                'sessions': sessions,
-                'stats': stats
-            }
-        finally:
-            if hasattr(db, "conn") and db.conn:
-                db.conn.close()
+            return {'success': True, 'sessions': sessions, 'stats': stats}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/sessions/{session_id}/messages")
 async def get_session_messages(session_id: str, x_admin_token: str = Header(None)):
-    """Get all messages for a specific session"""
+    """Get all messages for a session"""
     verify_admin_token(x_admin_token)
     
     try:
         db = SessionDatabase()
-        try:
-            cursor = db.conn.execute("""
-                SELECT id, role, content, timestamp
+        with db.get_connection() as conn:
+            cursor = conn.execute("""
+                SELECT id, role, content, created_at
                 FROM messages
                 WHERE session_id = ?
-                ORDER BY timestamp ASC
+                ORDER BY created_at ASC
             """, (session_id,))
             
             messages = []
@@ -114,28 +99,21 @@ async def get_session_messages(session_id: str, x_admin_token: str = Header(None
                     'id': row[0],
                     'role': row[1],
                     'content': row[2],
-                    'timestamp': row[3]
+                    'created_at': row[3]
                 })
             
-            return {
-                'success': True,
-                'messages': messages
-            }
-        finally:
-            if hasattr(db, "conn") and db.conn:
-                db.conn.close()
+            return {'success': True, 'messages': messages}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.patch("/sessions/{session_id}")
 async def update_session(session_id: str, updates: SessionUpdate, x_admin_token: str = Header(None)):
-    """Update session information"""
+    """Update session"""
     verify_admin_token(x_admin_token)
     
     try:
         db = SessionDatabase()
-        try:
-            # Build update query
+        with db.get_connection() as conn:
             update_fields = []
             values = []
             
@@ -155,108 +133,77 @@ async def update_session(session_id: str, updates: SessionUpdate, x_admin_token:
             if not update_fields:
                 raise HTTPException(status_code=400, detail="No fields to update")
             
-            # Add session_id to values
             values.append(session_id)
             
-            # Execute update
-            query = f"""
-                UPDATE sessions 
-                SET {', '.join(update_fields)}
-                WHERE session_id = ?
-            """
-            db.conn.execute(query, values)
-            db.conn.commit()
+            query = f"UPDATE sessions SET {', '.join(update_fields)} WHERE session_id = ?"
+            conn.execute(query, values)
+            conn.commit()
             
             return {'success': True, 'message': 'Session updated'}
-        finally:
-            if hasattr(db, "conn") and db.conn:
-                db.conn.close()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/sessions/{session_id}")
 async def delete_session(session_id: str, x_admin_token: str = Header(None)):
-    """Delete a session and all its messages"""
+    """Delete session"""
     verify_admin_token(x_admin_token)
     
     try:
         db = SessionDatabase()
-        try:
-            # Delete session (messages will be cascade deleted)
-            db.conn.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))
-            db.conn.commit()
-            
+        with db.get_connection() as conn:
+            conn.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))
+            conn.commit()
             return {'success': True, 'message': 'Session deleted'}
-        finally:
-            if hasattr(db, "conn") and db.conn:
-                db.conn.close()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.patch("/messages/{message_id}")
 async def update_message(message_id: int, update: MessageUpdate, x_admin_token: str = Header(None)):
-    """Update message content"""
+    """Update message"""
     verify_admin_token(x_admin_token)
     
     try:
         db = SessionDatabase()
-        try:
-            db.conn.execute("""
-                UPDATE messages 
-                SET content = ?
-                WHERE id = ?
-            """, (update.content, message_id))
-            db.conn.commit()
-            
+        with db.get_connection() as conn:
+            conn.execute("UPDATE messages SET content = ? WHERE id = ?", (update.content, message_id))
+            conn.commit()
             return {'success': True, 'message': 'Message updated'}
-        finally:
-            if hasattr(db, "conn") and db.conn:
-                db.conn.close()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/messages/{message_id}")
 async def delete_message(message_id: int, x_admin_token: str = Header(None)):
-    """Delete a message"""
+    """Delete message"""
     verify_admin_token(x_admin_token)
     
     try:
         db = SessionDatabase()
-        try:
-            db.conn.execute("DELETE FROM messages WHERE id = ?", (message_id,))
-            db.conn.commit()
-            
+        with db.get_connection() as conn:
+            conn.execute("DELETE FROM messages WHERE id = ?", (message_id,))
+            conn.commit()
             return {'success': True, 'message': 'Message deleted'}
-        finally:
-            if hasattr(db, "conn") and db.conn:
-                db.conn.close()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/cleanup")
 async def cleanup_old_sessions(days: int = 7, x_admin_token: str = Header(None)):
-    """Delete sessions older than specified days"""
+    """Cleanup old sessions"""
     verify_admin_token(x_admin_token)
     
     try:
         db = SessionDatabase()
-        try:
-            deleted_count = db.cleanup_old_sessions(days)
-            
-            return {
-                'success': True,
-                'deleted_count': deleted_count,
-                'message': f'Deleted {deleted_count} sessions older than {days} days'
-            }
-        finally:
-            if hasattr(db, "conn") and db.conn:
-                db.conn.close()
+        deleted_count = db.cleanup_old_sessions(days)
+        return {
+            'success': True,
+            'deleted_count': deleted_count,
+            'message': f'Deleted {deleted_count} sessions older than {days} days'
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/export")
 async def export_database(x_admin_token: str = Header(None)):
-    """Export the entire database file"""
+    """Export database"""
     verify_admin_token(x_admin_token)
     
     db_path = "backend/memory/sessions.db"
@@ -271,76 +218,24 @@ async def export_database(x_admin_token: str = Header(None)):
 
 @router.get("/stats")
 async def get_database_stats(x_admin_token: str = Header(None)):
-    """Get detailed database statistics"""
+    """Get stats"""
     verify_admin_token(x_admin_token)
     
     try:
         db = SessionDatabase()
-        try:
-            # Session stats
-            cursor = db.conn.execute("""
-                SELECT 
-                    COUNT(*) as total,
-                    COUNT(CASE WHEN bot_enabled = 1 THEN 1 END) as bot_enabled,
-                    platform,
-                    COUNT(*) as count
-                FROM sessions
-                GROUP BY platform
-            """)
+        with db.get_connection() as conn:
+            cursor = conn.execute("SELECT COUNT(*) FROM sessions")
+            total_sessions = cursor.fetchone()[0]
             
-            platform_stats = {}
-            total_sessions = 0
-            bot_enabled_count = 0
-            
-            for row in cursor.fetchall():
-                total_sessions = row[0]
-                bot_enabled_count = row[1]
-                platform = row[2]
-                count = row[3]
-                platform_stats[platform] = count
-            
-            # Message stats
-            cursor = db.conn.execute("""
-                SELECT 
-                    COUNT(*) as total,
-                    role,
-                    COUNT(*) as count
-                FROM messages
-                GROUP BY role
-            """)
-            
-            message_stats = {}
-            total_messages = 0
-            for row in cursor.fetchall():
-                total_messages = row[0]
-                role = row[1]
-                count = row[2]
-                message_stats[role] = count
-            
-            # Database size
-            cursor = db.conn.execute("SELECT page_count * page_size as size FROM pragma_page_count(), pragma_page_size()")
-            db_size = cursor.fetchone()[0]
+            cursor = conn.execute("SELECT COUNT(*) FROM messages")
+            total_messages = cursor.fetchone()[0]
             
             return {
                 'success': True,
                 'stats': {
-                    'sessions': {
-                        'total': total_sessions,
-                        'bot_enabled': bot_enabled_count,
-                        'by_platform': platform_stats
-                    },
-                    'messages': {
-                        'total': total_messages,
-                        'by_role': message_stats
-                    },
-                    'database': {
-                        'size_bytes': db_size,
-                        'size_mb': round(db_size / (1024 * 1024), 2)
-                    }
+                    'sessions': {'total': total_sessions},
+                    'messages': {'total': total_messages}
                 }
             }
-        finally:
-            if hasattr(db, "conn") and db.conn:
-                db.conn.close()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -30,7 +30,7 @@ class SessionDatabase:
     def get_connection(self):
         """Context manager สำหรับจัดการ database connection"""
         conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row  # ให้สามารถเข้าถึงข้อมูลแบบ dict ได้
+        conn.row_factory = sqlite3.Row
         try:
             yield conn
         finally:

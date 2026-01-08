@@ -8,7 +8,6 @@ from memory.session import get_or_create_history, save_history, get_bot_enabled
 
 logger = logging.getLogger("SocketIOHandlers")
 
-# ✅ Global references
 sio = None
 send_fb_text_fn = None
 
@@ -18,7 +17,6 @@ def init_socketio_handlers(socketio_instance, fb_sender_fn):
     sio = socketio_instance
     send_fb_text_fn = fb_sender_fn
     
-    # Register handlers
     sio.on("admin_manual_reply")(handle_admin_manual_reply)
 
 async def handle_admin_manual_reply(sid, data):
@@ -37,7 +35,6 @@ async def handle_admin_manual_reply(sid, data):
         logger.warning("⚠️ Invalid admin reply data")
         return
     
-    # ✅ Check if bot is enabled
     if get_bot_enabled(uid):
         await sio.emit("admin_error", {
             "message": "กรุณาปิด Auto Bot ก่อนส่งข้อความ"
@@ -46,20 +43,17 @@ async def handle_admin_manual_reply(sid, data):
     
     formatted_msg = f"[Admin]: {text}"
     
-    # ✅ Send to appropriate platform
     if platform == "facebook":
         fb_psid = uid.replace("fb_", "")
         await send_fb_text_fn(fb_psid, text)
         logger.info(f"📤 Admin replied to FB user {fb_psid}")
     else:
-        # Send to web client
         await sio.emit("ai_response", {
             "motion": "Happy",
             "text": text
         })
         logger.info(f"📤 Admin replied to web user {uid}")
     
-    # ✅ Save to history
     history = get_or_create_history(uid)
     history.append({
         "role": "model",
@@ -67,7 +61,6 @@ async def handle_admin_manual_reply(sid, data):
     })
     save_history(uid, history)
     
-    # ✅ Broadcast to admin dashboard
     await sio.emit("admin_bot_reply", {
         "platform": platform,
         "uid": uid,

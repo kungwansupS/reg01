@@ -1,8 +1,3 @@
-/**
- * Database Management Module - Production Ready with Realtime Updates
- * แก้ไขให้ทุกปุ่มใช้งานได้ และป้องกัน XSS พร้อม Realtime + Dark Mode Fix
- */
-
 function initDatabaseModule(app) {
     // Initialize contextMenu if not exists
     if (!app.contextMenu) {
@@ -58,16 +53,13 @@ function initDatabaseModule(app) {
          * Start Auto Refresh
          */
         startAutoRefresh() {
-            // กันการซ้อน interval
             if (this.autoRefreshInterval) {
                 clearInterval(this.autoRefreshInterval);
                 this.autoRefreshInterval = null;
             }
 
-            // 🔹 refresh ทันทีเมื่อคลิก
             this.loadSessions(true);
 
-            // 🔹 จากนั้นค่อย auto refresh ทุก 5 วินาที
             this.autoRefreshInterval = setInterval(() => {
                 this.loadSessions(true); // silent refresh
             }, 10000);
@@ -199,7 +191,6 @@ function initDatabaseModule(app) {
                     app.showToast('อัพเดท Session สำเร็จ', 'success');
                     await this.loadSessions();
                     
-                    // Reload messages if this is the selected session
                     if (this.selectedSession?.session_id === sessionId) {
                         await this.loadMessages(sessionId);
                     }
@@ -221,7 +212,7 @@ function initDatabaseModule(app) {
                 return;
             }
             
-            if (!confirm('คุณแน่ใจหรือไม่ที่จะลบ Session นี้? ข้อความทั้งหมดจะถูกลบด้วย')) {
+            if (!confirm('แน่ใจหรือไม่ที่จะลบ Session นี้? ข้อความทั้งหมดจะถูกลบด้วย')) {
                 return;
             }
             
@@ -240,7 +231,6 @@ function initDatabaseModule(app) {
                 if (data.success) {
                     app.showToast('ลบ Session สำเร็จ', 'success');
                     
-                    // Clear selection if this was the selected session
                     if (this.selectedSession?.session_id === sessionId) {
                         this.selectedSession = null;
                         this.messages = [];
@@ -304,7 +294,7 @@ function initDatabaseModule(app) {
                 return;
             }
             
-            if (!confirm('คุณแน่ใจหรือไม่ที่จะลบข้อความนี้?')) {
+            if (!confirm('แน่ใจหรือไม่ที่จะลบข้อความนี้?')) {
                 return;
             }
             
@@ -341,7 +331,7 @@ function initDatabaseModule(app) {
                 return;
             }
             
-            if (!confirm(`คุณแน่ใจหรือไม่ที่จะลบ ${this.bulkSelection.size} Sessions?`)) {
+            if (!confirm(`แน่ใจหรือไม่ที่จะลบ ${this.bulkSelection.size} Sessions?`)) {
                 return;
             }
             
@@ -381,7 +371,7 @@ function initDatabaseModule(app) {
                 days = parseInt(input);
             }
             
-            if (!confirm(`คุณแน่ใจหรือไม่ที่จะลบ Session ที่ไม่ได้ใช้งานมากกว่า ${days} วัน?`)) {
+            if (!confirm(`แน่ใจหรือไม่ที่จะลบ Session ที่ไม่ได้ใช้งานมากกว่า ${days} วัน?`)) {
                 return;
             }
             
@@ -885,7 +875,7 @@ function initDatabaseModule(app) {
                     <div class="flex items-center justify-between mb-6">
                         <div>
                             <h1 class="text-3xl md:text-4xl font-black gradient-text-cmu mb-2">Database Management</h1>
-                            <p class="text-sm font-medium" style="color: var(--text-secondary);">จัดการ Sessions และ Messages</p>
+                            <p class="text-sm font-medium" style="color: var(--text-secondary);">Manage Sessions and Messages</p>
                         </div>
                         <div class="flex gap-2">
                             <button class="btn-export-db px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2 font-bold transition-all shadow-lg">

@@ -1,16 +1,3 @@
-"""
-REG-01 Main Application
-FastAPI + SocketIO + Background Workers
-
-โครงสร้าง:
-- main.py: Application setup & routing
-- router/webhook_router.py: Facebook webhooks
-- router/chat_router.py: Chat API (speech, text, TTS)
-- router/socketio_handlers.py: Real-time events
-- router/background_tasks.py: Workers (FB, maintenance, vector sync)
-- router/admin_router.py: Admin dashboard (existing)
-- router/database_router.py: Database management (existing)
-"""
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -30,13 +17,13 @@ from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from dotenv import load_dotenv
 
-# ✅ Import configurations
+# Import configurations
 from app.config import BOT_SETTINGS_FILE
 from app.utils.llm.llm_model import close_llm_clients
 from app.utils.llm.llm import ask_llm
 from app.utils.token_counter import calculate_cost
 
-# ✅ Import routers
+# Import routers
 from router.admin_router import router as admin_router
 from router.database_router import router as database_router
 from router import webhook_router, chat_router, socketio_handlers, background_tasks
@@ -141,7 +128,6 @@ app = FastAPI(
 
 asgi_app = socketio.ASGIApp(sio, app)
 
-# ✅ Mount static files
 app.mount("/static", StaticFiles(directory="frontend", html=False), name="static")
 app.mount("/assets", StaticFiles(directory="frontend/assets"), name="assets")
 
@@ -160,7 +146,6 @@ background_tasks.init_background_tasks(
     send_fb_text
 )
 
-# ✅ Include routers
 app.include_router(webhook_router.router)
 app.include_router(chat_router.router)
 app.include_router(admin_router)
@@ -187,13 +172,10 @@ async def startup_event():
     """Application startup"""
     logger.info("🚀 Starting REG-01 Application...")
     
-    # ✅ Sync vector database
     await background_tasks.sync_vector_db()
     
-    # ✅ Build hybrid search index
     await background_tasks.build_hybrid_index()
     
-    # ✅ Start background workers
     asyncio.create_task(background_tasks.maintenance_loop())
     for _ in range(5):
         asyncio.create_task(background_tasks.fb_worker())
@@ -204,7 +186,6 @@ async def cleanup():
     """Cleanup before shutdown"""
     logger.info("🧹 Starting cleanup...")
     
-    # ✅ Close LLM clients
     await close_llm_clients()
     
     logger.info("✅ Cleanup complete")
@@ -219,11 +200,9 @@ def signal_handler(signum, frame):
     logger.info(f"📡 Received signal {signum}")
     asyncio.create_task(cleanup())
 
-# ✅ Register signal handlers
 signal.signal(signal.SIGTERM, signal_handler)
 signal.signal(signal.SIGINT, signal_handler)
 
-# ✅ Register atexit
 atexit.register(lambda: asyncio.run(cleanup()))
 
 # ----------------------------------------------------------------------------- #

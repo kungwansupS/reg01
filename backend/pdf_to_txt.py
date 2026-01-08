@@ -57,8 +57,7 @@ except Exception as e:
     logger.warning(f"⚠️ Failed to initialize Gemini client: {e}")
     client = None
 
-# ใช้ Gemma-3-27b-it model
-MODEL_NAME = "gemma-3-27b-it"  # หรือ model ที่คุณต้องการใช้
+MODEL_NAME = "gemma-3-27b-it" 
 
 TOTAL_PDF_FILES = 0
 
@@ -359,7 +358,6 @@ def extract_pages_in_groups(doc: fitz.Document) -> List[Tuple[int, str]]:
 
         page_tokens = estimate_tokens(combined, "gemini")
 
-        # 🚨 ถ้าหน้าเดียวเกิน MAX → บังคับตัด
         if page_tokens > MAX_TOKENS:
             if current_text:
                 page_groups.append((group_start, current_text))
@@ -369,7 +367,6 @@ def extract_pages_in_groups(doc: fitz.Document) -> List[Tuple[int, str]]:
             current_tokens = 0
             continue
 
-        # 🧠 ถ้าใส่แล้วเกิน MAX → ปิดกลุ่มก่อน
         if current_tokens + page_tokens > MAX_TOKENS:
             page_groups.append((group_start, current_text))
             current_text = combined
@@ -377,14 +374,12 @@ def extract_pages_in_groups(doc: fitz.Document) -> List[Tuple[int, str]]:
             group_start = i
             continue
 
-        # ✅ รวมหน้า (หน้าเล็กจะถูกรวมอัตโนมัติ)
         if not current_text:
             group_start = i
 
         current_text += combined
         current_tokens += page_tokens
 
-    # 🔚 ปิดกลุ่มสุดท้าย
     if current_text:
         page_groups.append((group_start, current_text))
 
@@ -407,7 +402,6 @@ async def organize_chunk_with_llm_retry(
     if llm_client is None:
         llm_client = init_llm_model()
     
-    # ✅ Compact prompt
     prompt = f"""
         ต่อไปนี้คือข้อความที่ดึงมาจากไฟล์ PDF ชื่อว่า {filename}:
 
@@ -464,10 +458,8 @@ async def organize_chunk_with_llm_retry(
     
     for attempt in range(MAX_RETRIES):
         try:
-            # ✅ รอถ้าใกล้เกิน rate limit
             await rate_limiter.wait_if_needed(estimated_tokens)
             
-            # ✅ แสดงสถิติ
             stats = rate_limiter.get_stats()
             logger.info(
                 f"  📤 Chunk {chunk_index + 1}/{total_chunks} "
@@ -475,7 +467,6 @@ async def organize_chunk_with_llm_retry(
                 f"(attempt {attempt + 1})"
             )
             
-            # ✅ เรียกใช้ Gemini ด้วย new SDK
             response = await asyncio.to_thread(
                 llm_client.models.generate_content,
                 model=MODEL_NAME,
@@ -488,8 +479,6 @@ async def organize_chunk_with_llm_retry(
             
             result = response.text
             
-            # ✅ บันทึกการใช้งาน
-            # Gemini response มี usage_metadata
             if hasattr(response, 'usage_metadata') and response.usage_metadata:
                 tokens_used = response.usage_metadata.total_token_count
                 await rate_limiter.record_usage(tokens_used)
@@ -504,11 +493,9 @@ async def organize_chunk_with_llm_retry(
         except Exception as e:
             error_msg = str(e)
             
-            # ตรวจสอบ rate limit error
             if "rate_limit" in error_msg.lower() or "429" in error_msg or "quota" in error_msg.lower() or "resource_exhausted" in error_msg.lower():
                 wait_time = RETRY_DELAY * (2 ** attempt)
                 
-                # พยายาม extract wait time
                 import re
                 match = re.search(r'try again in ([\d.]+)s', error_msg)
                 if match:
@@ -538,7 +525,6 @@ async def merge_processed_chunks(chunks: List[str], filename: str) -> str:
     if len(chunks) == 1:
         return chunks[0]
     
-    # รวมด้วย separator
     combined = "\n\n===================\n\n".join(chunks)
     logger.info(f"  📦 Merged {len(chunks)} chunks → {len(combined)} chars (no LLM)")
     
@@ -567,7 +553,6 @@ async def process_single_pdf_async(
         
         processed_chunks = []
         
-        # ✅ ใช้ batch_delay จาก config
         batch_delay = rate_limiter.config["batch_delay"]
         
         for i, (_, text) in enumerate(page_groups):
@@ -581,7 +566,6 @@ async def process_single_pdf_async(
             if result:
                 processed_chunks.append(result)
             
-            # ✅ รอระหว่าง chunks
             if i < len(page_groups) - 1:
                 await asyncio.sleep(batch_delay)
         
@@ -589,24 +573,20 @@ async def process_single_pdf_async(
             logger.warning(f"  ⚠️ No content processed for {filename}")
             return False
         
-        # รวม chunks
         final_text = await merge_processed_chunks(processed_chunks, filename)
         
-        # บันทึกไฟล์
         out_path = os.path.join(OUTPUT_FOLDER, rel_path).replace(".pdf", ".txt")
         os.makedirs(os.path.dirname(out_path), exist_ok=True)
         
         with open(out_path, "w", encoding="utf-8") as f:
             f.write(final_text)
         
-        # แสดงสถิติ
         stats = rate_limiter.get_stats()
         logger.info(
             f"  ✅ Saved: {out_path} ({len(final_text)} chars) "
             f"[Total: {stats['total_tokens']:,} tokens, {stats['total_requests']} requests]"
         )
         
-        # ✅ บันทึก hash ทันที
         save_single_hash(rel_path, file_hash)
 
         completed = len(load_previous_hashes())
@@ -627,7 +607,6 @@ async def process_single_pdf_async(
 
 async def process_pdfs_async():
     """ประมวลผล PDF ทั้งหมด"""
-    # ✅ Initialize rate limiter and LLM
     init_rate_limiter()
     init_llm_model()
     
@@ -685,7 +664,6 @@ async def process_pdfs_async():
     start_time = time.time()
     success_count = 0
     
-    # ✅ ใช้ batch_delay จาก config
     batch_delay = rate_limiter.config["batch_delay"]
     
     for i, (pdf_path, filename, rel_path, file_hash) in enumerate(files_to_process):
@@ -695,7 +673,6 @@ async def process_pdfs_async():
         if success:
             success_count += 1
         
-        # รอระหว่างไฟล์
         if i < len(files_to_process) - 1:
             logger.info(f"⏳ Waiting {batch_delay}s before next file...")
             await asyncio.sleep(batch_delay)
@@ -713,7 +690,6 @@ async def process_pdfs_async():
     logger.info(f"  Model: {MODEL_NAME}")
     logger.info('='*60)
     
-    # ลบไฟล์ orphaned
     for root, _, files in os.walk(OUTPUT_FOLDER):
         for filename in files:
             if filename.endswith(".txt"):
@@ -724,7 +700,6 @@ async def process_pdfs_async():
                     logger.info(f"🗑️ Removing orphaned file: {rel_txt}")
                     os.remove(txt_path)
     
-    # Final sync
     save_hashes(new_hashes)
     logger.info("✅ PDF processing complete")
 

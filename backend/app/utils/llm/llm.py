@@ -69,7 +69,7 @@ async def ask_llm(msg, session_id, emit_fn=None):
         summary = await asyncio.to_thread(summarize_chat_history, history[:-10])
         history_text = "\n".join([f"{t['role']}: {t['parts'][0]['text']}" for t in history[-10:]])
 
-        full_prompt = f"{context_prompt}\n{summary}\n{history_text}\nถาม: {msg}"
+        full_prompt = f"{context_prompt(msg)}\n{summary}\n{history_text}\nถาม: {msg}"
 
         # Initialize token tracking
         total_token_usage = {
@@ -133,7 +133,7 @@ async def ask_llm(msg, session_id, emit_fn=None):
                 top_chunks = await asyncio.to_thread(retrieve_top_k_chunks, search_query, k=5, folder=PDF_QUICK_USE_FOLDER)
                 context = "\n\n".join([c['chunk'] for c, _ in top_chunks])
                 print ("=====context=====\n"+ context +"\n=====context=====")
-                prompt_rag = request_prompt.format(question=msg, search_query=search_query, context=context)
+                prompt_rag = request_prompt(question=msg, search_query=search_query, context=context)
 
                 # Call LLM ครั้งที่ 2 ด้วยข้อมูลที่หามาได้
                 if LLM_PROVIDER == "gemini":

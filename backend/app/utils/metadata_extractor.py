@@ -12,7 +12,7 @@ class MetadataExtractor:
     """
     
     # Patterns
-    YEAR_PATTERN = r'256[5-9]|257[0-5]'  # Buddhist years 2565-2575
+    YEAR_PATTERN = r'256[5-9]|257[0-5]'
     SEMESTER_PATTERN = r'ภาค(?:การศึกษา)?(?:ที่)?\s*([123]|ฤดูร้อน)'
     
     # Document type keywords

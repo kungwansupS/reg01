@@ -151,7 +151,7 @@ class VectorManager:
             normalize_embeddings=True
         ).tolist()
 
-        # ✅ ChromaDB รองรับ filter เดียวต่อ query
+        # ChromaDB รองรับ filter เดียวต่อ query
         # Strategy: ใช้ filter ที่สำคัญที่สุดก่อน แล้ว post-filter ที่เหลือ
         where_clause = None
         post_filters = {}
@@ -174,7 +174,7 @@ class VectorManager:
             if 'semester' in filter_dict:
                 post_filters['semester'] = str(filter_dict['semester'])
 
-        # ✅ Query ChromaDB with increased k for post-filtering
+        # Query ChromaDB with increased k for post-filtering
         query_k = k * 3 if post_filters else k
         
         try:
@@ -201,7 +201,7 @@ class VectorManager:
             for i in range(len(results['documents'][0])):
                 metadata = results['metadatas'][0][i]
                 
-                # ✅ Post-filter: ตรวจสอบ academic_year และ semester
+                # Post-filter: ตรวจสอบ academic_year และ semester
                 if post_filters:
                     # Filter by academic_year
                     if 'academic_year' in post_filters:
@@ -222,7 +222,7 @@ class VectorManager:
                     "metadata": metadata
                 })
         
-        # ✅ Return top k after post-filtering
+        # Return top k after post-filtering
         filtered_count = len(formatted_results)
         formatted_results = formatted_results[:k]
         

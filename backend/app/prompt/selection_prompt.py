@@ -1,12 +1,12 @@
 from datetime import datetime
 
-def current_time():
-    time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    return time
+def get_current_time():
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-current_time = current_time()
+def selection_prompt(question: str, context: str) -> str:
+    current_time = get_current_time()
 
-SELECTION_PROMPT = f"วันเวลาปัจจุบันใช้สำหรับอ้างอิงคำตอบ: {current_time}" + """
+    return f"""วันเวลาปัจจุบันใช้สำหรับอ้างอิงคำตอบ: {current_time}
 คุณจะได้รับคำถาม และข้อความเนื้อหาหนึ่งชุด  
 โปรดตัดสินใจว่าเนื้อหานั้น "เกี่ยวข้อง" กับคำถามหรือไม่อย่างชัดเจน
 

@@ -18,7 +18,6 @@ class HybridRetriever:
         self.corpus_tokens = []
         self.use_thai_tokenizer = False
         
-        # Try to import Thai tokenizer
         try:
             from pythainlp.tokenize import word_tokenize
             self.thai_tokenizer = word_tokenize
@@ -39,14 +38,12 @@ class HybridRetriever:
             logger.warning("⚠️ No chunks provided for BM25 indexing")
             return
         
-        # Tokenize documents
         self.documents = chunks
         self.corpus_tokens = [
             self._tokenize(chunk['chunk']) 
             for chunk in chunks
         ]
         
-        # Build BM25 index
         try:
             self.bm25_index = BM25Okapi(self.corpus_tokens)
             logger.info(f"✅ BM25 index built with {len(chunks)} documents")
@@ -67,19 +64,14 @@ class HybridRetriever:
         if not text:
             return []
         
-        # Use Thai tokenizer if available
         if self.use_thai_tokenizer and self.thai_tokenizer:
             try:
-                # Use newmm engine for better accuracy
                 tokens = self.thai_tokenizer(text.lower(), engine='newmm')
-                # Filter out single characters and whitespace
                 tokens = [t for t in tokens if len(t) > 1 and not t.isspace()]
                 return tokens
             except Exception as e:
                 logger.warning(f"⚠️ Thai tokenization failed: {e}, falling back to basic")
         
-        # Fallback: basic tokenization
-        # Split by whitespace and common punctuation
         import re
         tokens = re.findall(r'\w+', text.lower())
         return [t for t in tokens if len(t) > 1]
@@ -108,7 +100,6 @@ class HybridRetriever:
             
             scores = self.bm25_index.get_scores(query_tokens)
             
-            # Get top k results with scores > 0
             top_indices = sorted(
                 range(len(scores)), 
                 key=lambda i: scores[i], 
@@ -156,7 +147,6 @@ class HybridRetriever:
         scores = defaultdict(float)
         doc_map = {}
         
-        # Normalize weights
         total_weight = dense_weight + sparse_weight
         if total_weight > 0:
             dense_weight = dense_weight / total_weight
@@ -165,7 +155,6 @@ class HybridRetriever:
             dense_weight = 0.5
             sparse_weight = 0.5
         
-        # Score dense results (weighted)
         for rank, item in enumerate(dense_results):
             doc_id = self._get_doc_id(item)
             score = dense_weight * (1.0 / (rrf_k + rank + 1))
@@ -173,7 +162,6 @@ class HybridRetriever:
             if doc_id not in doc_map:
                 doc_map[doc_id] = item
         
-        # Score sparse results (weighted)
         for rank, (doc, _) in enumerate(sparse_results):
             doc_id = self._get_doc_id(doc)
             score = sparse_weight * (1.0 / (rrf_k + rank + 1))
@@ -181,10 +169,8 @@ class HybridRetriever:
             if doc_id not in doc_map:
                 doc_map[doc_id] = doc
         
-        # Sort by fused score
         ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
         
-        # Return top k with scores
         results = []
         for doc_id, score in ranked[:k]:
             if doc_id in doc_map:
@@ -215,5 +201,4 @@ class HybridRetriever:
         index = doc.get('index', 0)
         return f"{source}_{index}_{chunk_preview}"
 
-# Global singleton instance
 hybrid_retriever = HybridRetriever()

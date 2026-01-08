@@ -235,24 +235,19 @@ def _run_async_safely(coro):
     🆕 Helper to run async functions safely in any context
     """
     try:
-        # ✅ ตรวจสอบว่ามี running loop หรือไม่
         try:
             loop = asyncio.get_running_loop()
-            # มี loop กำลังรัน - ใช้ nest_asyncio
             import nest_asyncio
             nest_asyncio.apply()
             return loop.run_until_complete(coro)
         except RuntimeError:
-            # ไม่มี running loop - สร้างใหม่
             pass
         
-        # ✅ สร้าง event loop ใหม่
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
             return loop.run_until_complete(coro)
         finally:
-            # ✅ ปิด pending tasks ก่อนปิด loop
             try:
                 pending = asyncio.all_tasks(loop)
                 for task in pending:
@@ -263,7 +258,6 @@ def _run_async_safely(coro):
             loop.close()
             
     except ImportError:
-        # nest_asyncio ไม่มี - ใช้ thread pool
         import concurrent.futures
         with concurrent.futures.ThreadPoolExecutor() as executor:
             future = executor.submit(asyncio.run, coro)
@@ -368,7 +362,7 @@ def retrieve_top_k_chunks(
             score = result.get('rrf_score', result.get('score', 0))
             scored_chunks.append((entry, score))
         
-        # Step 4: LLM Reranking (ขั้นตอนสำคัญ!)
+        # Step 4: LLM Reranking
         if use_llm_rerank and scored_chunks:
             try:
                 scored_chunks = _run_async_safely(

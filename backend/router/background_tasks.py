@@ -20,7 +20,6 @@ logger = logging.getLogger("BackgroundTasks")
 FB_PAGE_ACCESS_TOKEN = os.getenv("FB_PAGE_ACCESS_TOKEN", "")
 GRAPH_BASE = "https://graph.facebook.com/v19.0"
 
-# ✅ Global references
 sio = None
 fb_task_queue = None
 session_locks = {}
@@ -139,7 +138,6 @@ async def fb_worker():
         user_name = f"FB User {psid[:5]}"
         user_pic = "https://www.gravatar.com/avatar/?d=mp"
         
-        # ✅ Fetch FB profile
         if FB_PAGE_ACCESS_TOKEN:
             try:
                 async with httpx.AsyncClient() as client:
@@ -154,7 +152,6 @@ async def fb_worker():
             except Exception as e:
                 logger.error(f"❌ Fetch FB Profile Error: {e}")
 
-        # ✅ Emit to admin
         await sio.emit("admin_new_message", {
             "platform": "facebook",
             "uid": session_id,
@@ -163,7 +160,6 @@ async def fb_worker():
             "user_pic": user_pic
         })
         
-        # ✅ Check bot status
         bot_enabled = get_bot_enabled(session_id)
         if not bot_enabled:
             history = get_or_create_history(
@@ -183,7 +179,6 @@ async def fb_worker():
             fb_task_queue.task_done()
             continue
 
-        # ✅ Process with LLM
         async with await get_session_lock(session_id):
             try:
                 get_or_create_history(

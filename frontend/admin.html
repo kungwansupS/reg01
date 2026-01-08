@@ -391,7 +391,6 @@
                             <p class="font-medium" style="color: var(--text-secondary);">Unified Chat Facebook and other</p>
                         </div>
                         
-                        <!-- ✅ ปุ่มเปิด/ปิด Bot ทั้งหมด -->
                         <div class="flex items-center gap-2">
                             <button @click="toggleAllBots(true)" 
                                     class="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-sm transition-all shadow-lg flex items-center gap-2">
@@ -436,7 +435,6 @@
                                             <p class="font-bold truncate text-sm" style="color: var(--text-primary);" x-text="session.profile.name"></p>
                                             <div class="flex items-center gap-1">
                                                 <span class="text-[9px] uppercase font-black tracking-widest" style="color: var(--text-tertiary);" x-text="session.platform"></span>
-                                                <!-- ✅ แสดง Bot Status -->
                                                 <span class="ml-2 text-[9px] font-black px-2 py-0.5 rounded-full"
                                                       :class="session.bot_enabled ? 'bg-emerald-500/20 text-emerald-600' : 'bg-gray-400/20 text-gray-600'"
                                                       x-text="session.bot_enabled ? '🤖 ON' : '⛔ OFF'"></span>
@@ -459,7 +457,6 @@
                                             </div>
                                         </div>
                                         
-                                        <!-- ✅ สลับ Bot ต่อ Session -->
                                         <div class="flex items-center gap-4 px-5 py-2 rounded-2xl border" style="background-color: var(--bg-tertiary); border-color: var(--border-primary);">
                                             <div class="flex flex-col items-end">
                                                 <span class="text-[10px] font-black uppercase" style="color: var(--text-tertiary);">Auto Bot System</span>

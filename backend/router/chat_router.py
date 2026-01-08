@@ -26,7 +26,6 @@ logger = logging.getLogger("ChatRouter")
 
 executor = ThreadPoolExecutor(max_workers=10)
 
-# ✅ Import dependencies
 sio = None
 session_locks = {}
 audit_logger = None
@@ -67,7 +66,6 @@ async def handle_speech(
     final_user_name = user_name or f"Web User {final_session_id[:5]}"
     final_user_pic = user_pic or "https://www.gravatar.com/avatar/?d=mp"
     
-    # ✅ Process audio if provided
     if audio:
         with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as temp:
             temp.write(await audio.read())
@@ -82,7 +80,6 @@ async def handle_speech(
     if not text:
         return {"text": "", "motion": "Idle"}
     
-    # ✅ Emit to admin dashboard
     await sio.emit("admin_new_message", {
         "platform": "web",
         "uid": final_session_id,
@@ -91,7 +88,6 @@ async def handle_speech(
         "user_pic": final_user_pic
     })
 
-    # ✅ Check if bot is enabled
     bot_enabled = get_bot_enabled(final_session_id)
     if not bot_enabled:
         history = get_or_create_history(
@@ -110,7 +106,6 @@ async def handle_speech(
         )
         return {"text": "ขณะนี้ Bot ปิดให้บริการ (Admin กำลังดูแลคุณ)", "motion": "Idle"}
 
-    # ✅ Process with LLM
     async with await get_session_lock(final_session_id):
         get_or_create_history(
             final_session_id,
@@ -124,7 +119,6 @@ async def handle_speech(
         motion = await suggest_pose(reply)
         tokens = result.get("tokens", {})
     
-    # ✅ Log audit
     model_name = GEMINI_MODEL_NAME if LLM_PROVIDER == "gemini" else (
         OPENAI_MODEL_NAME if LLM_PROVIDER == "openai" else LOCAL_MODEL_NAME
     )
@@ -140,7 +134,6 @@ async def handle_speech(
             model_name=model_name
         )
     
-    # ✅ Emit responses
     display_text = f"[Bot พี่เร็ก] {reply.replace('//', '')}"
     await sio.emit("admin_bot_reply", {
         "platform": "web",

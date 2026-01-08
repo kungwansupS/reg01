@@ -1,32 +1,39 @@
+# Web Framework
 fastapi
 uvicorn
 python-socketio
 python-dotenv
 python-multipart
-ffmpeg-python
 httpx
 jinja2
 
-# PDF handling
+# Media Processing
+ffmpeg-python
+pydub
+speechrecognition
+edge-tts
+
+# PDF Processing
 PyMuPDF
 pypdf
 pdfminer.six
 
-# LLM + Embedding
+# LLM & AI
 openai
 google-genai
-scikit-learn
 sentence-transformers
 torch
-tqdm
+transformers
 langdetect
 tiktoken
+
+# Vector Database & Search
 chromadb
-transformers
+scikit-learn
 rank-bm25
+
+# Thai Language Support
 pythainlp
 
-# TTS / STT
-speechrecognition
-pydub
-edge-tts
+# Utilities
+tqdm

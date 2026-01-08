@@ -16,7 +16,6 @@ logger = logging.getLogger("WebhookRouter")
 
 FB_VERIFY_TOKEN = os.getenv("FB_VERIFY_TOKEN", "")
 
-# ✅ Import fb_task_queue from dependencies
 fb_task_queue = None
 
 def init_webhook_router(task_queue):
@@ -46,12 +45,10 @@ async def fb_webhook(request: Request):
         
         for entry in payload.get("entry", []):
             for event in entry.get("messaging", []):
-                # ตรวจสอบว่าเป็นข้อความจากผู้ใช้ (ไม่ใช่ echo)
                 if "message" in event and "text" in event["message"] and not event["message"].get("is_echo"):
                     sender_id = event["sender"]["id"]
                     message_text = event["message"]["text"].strip()
                     
-                    # เพิ่มเข้า queue สำหรับประมวลผล
                     await fb_task_queue.put({
                         "psid": sender_id,
                         "text": message_text

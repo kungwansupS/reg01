@@ -18,7 +18,7 @@ from app.config import (
 
 logger = logging.getLogger(__name__)
 
-# ✅ Global async clients (singleton pattern)
+# Global async clients (singleton pattern)
 _async_openai_client = None
 _async_local_client = None
 
@@ -88,7 +88,7 @@ def get_llm_model():
         if not OPENAI_API_KEY:
             raise ValueError("❌ ไม่พบ OPENAI_API_KEY")
         
-        # ✅ ใช้ singleton pattern
+        # ใช้ singleton pattern
         if _async_openai_client is None:
             _async_openai_client = openai.AsyncOpenAI(
                 api_key=OPENAI_API_KEY,
@@ -100,7 +100,7 @@ def get_llm_model():
     elif LLM_PROVIDER == "local":
         ensure_local_llm_ready()
         
-        # ✅ ใช้ singleton pattern
+        # ใช้ singleton pattern
         if _async_local_client is None:
             _async_local_client = openai.AsyncOpenAI(
                 api_key=LOCAL_API_KEY,

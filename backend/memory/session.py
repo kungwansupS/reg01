@@ -39,7 +39,6 @@ def get_or_create_history(
         
         history = session_data['history']
         
-        # ถ้ามี context และยังไม่มีข้อความใด ให้เพิ่ม
         if context and len(history) == 0:
             session_db.add_message(session_id, "user", context)
             history.append({
@@ -74,7 +73,6 @@ def save_history(
         platform: แพลตฟอร์ม (optional)
     """
     try:
-        # อัปเดต session info ถ้ามี
         if user_name or user_picture or platform:
             session_db.get_or_create_session(
                 session_id=session_id,
@@ -83,51 +81,40 @@ def save_history(
                 platform=platform
             )
         
-        # ลบข้อความซ้ำ
         deduped_history = []
         for entry in history:
             if not deduped_history or deduped_history[-1] != entry:
                 deduped_history.append(entry)
         
-        # จัดการความยาวของ history
         if len(deduped_history) > MAX_HISTORY_LENGTH:
-            # สรุปข้อความเก่า
             to_summarize = deduped_history[:-NUM_RECENT_TO_KEEP]
             recent = deduped_history[-NUM_RECENT_TO_KEEP:]
             
             summary_text = summarize_chat_history(to_summarize)
             
-            # ล้างประวัติเก่าและเพิ่มสรุป + ข้อความล่าสุด
             session_db.clear_history(session_id)
             
-            # ✅ เพิ่มข้อความสรุปเป็น role="system" (ไม่แสดงให้ user)
             if summary_text:
                 session_db.add_message(
                     session_id, 
-                    "system",  # ✅ ใช้ "system" แทน "user" หรือ "model"
                     f"[INTERNAL SUMMARY] {summary_text}"
                 )
                 logger.info(f"📝 Saved summary for {session_id}: {len(summary_text)} chars")
             
-            # เพิ่มข้อความล่าสุด
             for msg in recent:
                 role = msg.get("role", "user")
                 text = msg.get("parts", [{}])[0].get("text", "")
                 
-                # ✅ กรองเฉพาะ user และ model (ไม่เก็บ system)
                 if text and role in ["user", "model"]:
                     session_db.add_message(session_id, role, text)
         else:
-            # เพิ่มเฉพาะข้อความใหม่
             current_messages = session_db.get_history(session_id)
             current_count = len(current_messages)
             
-            # เพิ่มเฉพาะข้อความที่ยังไม่มีใน DB
             for msg in deduped_history[current_count:]:
                 role = msg.get("role", "user")
                 text = msg.get("parts", [{}])[0].get("text", "")
                 
-                # ✅ กรองเฉพาะ user และ model
                 if text and role in ["user", "model"]:
                     session_db.add_message(session_id, role, text)
         
@@ -151,7 +138,7 @@ def get_bot_enabled(session_id: str) -> bool:
         return session_db.get_bot_enabled(session_id)
     except Exception as e:
         logger.error(f"❌ Error getting bot status for {session_id}: {e}")
-        return True  # Default เปิด
+        return True
 
 
 def set_bot_enabled(session_id: str, enabled: bool) -> bool:
@@ -227,7 +214,6 @@ def get_visible_history(session_id: str) -> List[Dict]:
     try:
         all_history = session_db.get_history(session_id)
         
-        # กรองเฉพาะ user และ model
         visible = [
             msg for msg in all_history
             if msg.get("role") in ["user", "model"]

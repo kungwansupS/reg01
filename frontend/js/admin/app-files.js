@@ -896,16 +896,14 @@ window.filesModule = function() {
         async moveItems(sourcePaths, targetPath) {
             if (!sourcePaths || sourcePaths.length === 0) return;
 
-            // แก้ปัญหาค่าว่าง: ถ้าเป็น Root ให้ส่งเป็น "." หรือ string เปล่าที่ชัดเจน
             const finalTargetPath = targetPath || ""; 
 
             const token = localStorage.getItem('adminToken');
             const fd = new FormData();
             fd.append('root', this.fileSystem.root);
             fd.append('source_paths', JSON.stringify(sourcePaths));
-            fd.append('target_path', finalTargetPath); // ตรวจสอบชื่อให้ตรงเป๊ะ
+            fd.append('target_path', finalTargetPath);
 
-            // 🔍 Debug: ดูข้อมูลใน Console ก่อนส่งจริง
             console.log("📦 Moving Items:", {
                 root: this.fileSystem.root,
                 source_paths: JSON.stringify(sourcePaths),

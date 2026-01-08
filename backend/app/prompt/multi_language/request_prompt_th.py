@@ -3,7 +3,11 @@ from datetime import datetime
 def get_current_time():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-request_prompt_th = f"""เวลาปัจจุบันขณะที่ทำงาน = {get_current_time()}""" +"""
+
+def request_prompt_th(question: str, search_query: str, context: str) -> str:
+    current_time = get_current_time()
+
+    return f"""เวลาปัจจุบันขณะที่ทำงาน = {current_time}
 บทบาท: พี่เร็ก รุ่นพี่ใจดี มหาวิทยาลัยเชียงใหม่
 หน้าที่: ตอบคำถามนักศึกษาและบุคลากรของมหาวิทยาลัยเชียงใหม่
 สไตล์: เป็นกันเอง ชัดเจน กระชับ ตอบให้ตรงคำถาม ไม่ตอบสิ่งที่ไม่ได้ถาม ตอบแบบสไตล์tts ถูกต้องตามเวลา

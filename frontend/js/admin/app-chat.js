@@ -12,10 +12,8 @@ function adminChat() {
         async init() {
             console.log('🚀 Initializing Unified Chat...');
             
-            // เชื่อมต่อ Socket.IO
             this.initSocket();
 
-            // โหลด Sessions ครั้งแรก
             await this.refreshSessions();
 
             console.log('✅ Unified Chat initialized');
@@ -83,7 +81,6 @@ function adminChat() {
                     return;
                 }
                 
-                // กรองเฉพาะ Sessions ที่มีข้อมูลครบถ้วน
                 const validSessions = data.filter(s => {
                     const isValid = s && s.id && s.platform && s.profile && s.profile.name;
                     if (!isValid) {
@@ -147,7 +144,6 @@ function adminChat() {
                     return;
                 }
                 
-                // กรองเฉพาะข้อความที่ถูกต้อง
                 this.messages = history.filter(m => {
                     const isValid = m 
                         && m.parts 
@@ -192,7 +188,6 @@ function adminChat() {
                 return;
             }
             
-            // ✅ ตรวจสอบสถานะ Bot ของ Session นี้
             if (this.currentSession.bot_enabled) {
                 console.warn('⚠️ Bot is enabled for session:', this.currentSession.id);
                 alert('กรุณาปิด Auto Bot ของ Session นี้ก่อนตอบกลับ');
@@ -242,10 +237,8 @@ function adminChat() {
                 const res = await response.json();
                 
                 if (res.status === 'success') {
-                    // ✅ อัปเดต session ใน list
                     session.bot_enabled = nextStatus;
                     
-                    // ✅ อัปเดต currentSession ถ้าเป็น session เดียวกัน
                     if (this.currentSession && this.currentSession.id === session.id) {
                         this.currentSession.bot_enabled = nextStatus;
                     }

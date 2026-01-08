@@ -16,7 +16,7 @@ from concurrent.futures import ThreadPoolExecutor
 from app.config import PDF_INPUT_FOLDER, PDF_QUICK_USE_FOLDER, BOT_SETTINGS_FILE, SESSION_DIR
 from memory.faq_cache import get_faq_analytics
 from memory.session import get_bot_enabled, set_bot_enabled
-from memory.session_db import session_db  # ✅ ใช้ database แทน
+from memory.session_db import session_db
 from pdf_to_txt import process_pdfs
 
 # สร้าง Router สำหรับ Admin
@@ -370,7 +370,7 @@ async def delete_items(root: str, paths: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 # ----------------------------------------------------------------------------- #
-# ✅ CHAT & BOT CONTROL ENDPOINTS (ใช้ Database)
+# CHAT & BOT CONTROL ENDPOINTS (ใช้ Database)
 # ----------------------------------------------------------------------------- #
 
 @router.post("/bot-toggle", dependencies=[Depends(verify_admin)])
@@ -393,7 +393,6 @@ async def toggle_all_bots(status: bool = Form(...)):
     logger.info(f"🔄 Toggling ALL bots: {status}")
     
     try:
-        # ✅ ดึง sessions ทั้งหมดจาก database
         sessions = await asyncio.to_thread(session_db.get_all_sessions)
         
         updated_count = 0
@@ -413,7 +412,6 @@ async def get_chat_sessions():
     logger.info("📋 Loading chat sessions from database")
     
     try:
-        # ✅ ดึงจาก database แทนไฟล์
         sessions = await asyncio.to_thread(session_db.get_all_sessions)
         
         formatted_sessions = []
@@ -442,7 +440,6 @@ async def get_chat_history(platform: str, uid: str):
     logger.info(f"📖 Loading history for {platform}/{uid}")
     
     try:
-        # ✅ ดึงจาก database
         history = await asyncio.to_thread(session_db.get_history, uid)
         
         logger.info(f"   ✅ Returning {len(history)} valid messages")

@@ -1,4 +1,5 @@
 import tiktoken
+import asyncio
 from app.config import LLM_PROVIDER, GEMINI_API_KEY, GEMINI_MODEL_NAME, OPENAI_API_KEY, OPENAI_MODEL_NAME
 from app.utils.llm.llm_model import get_llm_model
 import openai
@@ -22,7 +23,10 @@ MAX_OUTPUT_TOKENS = 300
 def count_tokens(text):
     return len(ENCODING.encode(text))
 
-def summarize_chat_history(history):
+async def summarize_chat_history_async(history):
+    """
+    ✅ Async version of summarize_chat_history
+    """
     if not history:
         return ""
 
@@ -52,7 +56,9 @@ def summarize_chat_history(history):
             if genai is None:
                 return "(Error: google-genai library not installed)"
 
-            response = model.models.generate_content(
+            # ✅ ใช้ sync API สำหรับ Gemini
+            response = await asyncio.to_thread(
+                model.models.generate_content,
                 model=GEMINI_MODEL_NAME,
                 contents=prompt
             )
@@ -60,9 +66,9 @@ def summarize_chat_history(history):
             print(f"[Gemini] summary done.")
             return result
 
-        elif LLM_PROVIDER == "openai":
-            # ใช้ Client ของ OpenAI (รองรับ Groq)
-            response = model.chat.completions.create(
+        elif LLM_PROVIDER in ["openai", "local"]:
+            # ✅ ใช้ await สำหรับ AsyncOpenAI
+            response = await model.chat.completions.create(
                 model=OPENAI_MODEL_NAME,
                 messages=[
                     {"role": "system", "content": f"สรุปใจความสำคัญของบทสนทนาให้อยู่ภายใต้ {MAX_OUTPUT_TOKENS} token"},
@@ -72,7 +78,7 @@ def summarize_chat_history(history):
                 max_tokens=MAX_OUTPUT_TOKENS
             )
             result = response.choices[0].message.content.strip()
-            print(f"[Groq/OpenAI] summary done.")
+            print(f"[{LLM_PROVIDER.upper()}] summary done.")
             return result
 
     except Exception as e:
@@ -80,3 +86,24 @@ def summarize_chat_history(history):
         return "(ไม่สามารถสรุปได้)"
 
     return "(ไม่สามารถสรุปได้: ไม่รู้จัก LLM_PROVIDER)"
+
+def summarize_chat_history(history):
+    """
+    ✅ Sync wrapper สำหรับ backward compatibility
+    """
+    try:
+        # ✅ ตรวจสอบว่ามี event loop หรือไม่
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            # ถ้า loop กำลังรันอยู่ ใช้ asyncio.create_task
+            # แต่เนื่องจากเป็น sync function เราต้องสร้าง task ใหม่
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(asyncio.run, summarize_chat_history_async(history))
+                return future.result()
+        else:
+            # ถ้าไม่มี loop รัน ให้สร้างใหม่
+            return asyncio.run(summarize_chat_history_async(history))
+    except RuntimeError:
+        # ถ้าไม่มี event loop เลย
+        return asyncio.run(summarize_chat_history_async(history))

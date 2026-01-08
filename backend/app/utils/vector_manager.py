@@ -139,8 +139,8 @@ class VectorManager:
         
         Args:
             query: Search query
-            k: Number of results
-            filter_dict: Metadata filters (e.g., {'doc_type': 'calendar', 'academic_years': '2568'})
+            k: Number of results (จะดึงมากขึ้นเพื่อ post-filter)
+            filter_dict: Metadata filters (e.g., {'doc_type': 'calendar', 'academic_year': '2568'})
         
         Returns:
             List of dicts with chunk, source, score, metadata
@@ -151,52 +151,83 @@ class VectorManager:
             normalize_embeddings=True
         ).tolist()
 
-        # Build ChromaDB where clause
+        # ✅ ChromaDB รองรับ filter เดียวต่อ query
+        # Strategy: ใช้ filter ที่สำคัญที่สุดก่อน แล้ว post-filter ที่เหลือ
         where_clause = None
+        post_filters = {}
+        
         if filter_dict:
-            where_clause = {}
-            
-            # Simple equality filters
+            # Priority 1: doc_type (ถ้ามี)
             if 'doc_type' in filter_dict:
-                where_clause['doc_type'] = filter_dict['doc_type']
+                where_clause = {'doc_type': filter_dict['doc_type']}
+                logger.debug(f"🔍 Pre-filter: doc_type={filter_dict['doc_type']}")
             
-            if 'language' in filter_dict:
-                where_clause['language'] = filter_dict['language']
+            # Priority 2: language (ถ้าไม่มี doc_type)
+            elif 'language' in filter_dict:
+                where_clause = {'language': filter_dict['language']}
+                logger.debug(f"🔍 Pre-filter: language={filter_dict['language']}")
             
-            # Contains filters for comma-separated values
+            # เก็บ filters อื่นไว้สำหรับ post-processing
             if 'academic_year' in filter_dict:
-                where_clause['academic_years'] = {'$contains': filter_dict['academic_year']}
+                post_filters['academic_year'] = filter_dict['academic_year']
             
             if 'semester' in filter_dict:
-                where_clause['semesters'] = {'$contains': str(filter_dict['semester'])}
-            
-            logger.debug(f"🔍 Applying filters: {where_clause}")
+                post_filters['semester'] = str(filter_dict['semester'])
 
-        # Query ChromaDB
+        # ✅ Query ChromaDB with increased k for post-filtering
+        query_k = k * 3 if post_filters else k
+        
         try:
             results = self.collection.query(
                 query_embeddings=[query_embedding],
-                n_results=k,
+                n_results=query_k,
                 where=where_clause
             )
         except Exception as e:
             logger.error(f"❌ ChromaDB query error: {e}")
             # Fallback: query without filters
-            results = self.collection.query(
-                query_embeddings=[query_embedding],
-                n_results=k
-            )
+            try:
+                results = self.collection.query(
+                    query_embeddings=[query_embedding],
+                    n_results=query_k
+                )
+            except Exception as e2:
+                logger.error(f"❌ Fallback query failed: {e2}")
+                return []
 
         # Format results
         formatted_results = []
         if results['documents'] and results['documents'][0]:
             for i in range(len(results['documents'][0])):
+                metadata = results['metadatas'][0][i]
+                
+                # ✅ Post-filter: ตรวจสอบ academic_year และ semester
+                if post_filters:
+                    # Filter by academic_year
+                    if 'academic_year' in post_filters:
+                        academic_years = metadata.get('academic_years', '')
+                        if post_filters['academic_year'] not in academic_years:
+                            continue
+                    
+                    # Filter by semester
+                    if 'semester' in post_filters:
+                        semesters = metadata.get('semesters', '')
+                        if post_filters['semester'] not in semesters:
+                            continue
+                
                 formatted_results.append({
                     "chunk": results['documents'][0][i],
-                    "source": results['metadatas'][0][i].get('source', ''),
+                    "source": metadata.get('source', ''),
                     "score": 1.0 - results['distances'][0][i],  # Convert distance to similarity
-                    "metadata": results['metadatas'][0][i]
+                    "metadata": metadata
                 })
+        
+        # ✅ Return top k after post-filtering
+        filtered_count = len(formatted_results)
+        formatted_results = formatted_results[:k]
+        
+        if post_filters:
+            logger.info(f"✅ Post-filtered: {filtered_count} → {len(formatted_results)} results")
         
         return formatted_results
     

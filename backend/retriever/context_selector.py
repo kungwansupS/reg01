@@ -235,19 +235,35 @@ def _run_async_safely(coro):
     🆕 Helper to run async functions safely in any context
     """
     try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            # Already in async context - use nest_asyncio
+        # ✅ ตรวจสอบว่ามี running loop หรือไม่
+        try:
+            loop = asyncio.get_running_loop()
+            # มี loop กำลังรัน - ใช้ nest_asyncio
             import nest_asyncio
             nest_asyncio.apply()
             return loop.run_until_complete(coro)
-        else:
-            return asyncio.run(coro)
-    except RuntimeError:
-        # No event loop - create new one
-        return asyncio.run(coro)
+        except RuntimeError:
+            # ไม่มี running loop - สร้างใหม่
+            pass
+        
+        # ✅ สร้าง event loop ใหม่
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(coro)
+        finally:
+            # ✅ ปิด pending tasks ก่อนปิด loop
+            try:
+                pending = asyncio.all_tasks(loop)
+                for task in pending:
+                    task.cancel()
+                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+            except Exception:
+                pass
+            loop.close()
+            
     except ImportError:
-        # nest_asyncio not available - run in thread
+        # nest_asyncio ไม่มี - ใช้ thread pool
         import concurrent.futures
         with concurrent.futures.ThreadPoolExecutor() as executor:
             future = executor.submit(asyncio.run, coro)

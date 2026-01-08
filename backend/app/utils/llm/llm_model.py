@@ -18,6 +18,10 @@ from app.config import (
 
 logger = logging.getLogger(__name__)
 
+# ✅ Global async clients (singleton pattern)
+_async_openai_client = None
+_async_local_client = None
+
 def ensure_local_llm_ready():
     """
     ตรวจสอบและเตรียมความพร้อมสำหรับ Local LLM (Ollama)
@@ -72,6 +76,8 @@ def get_llm_model():
     """
     สร้างและคืนค่า Client ของ LLM (Async สำหรับ OpenAI/Local, GenAI Client สำหรับ Gemini)
     """
+    global _async_openai_client, _async_local_client
+    
     if LLM_PROVIDER == "gemini":
         if not GEMINI_API_KEY:
             raise ValueError("❌ ไม่พบ GEMINI_API_KEY")
@@ -81,19 +87,51 @@ def get_llm_model():
     elif LLM_PROVIDER == "openai":
         if not OPENAI_API_KEY:
             raise ValueError("❌ ไม่พบ OPENAI_API_KEY")
-        return openai.AsyncOpenAI(
-            api_key=OPENAI_API_KEY,
-            base_url=OPENAI_BASE_URL
-        )
+        
+        # ✅ ใช้ singleton pattern
+        if _async_openai_client is None:
+            _async_openai_client = openai.AsyncOpenAI(
+                api_key=OPENAI_API_KEY,
+                base_url=OPENAI_BASE_URL,
+                timeout=httpx.Timeout(60.0, connect=10.0)
+            )
+        return _async_openai_client
 
     elif LLM_PROVIDER == "local":
         ensure_local_llm_ready()
-        return openai.AsyncOpenAI(
-            api_key=LOCAL_API_KEY,
-            base_url=LOCAL_BASE_URL
-        )
+        
+        # ✅ ใช้ singleton pattern
+        if _async_local_client is None:
+            _async_local_client = openai.AsyncOpenAI(
+                api_key=LOCAL_API_KEY,
+                base_url=LOCAL_BASE_URL,
+                timeout=httpx.Timeout(120.0, connect=10.0)
+            )
+        return _async_local_client
     else:
         raise ValueError(f"❌ ไม่รู้จัก LLM_PROVIDER: {LLM_PROVIDER}")
+
+async def close_llm_clients():
+    """
+    ✅ ปิด async clients อย่างถูกวิธี
+    """
+    global _async_openai_client, _async_local_client
+    
+    if _async_openai_client is not None:
+        try:
+            await _async_openai_client.close()
+            logger.info("✅ Closed OpenAI client")
+        except Exception as e:
+            logger.warning(f"⚠️ Error closing OpenAI client: {e}")
+        _async_openai_client = None
+    
+    if _async_local_client is not None:
+        try:
+            await _async_local_client.close()
+            logger.info("✅ Closed Local client")
+        except Exception as e:
+            logger.warning(f"⚠️ Error closing Local client: {e}")
+        _async_local_client = None
 
 def log_llm_usage(response, context="", model_name=None):
     """

@@ -24,6 +24,7 @@ tiktoken
 chromadb
 transformers
 rank-bm25
+pythainlp
 
 # TTS / STT
 speechrecognition

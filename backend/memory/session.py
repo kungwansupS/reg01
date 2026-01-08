@@ -64,6 +64,7 @@ def save_history(
 ):
     """
     บันทึกประวัติการสนทนา (ใช้ Database)
+    ✅ Summary จะถูกเก็บเป็น role="system" ไม่แสดงให้ user เห็น
     
     Args:
         session_id: Session ID
@@ -99,20 +100,22 @@ def save_history(
             # ล้างประวัติเก่าและเพิ่มสรุป + ข้อความล่าสุด
             session_db.clear_history(session_id)
             
-            # เพิ่มข้อความสรุป
+            # ✅ เพิ่มข้อความสรุปเป็น role="system" (ไม่แสดงให้ user)
             if summary_text:
                 session_db.add_message(
                     session_id, 
-                    "system", 
-                    f"สรุปบทสนทนาก่อนหน้านี้:\n{summary_text}"
+                    "system",  # ✅ ใช้ "system" แทน "user" หรือ "model"
+                    f"[INTERNAL SUMMARY] {summary_text}"
                 )
+                logger.info(f"📝 Saved summary for {session_id}: {len(summary_text)} chars")
             
             # เพิ่มข้อความล่าสุด
             for msg in recent:
                 role = msg.get("role", "user")
                 text = msg.get("parts", [{}])[0].get("text", "")
                 
-                if text:
+                # ✅ กรองเฉพาะ user และ model (ไม่เก็บ system)
+                if text and role in ["user", "model"]:
                     session_db.add_message(session_id, role, text)
         else:
             # เพิ่มเฉพาะข้อความใหม่
@@ -124,7 +127,8 @@ def save_history(
                 role = msg.get("role", "user")
                 text = msg.get("parts", [{}])[0].get("text", "")
                 
-                if text:
+                # ✅ กรองเฉพาะ user และ model
+                if text and role in ["user", "model"]:
                     session_db.add_message(session_id, role, text)
         
         logger.debug(f"✅ Saved history for {session_id}")
@@ -207,3 +211,30 @@ def clear_history(session_id: str):
         
     except Exception as e:
         logger.error(f"❌ Error clearing history for {session_id}: {e}")
+
+
+def get_visible_history(session_id: str) -> List[Dict]:
+    """
+    ✅ ดึงประวัติที่แสดงให้ user เห็น (เฉพาะ user และ model)
+    ไม่รวม system messages
+    
+    Args:
+        session_id: Session ID
+    
+    Returns:
+        List of visible messages
+    """
+    try:
+        all_history = session_db.get_history(session_id)
+        
+        # กรองเฉพาะ user และ model
+        visible = [
+            msg for msg in all_history
+            if msg.get("role") in ["user", "model"]
+        ]
+        
+        return visible
+        
+    except Exception as e:
+        logger.error(f"❌ Error getting visible history for {session_id}: {e}")
+        return []

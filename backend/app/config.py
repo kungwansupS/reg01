@@ -15,6 +15,16 @@ LLM_PROVIDER = os.getenv("LLM_PROVIDER", "gemini")  # ตัวเลือก: 
 # Gemini Configuration
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL_NAME = os.getenv("GEMINI_MODEL_NAME", "gemini-2.0-flash")
+GEMINI_FALLBACK_MODELS = [
+    m.strip()
+    for m in os.getenv(
+        "GEMINI_FALLBACK_MODELS",
+        "gemini-2.5-flash-lite,gemini-2.0-flash,gemini-2.0-flash-lite",
+    ).split(",")
+    if m.strip()
+]
+GEMINI_MAX_RETRIES = int(os.getenv("GEMINI_MAX_RETRIES", "2"))
+GEMINI_RETRY_BASE_SECONDS = float(os.getenv("GEMINI_RETRY_BASE_SECONDS", "1.5"))
 
 # OpenAI Configuration
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
@@ -27,7 +37,7 @@ LOCAL_MODEL_NAME = os.getenv("LOCAL_MODEL_NAME", "chinda-qwen3-4b")
 LOCAL_BASE_URL = os.getenv("LOCAL_BASE_URL", "http://localhost:11434/v1")
 
 # แสดงสถานะเริ่มต้น
-print(f"🚀 LLM Provider: {LLM_PROVIDER}")
+print(f"[INFO] LLM Provider: {LLM_PROVIDER}")
 
 # ----------------------------------------------------------------------------- #
 # RAG & CONTENT FOLDER CONFIGURATION

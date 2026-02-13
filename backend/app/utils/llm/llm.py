@@ -14,12 +14,90 @@ from app.config import (
     LLM_PROVIDER, 
     OPENAI_MODEL_NAME, 
     GEMINI_MODEL_NAME,
+    GEMINI_FALLBACK_MODELS,
+    GEMINI_MAX_RETRIES,
+    GEMINI_RETRY_BASE_SECONDS,
     LOCAL_MODEL_NAME,
     MAX_CONCURRENT_LLM_CALLS
 )
 
 logger = logging.getLogger(__name__)
 llm_semaphore = asyncio.Semaphore(MAX_CONCURRENT_LLM_CALLS)
+
+def _is_retryable_gemini_error(error_text: str) -> bool:
+    text = (error_text or "").upper()
+    retry_markers = [
+        "503",
+        "UNAVAILABLE",
+        "429",
+        "RESOURCE_EXHAUSTED",
+        "DEADLINE_EXCEEDED",
+        "TIMEOUT",
+    ]
+    return any(marker in text for marker in retry_markers)
+
+def _is_model_switch_gemini_error(error_text: str) -> bool:
+    text = (error_text or "").upper()
+    switch_markers = [
+        "404",
+        "NOT_FOUND",
+        "PERMISSION_DENIED",
+        "NOT SUPPORTED",
+        "NOT AVAILABLE",
+    ]
+    return any(marker in text for marker in switch_markers)
+
+def _build_gemini_candidates() -> list:
+    seen = set()
+    candidates = [GEMINI_MODEL_NAME] + list(GEMINI_FALLBACK_MODELS)
+    ordered = []
+    for candidate in candidates:
+        model_name = (candidate or "").strip()
+        if not model_name or model_name in seen:
+            continue
+        seen.add(model_name)
+        ordered.append(model_name)
+    return ordered
+
+async def _gemini_generate_with_fallback(model_client, prompt: str, stage: str):
+    candidates = _build_gemini_candidates()
+    last_error = None
+
+    for model_name in candidates:
+        for attempt in range(GEMINI_MAX_RETRIES + 1):
+            try:
+                response = await asyncio.to_thread(
+                    model_client.models.generate_content,
+                    model=model_name,
+                    contents=prompt
+                )
+                reply_text = (response.text or "").strip()
+                if not reply_text:
+                    raise RuntimeError("Gemini returned empty response")
+                return model_name, reply_text
+            except Exception as exc:
+                last_error = exc
+                error_text = str(exc)
+                is_retryable = _is_retryable_gemini_error(error_text)
+                has_retry = attempt < GEMINI_MAX_RETRIES
+
+                if is_retryable and has_retry:
+                    delay = GEMINI_RETRY_BASE_SECONDS * (2 ** attempt)
+                    logger.warning(
+                        f"[Gemini {stage}] {model_name} retry "
+                        f"{attempt + 1}/{GEMINI_MAX_RETRIES} in {delay:.1f}s: {exc}"
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+
+                logger.warning(f"[Gemini {stage}] {model_name} failed: {exc}")
+
+                if _is_model_switch_gemini_error(error_text) or is_retryable:
+                    break
+
+                break
+
+    raise RuntimeError(f"Gemini failed for all candidate models: {last_error}")
 
 async def ask_llm(msg, session_id, emit_fn=None):
     """
@@ -84,15 +162,14 @@ async def ask_llm(msg, session_id, emit_fn=None):
             
             # Step 1: คุยกับ LLM ครั้งแรก
             if LLM_PROVIDER == "gemini":
-                response = await asyncio.to_thread(
-                    model.models.generate_content,
-                    model=GEMINI_MODEL_NAME,
-                    contents=full_prompt
+                gemini_model_used, reply = await _gemini_generate_with_fallback(
+                    model,
+                    full_prompt,
+                    "Call 1"
                 )
-                reply = response.text.strip()
 
-                prompt_tokens = count_tokens(full_prompt, GEMINI_MODEL_NAME)
-                completion_tokens = count_tokens(reply, GEMINI_MODEL_NAME)
+                prompt_tokens = count_tokens(full_prompt, gemini_model_used)
+                completion_tokens = count_tokens(reply, gemini_model_used)
 
                 usage = {
                     "prompt_tokens": prompt_tokens,
@@ -104,7 +181,10 @@ async def ask_llm(msg, session_id, emit_fn=None):
                 total_token_usage["completion_tokens"] += completion_tokens
                 total_token_usage["total_tokens"] += usage["total_tokens"]
 
-                logger.info(f"📊 [Gemini Call 1] {format_token_usage(usage)}")
+                logger.info(
+                    f"📊 [Gemini Call 1 - {gemini_model_used}] "
+                    f"{format_token_usage(usage)}"
+                )
 
             else:
                 m_name = OPENAI_MODEL_NAME if LLM_PROVIDER == "openai" else LOCAL_MODEL_NAME
@@ -137,15 +217,14 @@ async def ask_llm(msg, session_id, emit_fn=None):
 
                 # Call LLM ครั้งที่ 2 ด้วยข้อมูลที่หามาได้
                 if LLM_PROVIDER == "gemini":
-                    response_rag = await asyncio.to_thread(
-                        model.models.generate_content,
-                        model=GEMINI_MODEL_NAME,
-                        contents=prompt_rag
+                    gemini_rag_model, reply = await _gemini_generate_with_fallback(
+                        model,
+                        prompt_rag,
+                        "Call 2 RAG"
                     )
-                    reply = response_rag.text.strip()
 
-                    prompt_tokens_rag = count_tokens(prompt_rag, GEMINI_MODEL_NAME)
-                    completion_tokens_rag = count_tokens(reply, GEMINI_MODEL_NAME)
+                    prompt_tokens_rag = count_tokens(prompt_rag, gemini_rag_model)
+                    completion_tokens_rag = count_tokens(reply, gemini_rag_model)
 
                     usage_rag = {
                         "prompt_tokens": prompt_tokens_rag,
@@ -157,7 +236,10 @@ async def ask_llm(msg, session_id, emit_fn=None):
                     total_token_usage["completion_tokens"] += completion_tokens_rag
                     total_token_usage["total_tokens"] += usage_rag["total_tokens"]
 
-                    logger.info(f"📊 [Gemini Call 2 RAG] {format_token_usage(usage_rag)}")
+                    logger.info(
+                        f"📊 [Gemini Call 2 RAG - {gemini_rag_model}] "
+                        f"{format_token_usage(usage_rag)}"
+                    )
 
                 else:
                     response_rag = await model.chat.completions.create(

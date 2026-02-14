@@ -2,7 +2,6 @@
 SocketIO Event Handlers
 จัดการ real-time communication ผ่าน WebSocket
 """
-import httpx
 import logging
 from memory.session import get_or_create_history, save_history, get_bot_enabled
 
@@ -10,6 +9,20 @@ logger = logging.getLogger("SocketIOHandlers")
 
 sio = None
 send_fb_text_fn = None
+WEB_SESSION_ROOM_PREFIX = "web_session:"
+
+
+def web_session_room(session_id: str) -> str:
+    return f"{WEB_SESSION_ROOM_PREFIX}{str(session_id or '').strip()}"
+
+
+async def emit_to_web_session(event: str, payload: dict, session_id: str):
+    if not sio:
+        return
+    session_key = str(session_id or "").strip()
+    if not session_key:
+        return
+    await sio.emit(event, payload, room=web_session_room(session_key))
 
 def init_socketio_handlers(socketio_instance, fb_sender_fn):
     """Initialize SocketIO handlers"""
@@ -18,6 +31,22 @@ def init_socketio_handlers(socketio_instance, fb_sender_fn):
     send_fb_text_fn = fb_sender_fn
     
     sio.on("admin_manual_reply")(handle_admin_manual_reply)
+    sio.on("client_register_session")(handle_client_register_session)
+
+
+async def handle_client_register_session(sid, data):
+    session_id = ""
+    if isinstance(data, dict):
+        session_id = str(data.get("session_id") or "").strip()
+
+    if not session_id:
+        logger.warning("Invalid client_register_session payload")
+        return
+
+    room = web_session_room(session_id)
+    await sio.enter_room(sid, room)
+    await sio.emit("session_registered", {"session_id": session_id}, room=sid)
+    logger.info(f"Registered sid={sid} to room={room}")
 
 async def handle_admin_manual_reply(sid, data):
     """
@@ -48,10 +77,10 @@ async def handle_admin_manual_reply(sid, data):
         await send_fb_text_fn(fb_psid, text)
         logger.info(f"📤 Admin replied to FB user {fb_psid}")
     else:
-        await sio.emit("ai_response", {
+        await emit_to_web_session("ai_response", {
             "motion": "Happy",
             "text": text
-        })
+        }, uid)
         logger.info(f"📤 Admin replied to web user {uid}")
     
     history = get_or_create_history(uid)

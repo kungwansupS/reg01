@@ -2,11 +2,13 @@
 Chat Router
 จัดการ API สำหรับ chat interface (speech, text, TTS)
 """
-from fastapi import APIRouter, Request, UploadFile, Form, Depends
+from collections import defaultdict, deque
+from fastapi import APIRouter, Request, UploadFile, Form, Depends, HTTPException, Response
 from fastapi.security.api_key import APIKeyHeader
 from fastapi.responses import StreamingResponse
 import tempfile
 import os
+import re
 import uuid
 import time
 import asyncio
@@ -18,8 +20,18 @@ from app.stt import transcribe
 from app.utils.llm.llm import ask_llm
 from app.utils.pose import suggest_pose
 from dev.flow_store import get_effective_flow_config
-from app.config import LLM_PROVIDER, GEMINI_MODEL_NAME, OPENAI_MODEL_NAME, LOCAL_MODEL_NAME
+from app.config import (
+    LLM_PROVIDER,
+    GEMINI_MODEL_NAME,
+    OPENAI_MODEL_NAME,
+    LOCAL_MODEL_NAME,
+    ALLOWED_ORIGINS,
+    SPEECH_REQUIRE_API_KEY,
+    SPEECH_ALLOWED_API_KEYS,
+    SPEECH_RATE_LIMIT_PER_MINUTE,
+)
 from memory.session import get_or_create_history, save_history, get_bot_enabled
+from router.socketio_handlers import emit_to_web_session
 
 router = APIRouter(prefix="/api", tags=["chat"])
 logger = logging.getLogger("ChatRouter")
@@ -29,6 +41,56 @@ executor = ThreadPoolExecutor(max_workers=10)
 sio = None
 session_locks = {}
 audit_logger = None
+_rate_limit_lock = asyncio.Lock()
+_rate_windows = defaultdict(deque)
+_session_pattern = re.compile(r"^[A-Za-z0-9_-]{8,128}$")
+_allowed_api_keys = set(SPEECH_ALLOWED_API_KEYS)
+
+
+def _is_origin_allowed(origin: str) -> bool:
+    if not origin:
+        return True
+    cleaned = [item.strip() for item in ALLOWED_ORIGINS if str(item).strip()]
+    if "*" in cleaned:
+        return True
+    return origin in cleaned
+
+
+def _validate_session_id(raw_session_id: str) -> str:
+    value = str(raw_session_id or "").strip()
+    if _session_pattern.match(value):
+        return value
+    return ""
+
+
+def _issue_server_session_id() -> str:
+    return f"web_{uuid.uuid4().hex}"
+
+
+async def _enforce_rate_limit(key: str) -> None:
+    now_ts = time.time()
+    window_start = now_ts - 60.0
+    async with _rate_limit_lock:
+        q = _rate_windows[key]
+        while q and q[0] < window_start:
+            q.popleft()
+        if len(q) >= SPEECH_RATE_LIMIT_PER_MINUTE:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Rate limit exceeded ({SPEECH_RATE_LIMIT_PER_MINUTE}/minute).",
+            )
+        q.append(now_ts)
+
+
+def _resolve_session_id(request: Request, incoming_session_id: str) -> str:
+    incoming_sid = _validate_session_id(incoming_session_id)
+    if incoming_sid:
+        return incoming_sid
+
+    cookie_sid = _validate_session_id(request.cookies.get("reg01_sid"))
+    if cookie_sid:
+        return cookie_sid
+    return _issue_server_session_id()
 
 def init_chat_router(socketio_instance, locks_dict, audit_log_fn):
     """Initialize router with dependencies"""
@@ -46,6 +108,7 @@ async def get_session_lock(session_id: str):
 @router.post("/speech")
 async def handle_speech(
     request: Request,
+    response: Response,
     text: str = Form(None),
     session_id: str = Form(None),
     user_name: str = Form(None),
@@ -61,8 +124,37 @@ async def handle_speech(
     - คืนค่า response พร้อม motion
     """
     start_time = time.time()
-    user_id = auth or "anonymous"
-    final_session_id = session_id if session_id else (user_id if user_id != "local-dev-user" else str(uuid.uuid4()))
+    origin = (request.headers.get("origin") or "").strip()
+    if not _is_origin_allowed(origin):
+        raise HTTPException(status_code=403, detail="Origin not allowed.")
+
+    api_key = str(auth or "").strip()
+    if SPEECH_REQUIRE_API_KEY and not api_key:
+        raise HTTPException(status_code=401, detail="Missing API key.")
+    if _allowed_api_keys:
+        if not api_key:
+            raise HTTPException(status_code=401, detail="Missing API key.")
+        if api_key not in _allowed_api_keys:
+            raise HTTPException(status_code=401, detail="Invalid API key.")
+
+    client_ip = (request.client.host if request.client else "unknown").strip()
+    rate_limit_key = api_key if api_key else f"ip:{client_ip}"
+    await _enforce_rate_limit(rate_limit_key)
+
+    final_session_id = _resolve_session_id(request, session_id)
+    if _validate_session_id(request.cookies.get("reg01_sid")) != final_session_id:
+        response.set_cookie(
+            key="reg01_sid",
+            value=final_session_id,
+            max_age=60 * 60 * 24 * 30,
+            httponly=True,
+            samesite="lax",
+            secure=request.url.scheme == "https",
+            path="/",
+        )
+    response.headers["X-Session-Id"] = final_session_id
+
+    user_id = api_key or client_ip
     final_user_name = user_name or f"Web User {final_session_id[:5]}"
     final_user_pic = user_pic or "https://www.gravatar.com/avatar/?d=mp"
     
@@ -78,15 +170,16 @@ async def handle_speech(
                 os.remove(temp_path)
 
     if not text:
-        return {"text": "", "motion": "Idle"}
+        return {"text": "", "motion": "Idle", "session_id": final_session_id}
     
-    await sio.emit("admin_new_message", {
-        "platform": "web",
-        "uid": final_session_id,
-        "text": text,
-        "user_name": final_user_name,
-        "user_pic": final_user_pic
-    })
+    if sio:
+        await sio.emit("admin_new_message", {
+            "platform": "web",
+            "uid": final_session_id,
+            "text": text,
+            "user_name": final_user_name,
+            "user_pic": final_user_pic
+        })
 
     bot_enabled = get_bot_enabled(final_session_id)
     if not bot_enabled:
@@ -104,7 +197,11 @@ async def handle_speech(
             user_picture=final_user_pic,
             platform="web"
         )
-        return {"text": "ขณะนี้ Bot ปิดให้บริการ (Admin กำลังดูแลคุณ)", "motion": "Idle"}
+        return {
+            "text": "ขณะนี้ Bot ปิดให้บริการ (Admin กำลังดูแลคุณ)",
+            "motion": "Idle",
+            "session_id": final_session_id,
+        }
 
     async with await get_session_lock(final_session_id):
         get_or_create_history(
@@ -113,8 +210,11 @@ async def handle_speech(
             user_picture=final_user_pic,
             platform="web"
         )
-        
-        result = await ask_llm(text, final_session_id, emit_fn=sio.emit)
+
+        async def _emit_to_session(event_name: str, payload: dict):
+            await emit_to_web_session(event_name, payload, final_session_id)
+
+        result = await ask_llm(text, final_session_id, emit_fn=_emit_to_session)
         reply = result["text"]
         trace_id = result.get("trace_id")
         flow_config = get_effective_flow_config()
@@ -142,17 +242,19 @@ async def handle_speech(
         )
     
     display_text = f"[Bot พี่เร็ก] {reply.replace('//', '')}"
-    await sio.emit("admin_bot_reply", {
-        "platform": "web",
-        "uid": final_session_id,
-        "text": display_text
-    })
-    await sio.emit("ai_response", {
+    if sio:
+        await sio.emit("admin_bot_reply", {
+            "platform": "web",
+            "uid": final_session_id,
+            "text": display_text
+        })
+
+    await emit_to_web_session("ai_response", {
         "motion": motion,
         "text": display_text
-    })
+    }, final_session_id)
     
-    return {"text": display_text, "motion": motion}
+    return {"text": display_text, "motion": motion, "session_id": final_session_id}
 
 @router.post("/speak")
 async def text_to_speech(text: str = Form(...)):

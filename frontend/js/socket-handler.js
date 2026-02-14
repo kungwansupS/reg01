@@ -40,6 +40,12 @@ if (skipBtn) {
   });
 }
 
+function registerSessionRoom() {
+  const sid = (window.session_id || localStorage.getItem("session_id") || "").trim();
+  if (!sid || !socket?.connected) return;
+  socket.emit("client_register_session", { session_id: sid });
+}
+
 socket.on("connect", () => {
   console.log("✅ Socket.IO connected");
   const statusText = document.getElementById("status-text");
@@ -51,6 +57,8 @@ socket.on("connect", () => {
     connectionStatus.classList.add("connected");
     showStatusTemporarily();
   }
+
+  registerSessionRoom();
 });
 
 socket.on("disconnect", () => {
@@ -81,6 +89,13 @@ function showStatusTemporarily() {
     connectionStatus?.classList.remove("show");
   }, 3000);
 }
+
+socket.on("session_registered", (data) => {
+  const sid = String(data?.session_id || "").trim();
+  if (!sid) return;
+  window.session_id = sid;
+  localStorage.setItem("session_id", sid);
+});
 
 socket.on("subtitle", (data) => {
   if (data.speaker === "user") {

@@ -26,6 +26,22 @@ LOCAL_API_KEY = os.getenv("LOCAL_API_KEY", "ollama")
 LOCAL_MODEL_NAME = os.getenv("LOCAL_MODEL_NAME", "chinda-qwen3-4b")
 LOCAL_BASE_URL = os.getenv("LOCAL_BASE_URL", "http://localhost:11434/v1")
 
+
+def _env_bool(name: str, default: str = "false") -> bool:
+    return str(os.getenv(name, default)).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_csv(name: str, default: str = "") -> list[str]:
+    raw = str(os.getenv(name, default) or "")
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+
+def _env_int(name: str, default: str) -> int:
+    try:
+        return int(str(os.getenv(name, default)).strip())
+    except (TypeError, ValueError):
+        return int(default)
+
 # เนเธชเธ”เธเธชเธ–เธฒเธเธฐเน€เธฃเธดเนเธกเธ•เนเธ
 print(f"LLM Provider: {LLM_PROVIDER}")
 
@@ -44,6 +60,11 @@ PDF_QUICK_USE_FOLDER = os.getenv(
     os.path.join(BASE_DIR, "static/quick_use")
 )
 
+# Startup embedding pipeline
+RAG_STARTUP_EMBEDDING = _env_bool("RAG_STARTUP_EMBEDDING", "true")
+RAG_STARTUP_PROCESS_PDF = _env_bool("RAG_STARTUP_PROCESS_PDF", "true")
+RAG_STARTUP_BUILD_HYBRID = _env_bool("RAG_STARTUP_BUILD_HYBRID", "true")
+
 # โ… FIX: เน€เธเธฅเธตเนเธขเธเธเธฒเธ session_storage เน€เธเนเธ sessions เธซเธฃเธทเธญเธ•เธฒเธกเธเธทเนเธญเนเธเธฅเน€เธ”เธญเธฃเนเธเธฃเธดเธ
 # เนเธเธฅเน€เธ”เธญเธฃเนเธชเธณเธซเธฃเธฑเธเน€เธเนเธเธเธฃเธฐเธงเธฑเธ•เธดเธเธฒเธฃเธชเธเธ—เธเธฒ (Session Memory)
 SESSION_DIR = os.getenv(
@@ -59,7 +80,7 @@ BOT_SETTINGS_FILE = os.path.join(BASE_DIR, "../memory/bot_settings.json")
 # ----------------------------------------------------------------------------- #
 PORT = int(os.getenv("PORT", 5000))
 HOST = os.getenv("HOST", "0.0.0.0")
-ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
+ALLOWED_ORIGINS = _env_csv("ALLOWED_ORIGINS", "*")
 
 # ----------------------------------------------------------------------------- #
 # RESOURCE CONTROL & SECURITY (PHASE 1 & 2)
@@ -69,6 +90,15 @@ MAX_CONCURRENT_LLM_CALLS = int(os.getenv("MAX_CONCURRENT_LLM_CALLS", "10"))
 
 # [PHASE 2] เธเธตเธขเนเธชเธณเธซเธฃเธฑเธเธ•เธฃเธงเธเธชเธญเธเธเธงเธฒเธกเธ–เธนเธเธ•เนเธญเธ
 AUTH_SECRET_KEY = os.getenv("AUTH_SECRET_KEY", "your-university-sso-secret")
+
+# Web speech API hardening
+SPEECH_REQUIRE_API_KEY = _env_bool("SPEECH_REQUIRE_API_KEY", "true")
+SPEECH_ALLOWED_API_KEYS = _env_csv("SPEECH_ALLOWED_API_KEYS", "")
+SPEECH_RATE_LIMIT_PER_MINUTE = max(1, _env_int("SPEECH_RATE_LIMIT_PER_MINUTE", "30"))
+
+# Audit log hardening
+AUDIT_LOG_RETENTION_DAYS = max(1, _env_int("AUDIT_LOG_RETENTION_DAYS", "30"))
+AUDIT_LOG_MAX_SIZE_MB = max(1, _env_int("AUDIT_LOG_MAX_SIZE_MB", "20"))
 
 # ----------------------------------------------------------------------------- #
 # HELPER FUNCTIONS

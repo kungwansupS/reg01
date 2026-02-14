@@ -10,7 +10,16 @@ import logging
 from dotenv import load_dotenv
 
 from app.utils.vector_manager import vector_manager
-from app.config import PDF_QUICK_USE_FOLDER, LLM_PROVIDER, GEMINI_MODEL_NAME, OPENAI_MODEL_NAME, LOCAL_MODEL_NAME
+from app.config import (
+    PDF_QUICK_USE_FOLDER,
+    LLM_PROVIDER,
+    GEMINI_MODEL_NAME,
+    OPENAI_MODEL_NAME,
+    LOCAL_MODEL_NAME,
+    RAG_STARTUP_EMBEDDING,
+    RAG_STARTUP_PROCESS_PDF,
+    RAG_STARTUP_BUILD_HYBRID,
+)
 from memory.session import get_or_create_history, save_history, cleanup_old_sessions, get_bot_enabled
 
 load_dotenv()
@@ -111,6 +120,56 @@ async def build_hybrid_index():
     
     await asyncio.to_thread(run_build)
 
+
+async def process_pdfs_for_rag():
+    """
+    Run PDF -> TXT pipeline before embedding sync (startup use-case).
+    """
+    def run_process():
+        from pdf_to_txt import process_pdfs
+        process_pdfs()
+
+    logger.info("📄 [Startup RAG] Running PDF to TXT pipeline...")
+    started = time.perf_counter()
+    await asyncio.to_thread(run_process)
+    logger.info(f"✅ [Startup RAG] PDF to TXT completed in {round(time.perf_counter() - started, 2)}s")
+
+
+async def run_startup_embedding_pipeline():
+    """
+    Startup pipeline:
+    1) Optional PDF -> TXT
+    2) Embedding sync to vector DB
+    3) Optional hybrid index build
+    """
+    if not RAG_STARTUP_EMBEDDING:
+        logger.info("⏭️ [Startup RAG] Skipped (RAG_STARTUP_EMBEDDING=false)")
+        return
+
+    logger.info(
+        "🚀 [Startup RAG] Begin pipeline | process_pdf=%s build_hybrid=%s",
+        RAG_STARTUP_PROCESS_PDF,
+        RAG_STARTUP_BUILD_HYBRID,
+    )
+    started = time.perf_counter()
+
+    if RAG_STARTUP_PROCESS_PDF:
+        try:
+            await process_pdfs_for_rag()
+        except Exception as exc:
+            logger.error(f"❌ [Startup RAG] PDF to TXT failed: {exc}")
+    else:
+        logger.info("⏭️ [Startup RAG] Skip PDF to TXT (RAG_STARTUP_PROCESS_PDF=false)")
+
+    await sync_vector_db()
+
+    if RAG_STARTUP_BUILD_HYBRID:
+        await build_hybrid_index()
+    else:
+        logger.info("⏭️ [Startup RAG] Skip hybrid index (RAG_STARTUP_BUILD_HYBRID=false)")
+
+    logger.info(f"✅ [Startup RAG] Pipeline completed in {round(time.perf_counter() - started, 2)}s")
+
 async def maintenance_loop():
     """งานบำรุงรักษาระบบรายวัน"""
     while True:
@@ -188,7 +247,8 @@ async def fb_worker():
                     platform="facebook"
                 )
                 
-                result = await ask_llm_fn(user_text, session_id, emit_fn=sio.emit)
+                # FB worker does not need to broadcast ai_status to all sockets.
+                result = await ask_llm_fn(user_text, session_id)
                 reply = result["text"]
                 tokens = result.get("tokens", {})
                 trace_id = result.get("trace_id")

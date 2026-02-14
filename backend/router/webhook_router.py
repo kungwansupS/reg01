@@ -7,6 +7,8 @@ from fastapi.responses import JSONResponse
 import os
 import json
 import logging
+import hmac
+import hashlib
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -15,8 +17,24 @@ router = APIRouter(prefix="", tags=["webhooks"])
 logger = logging.getLogger("WebhookRouter")
 
 FB_VERIFY_TOKEN = os.getenv("FB_VERIFY_TOKEN", "")
+FB_APP_SECRET = os.getenv("FB_APP_SECRET", "")
 
 fb_task_queue = None
+
+
+def _verify_webhook_signature(raw_body: bytes, signature_header: str) -> bool:
+    if not FB_APP_SECRET:
+        return True
+    if not signature_header or not signature_header.startswith("sha256="):
+        return False
+
+    incoming_signature = signature_header.split("=", 1)[1].strip()
+    expected_signature = hmac.new(
+        FB_APP_SECRET.encode("utf-8"),
+        raw_body,
+        hashlib.sha256,
+    ).hexdigest()
+    return hmac.compare_digest(incoming_signature, expected_signature)
 
 def init_webhook_router(task_queue):
     """Initialize router with task queue"""
@@ -39,8 +57,17 @@ async def fb_verify(request: Request):
 async def fb_webhook(request: Request):
     """Facebook Webhook Endpoint - รับข้อความจาก Messenger"""
     raw = await request.body()
+    signature = (request.headers.get("X-Hub-Signature-256") or "").strip()
+
+    if not _verify_webhook_signature(raw, signature):
+        logger.warning("Invalid webhook signature")
+        return JSONResponse({"status": "error", "message": "Invalid signature"}, status_code=401)
     
     try:
+        if fb_task_queue is None:
+            logger.error("Webhook task queue is not initialized")
+            return JSONResponse({"status": "error", "message": "Server not ready"}, status_code=503)
+
         payload = json.loads(raw.decode("utf-8"))
         
         for entry in payload.get("entry", []):

@@ -12,13 +12,19 @@ import httpx
 import asyncio
 import datetime
 import hashlib
+import re
 import logging
-from collections import defaultdict
+import time
 from concurrent.futures import ThreadPoolExecutor
+from threading import Lock
 from dotenv import load_dotenv
 
 # Import configurations
-from app.config import BOT_SETTINGS_FILE
+from app.config import (
+    ALLOWED_ORIGINS,
+    AUDIT_LOG_RETENTION_DAYS,
+    AUDIT_LOG_MAX_SIZE_MB,
+)
 from app.utils.llm.llm_model import close_llm_clients
 from app.utils.llm.llm import ask_llm
 from app.utils.token_counter import calculate_cost
@@ -50,6 +56,17 @@ logger = logging.getLogger("MainBackend")
 executor = ThreadPoolExecutor(max_workers=10)
 fb_task_queue = asyncio.Queue()
 session_locks = {}
+AUDIT_LOG_PATH = os.path.join("logs", "user_audit.log")
+_audit_lock = Lock()
+_last_audit_trim_ts = 0.0
+_SENSITIVE_KV_PATTERN = re.compile(
+    r"(?i)\b(api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|password|secret)\b\s*[:=]\s*([^\s,;]+)"
+)
+_SENSITIVE_TOKEN_PATTERNS = [
+    re.compile(r"\bsk-[A-Za-z0-9]{12,}\b"),
+    re.compile(r"\bAIza[0-9A-Za-z_-]{20,}\b"),
+    re.compile(r"\bghp_[A-Za-z0-9]{20,}\b"),
+]
 
 # ----------------------------------------------------------------------------- #
 # HELPER FUNCTIONS
@@ -57,6 +74,72 @@ session_locks = {}
 def hash_id(user_id: str) -> str:
     """Hash user ID for privacy"""
     return hashlib.sha256(user_id.encode()).hexdigest()[:16]
+
+
+def _redact_sensitive_text(text: str) -> str:
+    cleaned = str(text or "")
+
+    def _mask_kv(match: re.Match) -> str:
+        return f"{match.group(1)}=[REDACTED]"
+
+    cleaned = _SENSITIVE_KV_PATTERN.sub(_mask_kv, cleaned)
+    for pattern in _SENSITIVE_TOKEN_PATTERNS:
+        cleaned = pattern.sub("[REDACTED]", cleaned)
+    return cleaned
+
+
+def _trim_audit_log_if_needed(force: bool = False) -> None:
+    global _last_audit_trim_ts
+
+    now_ts = time.time()
+    if not force and now_ts - _last_audit_trim_ts < 3600:
+        return
+
+    with _audit_lock:
+        if not os.path.exists(AUDIT_LOG_PATH):
+            _last_audit_trim_ts = now_ts
+            return
+
+        try:
+            with open(AUDIT_LOG_PATH, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+        except Exception:
+            _last_audit_trim_ts = now_ts
+            return
+
+        changed = False
+        cutoff = datetime.datetime.now() - datetime.timedelta(days=AUDIT_LOG_RETENTION_DAYS)
+        kept_lines = []
+        for line in lines:
+            row = line.strip()
+            if not row:
+                changed = True
+                continue
+            try:
+                parsed = json.loads(row)
+                ts = datetime.datetime.strptime(
+                    str(parsed.get("timestamp", "")),
+                    "%Y-%m-%d %H:%M:%S",
+                )
+                if ts < cutoff:
+                    changed = True
+                    continue
+            except Exception:
+                # Keep unparsable rows instead of dropping data unexpectedly.
+                pass
+            kept_lines.append(line if line.endswith("\n") else f"{line}\n")
+
+        max_bytes = max(1, AUDIT_LOG_MAX_SIZE_MB) * 1024 * 1024
+        while kept_lines and sum(len(item.encode("utf-8")) for item in kept_lines) > max_bytes:
+            kept_lines.pop(0)
+            changed = True
+
+        if changed:
+            with open(AUDIT_LOG_PATH, "w", encoding="utf-8") as f:
+                f.writelines(kept_lines)
+
+        _last_audit_trim_ts = now_ts
+
 
 def write_audit_log(
     user_id: str,
@@ -75,8 +158,8 @@ def write_audit_log(
         "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "anon_id": hash_id(user_id),
         "platform": platform,
-        "input": user_input[:300],
-        "output": ai_response[:300],
+        "input": _redact_sensitive_text(user_input)[:300],
+        "output": _redact_sensitive_text(ai_response)[:300],
         "latency": round(latency, 2),
         "rating": rating
     }
@@ -100,8 +183,9 @@ def write_audit_log(
                 log_entry["tokens"]["cost_usd"] = round(cost, 6)
     
     os.makedirs("logs", exist_ok=True)
-    with open("logs/user_audit.log", "a", encoding="utf-8") as f:
+    with open(AUDIT_LOG_PATH, "a", encoding="utf-8") as f:
         f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
+    _trim_audit_log_if_needed()
 
 async def send_fb_text(psid: str, text: str):
     """Send message to Facebook Messenger"""
@@ -117,18 +201,22 @@ async def send_fb_text(psid: str, text: str):
     async with httpx.AsyncClient(timeout=15) as client:
         await client.post(url, json=data)
 
+allow_all_origins = "*" in ALLOWED_ORIGINS
+cors_origins = ["*"] if allow_all_origins else ALLOWED_ORIGINS
+socketio_origins = "*" if allow_all_origins else cors_origins
+
 # ----------------------------------------------------------------------------- #
 # APPLICATION SETUP
 # ----------------------------------------------------------------------------- #
-sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins="*")
+sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins=socketio_origins)
 app = FastAPI(
     title="REG-01 Backend",
     version="2.0.0",
     middleware=[
         Middleware(
             CORSMiddleware,
-            allow_origins=["*"],
-            allow_credentials=True,
+            allow_origins=cors_origins,
+            allow_credentials=not allow_all_origins,
             allow_methods=["*"],
             allow_headers=["*"]
         )
@@ -188,9 +276,8 @@ async def startup_event():
     """Application startup"""
     logger.info("🚀 Starting REG-01 Application...")
     
-    await background_tasks.sync_vector_db()
-    
-    await background_tasks.build_hybrid_index()
+    _trim_audit_log_if_needed(force=True)
+    await background_tasks.run_startup_embedding_pipeline()
     
     asyncio.create_task(background_tasks.maintenance_loop())
     for _ in range(5):

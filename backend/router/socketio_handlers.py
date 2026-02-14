@@ -3,6 +3,8 @@ SocketIO Event Handlers
 จัดการ real-time communication ผ่าน WebSocket
 """
 import logging
+import os
+import hmac
 from memory.session import get_or_create_history, save_history, get_bot_enabled
 
 logger = logging.getLogger("SocketIOHandlers")
@@ -23,6 +25,14 @@ async def emit_to_web_session(event: str, payload: dict, session_id: str):
     if not session_key:
         return
     await sio.emit(event, payload, room=web_session_room(session_key))
+
+
+def _is_valid_admin_socket_token(raw_token: str) -> bool:
+    token = str(raw_token or "").strip()
+    if not token:
+        return False
+    expected = os.getenv("ADMIN_TOKEN", "super-secret-key")
+    return hmac.compare_digest(token, expected)
 
 def init_socketio_handlers(socketio_instance, fb_sender_fn):
     """Initialize SocketIO handlers"""
@@ -56,12 +66,22 @@ async def handle_admin_manual_reply(sid, data):
         sid: Socket ID
         data: {uid, text, platform}
     """
+    if not isinstance(data, dict):
+        logger.warning("Invalid admin reply payload type")
+        return
+
     uid = data.get("uid")
     text = data.get("text")
     platform = data.get("platform")
+    admin_token = data.get("admin_token")
     
     if not uid or not text:
         logger.warning("⚠️ Invalid admin reply data")
+        return
+
+    if not _is_valid_admin_socket_token(admin_token):
+        logger.warning("Unauthorized admin_manual_reply attempt")
+        await sio.emit("admin_error", {"message": "Unauthorized admin socket action"}, room=sid)
         return
     
     if get_bot_enabled(uid):

@@ -537,7 +537,12 @@ async def get_trace_graph(trace_id: str):
 @router.get("/connections", dependencies=[Depends(verify_dev_access)])
 async def get_connections():
     llm_provider = os.getenv("LLM_PROVIDER", "").strip().lower() or "unknown"
-    openai_key = bool(os.getenv("OPENAI_API_KEY"))
+    openai_key = bool(
+        os.getenv("OPENAI_API_KEY")
+        or os.getenv("OPENAI_API_KEY2")
+        or os.getenv("OPENAI_API_KEY_BACKUP")
+        or os.getenv("OPENAI_API_KEYS")
+    )
     gemini_key = bool(os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY"))
     fb_token = bool(os.getenv("FB_PAGE_ACCESS_TOKEN"))
 

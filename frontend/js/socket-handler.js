@@ -1,86 +1,28 @@
-const socket = window.socket;
+const socket = window.socket || null;
 
-// stop ai reponse
-let currentAIResponseAudio = null; // เพิ่มตัวแปรนี้ไว้ด้านบน
-let currentMediaSource = null; // เพิ่มตัวแปรนี้
-let stopped = false; // ย้ายออกมาเป็น global ถ้าต้องการ
+let currentAIResponseAudio = null;
+let currentMediaSource = null;
+let stopped = false;
+let lastAIKey = "";
+let lastAIAt = 0;
 
 const skipBtn = document.getElementById("skip-ai-response");
 
-if (skipBtn) {
-  skipBtn.addEventListener("click", () => {
-    console.log("[DEBUG] skip-ai-response CLICKED");
-    stopped = true;
-    if (currentAIResponseAudio) {
-      console.log("[DEBUG] currentAIResponseAudio exists, pausing and clearing src");
-      currentAIResponseAudio.pause();
-      currentAIResponseAudio.currentTime = 0;
-      currentAIResponseAudio.src = ""; // ล้างแหล่งที่มาของเสียง
-      currentAIResponseAudio = null;
-    } else {
-      console.log("[DEBUG] currentAIResponseAudio is null");
-    }
-    if (currentMediaSource) {
-      try {
-        console.log("[DEBUG] currentMediaSource exists, readyState =", currentMediaSource.readyState);
-        if (currentMediaSource.readyState === "open") {
-          console.log("[DEBUG] currentMediaSource exists, calling endOfStream()");
-          currentMediaSource.endOfStream();
-        } else {
-          console.log("[DEBUG] currentMediaSource is not open, readyState =", currentMediaSource.readyState);
-        }
-      } catch (e) {
-        console.log("[DEBUG] Error in endOfStream:", e);
-      }
-      currentMediaSource = null;
-    } else {
-      console.log("[DEBUG] currentMediaSource is null");
-    }
-    skipBtn.classList.add("hidden");
-  });
+function dedupeAIMessage(data) {
+  const key = `${String(data?.motion || "")}|${String(data?.text || "")}`.trim();
+  const now = Date.now();
+  if (key && key === lastAIKey && now - lastAIAt < 2000) return true;
+  lastAIKey = key;
+  lastAIAt = now;
+  return false;
 }
 
 function registerSessionRoom() {
+  if (!socket || !socket.connected) return;
   const sid = (window.session_id || localStorage.getItem("session_id") || "").trim();
-  if (!sid || !socket?.connected) return;
+  if (!sid) return;
   socket.emit("client_register_session", { session_id: sid });
 }
-
-socket.on("connect", () => {
-  console.log("✅ Socket.IO connected");
-  const statusText = document.getElementById("status-text");
-  const connectionStatus = document.getElementById("connection-status");
-
-  if (statusText) statusText.textContent = "Connected";
-  if (connectionStatus) {
-    connectionStatus.classList.remove("disconnected");
-    connectionStatus.classList.add("connected");
-    showStatusTemporarily();
-  }
-
-  registerSessionRoom();
-});
-
-socket.on("disconnect", () => {
-  console.log("❌ Socket.IO disconnected");
-  const statusText = document.getElementById("status-text");
-  const connectionStatus = document.getElementById("connection-status");
-
-  if (statusText) statusText.textContent = "Disconnected";
-  if (connectionStatus) {
-    connectionStatus.classList.remove("connected");
-    connectionStatus.classList.add("disconnected");
-    showStatusTemporarily();
-  }
-
-  const retryInterval = setInterval(() => {
-    if (!socket.connected) {
-      socket.connect();
-    } else {
-      clearInterval(retryInterval);
-    }
-  }, 3000);
-});
 
 function showStatusTemporarily() {
   const connectionStatus = document.getElementById("connection-status");
@@ -90,72 +32,71 @@ function showStatusTemporarily() {
   }, 3000);
 }
 
-socket.on("session_registered", (data) => {
-  const sid = String(data?.session_id || "").trim();
-  if (!sid) return;
-  window.session_id = sid;
-  localStorage.setItem("session_id", sid);
-});
-
-socket.on("subtitle", (data) => {
-  if (data.speaker === "user") {
-    const userMessage = document.createElement("div");
-    userMessage.className = "user-message";
-    userMessage.textContent = data.text;
-    const subtitles = document.getElementById("subtitles");
-    subtitles?.appendChild(userMessage);
-    subtitles.scrollTop = subtitles?.scrollHeight || 0;
+function stopCurrentPlayback() {
+  stopped = true;
+  if (currentAIResponseAudio) {
+    currentAIResponseAudio.pause();
+    currentAIResponseAudio.currentTime = 0;
+    currentAIResponseAudio.src = "";
+    currentAIResponseAudio = null;
   }
-});
-
-socket.on("ai_response", async (data) => {
-  console.log("🤖 AI ตอบกลับ:", data.text);
-
-  if (!data.text || data.text.trim() === "") {
-    const aiStatusBar = document.getElementById("ai-status-bar");
-    if (aiStatusBar) aiStatusBar.textContent = "❌ ไม่สามารถตอบกลับได้";
-    return;
+  if (currentMediaSource) {
+    try {
+      if (currentMediaSource.readyState === "open") currentMediaSource.endOfStream();
+    } catch (_) {
+      // ignore
+    }
+    currentMediaSource = null;
   }
+  skipBtn?.classList.add("hidden");
+}
 
-  const aiMessage = document.createElement("div");
-  aiMessage.className = "ai-message";
-  aiMessage.textContent = data.text;
-  const subtitles = document.getElementById("subtitles");
-  subtitles?.appendChild(aiMessage);
-  subtitles.scrollTop = subtitles?.scrollHeight || 0;
+if (skipBtn) {
+  skipBtn.addEventListener("click", stopCurrentPlayback);
+}
 
-  if (data.motion && typeof playMotion === "function") {
-    playMotion(data.motion);
-  }
-
+async function streamTtsAudio(text) {
   const form = new FormData();
-  form.append("text", data.text);
+  form.append("text", text);
 
-  const response = await fetch("/api/speak", {
-    method: "POST",
-    body: form
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
+  let response;
+  try {
+    response = await fetch("/api/speak", {
+      method: "POST",
+      body: form,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+
+  if (response.status === 204) return;
+  const contentType = String(response.headers.get("content-type") || "").toLowerCase();
+  if (!response.ok || !response.body || !contentType.includes("audio/")) return;
 
   const mediaSource = new MediaSource();
   currentMediaSource = mediaSource;
-  stopped = false; // reset flag ทุกครั้งที่มีเสียงใหม่
+  stopped = false;
 
   const audio = new Audio();
   audio.src = URL.createObjectURL(mediaSource);
-  currentAIResponseAudio = audio; // เก็บไว้เพื่อให้สามารถหยุดได้
-  audio.play();
+  currentAIResponseAudio = audio;
+  skipBtn?.classList.remove("hidden");
 
-  // แสดงปุ่ม skip
-  if (skipBtn) skipBtn.classList.remove("hidden");
   audio.addEventListener("ended", () => {
-    if (skipBtn) skipBtn.classList.add("hidden");
+    skipBtn?.classList.add("hidden");
     currentAIResponseAudio = null;
     currentMediaSource = null;
   });
+
+  await audio.play().catch(() => {});
+
   mediaSource.addEventListener("sourceopen", () => {
     const sourceBuffer = mediaSource.addSourceBuffer("audio/mpeg");
     const reader = response.body.getReader();
-    let queue = [];
+    const queue = [];
     let updating = false;
 
     sourceBuffer.addEventListener("updateend", () => {
@@ -166,18 +107,16 @@ socket.on("ai_response", async (data) => {
     });
 
     function pump() {
-      if (stopped) {
-        console.log("[DEBUG] pump stopped by skip");
-        return;
-      }
+      if (stopped) return;
       reader.read().then(({ done, value }) => {
-        if (stopped) {
-          console.log("[DEBUG] pump stopped by skip (after read)");
-          return;
-        }
+        if (stopped) return;
         if (done) {
           if (!sourceBuffer.updating && queue.length === 0) {
-            try { mediaSource.endOfStream(); } catch (e) {}
+            try {
+              mediaSource.endOfStream();
+            } catch (_) {
+              // ignore
+            }
           }
           return;
         }
@@ -197,21 +136,102 @@ socket.on("ai_response", async (data) => {
   if (typeof setupAudioAnalyzer === "function") {
     setupAudioAnalyzer(audio);
   }
-});
+}
 
-socket.on("ai_status", (data) => {
-  const aiStatusBar = document.getElementById("ai-status-bar");
-  const statusText = data.status || "";
+window.handleAIResponse = async function handleAIResponse(data) {
+  if (!data || dedupeAIMessage(data)) return;
 
-  if (!aiStatusBar) return;
-
-  if (statusText.includes("กำลัง")) {
-    const cleanText = statusText.replace(/\.\.\.$/, "");
-    aiStatusBar.innerHTML = cleanText +
-      '<span class="dot-anim">.</span>' +
-      '<span class="dot-anim">.</span>' +
-      '<span class="dot-anim">.</span>';
-  } else {
-    aiStatusBar.innerHTML = statusText;
+  const text = String(data.text || "").trim();
+  if (!text) {
+    const aiStatusBar = document.getElementById("ai-status-bar");
+    if (aiStatusBar) aiStatusBar.textContent = "No response text.";
+    return;
   }
-});
+
+  const aiMessage = document.createElement("div");
+  aiMessage.className = "ai-message";
+  aiMessage.textContent = text;
+  const subtitles = document.getElementById("subtitles");
+  subtitles?.appendChild(aiMessage);
+  subtitles.scrollTop = subtitles?.scrollHeight || 0;
+
+  if (data.motion && typeof playMotion === "function") {
+    playMotion(data.motion);
+  }
+
+  try {
+    await streamTtsAudio(text);
+  } catch (err) {
+    console.error("TTS stream error:", err);
+  }
+};
+
+if (!socket) {
+  console.warn("Socket unavailable. HTTP fallback mode enabled.");
+} else {
+  socket.on("connect", () => {
+    const statusText = document.getElementById("status-text");
+    const connectionStatus = document.getElementById("connection-status");
+
+    if (statusText) statusText.textContent = "Connected";
+    if (connectionStatus) {
+      connectionStatus.classList.remove("disconnected");
+      connectionStatus.classList.add("connected");
+      showStatusTemporarily();
+    }
+    registerSessionRoom();
+  });
+
+  socket.on("disconnect", () => {
+    const statusText = document.getElementById("status-text");
+    const connectionStatus = document.getElementById("connection-status");
+
+    if (statusText) statusText.textContent = "Disconnected";
+    if (connectionStatus) {
+      connectionStatus.classList.remove("connected");
+      connectionStatus.classList.add("disconnected");
+      showStatusTemporarily();
+    }
+
+    const retryInterval = setInterval(() => {
+      if (!socket.connected) {
+        socket.connect();
+      } else {
+        clearInterval(retryInterval);
+      }
+    }, 3000);
+  });
+
+  socket.on("session_registered", (data) => {
+    const sid = String(data?.session_id || "").trim();
+    if (!sid) return;
+    window.session_id = sid;
+    localStorage.setItem("session_id", sid);
+  });
+
+  if (socket.connected) {
+    registerSessionRoom();
+  } else {
+    setTimeout(registerSessionRoom, 500);
+  }
+
+  socket.on("subtitle", (data) => {
+    if (data?.speaker !== "user") return;
+    const userMessage = document.createElement("div");
+    userMessage.className = "user-message";
+    userMessage.textContent = String(data.text || "");
+    const subtitles = document.getElementById("subtitles");
+    subtitles?.appendChild(userMessage);
+    subtitles.scrollTop = subtitles?.scrollHeight || 0;
+  });
+
+  socket.on("ai_response", async (data) => {
+    await window.handleAIResponse(data);
+  });
+
+  socket.on("ai_status", (data) => {
+    const aiStatusBar = document.getElementById("ai-status-bar");
+    if (!aiStatusBar) return;
+    aiStatusBar.textContent = String(data?.status || "");
+  });
+}

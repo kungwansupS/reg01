@@ -1,9 +1,31 @@
 import edge_tts
 import re
 import logging
+import os
+import time
+from collections import deque
 from typing import AsyncGenerator
 
 logger = logging.getLogger(__name__)
+
+
+def _env_bool(name: str, default: str = "true") -> bool:
+    return str(os.getenv(name, default)).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_int(name: str, default: str) -> int:
+    try:
+        return int(str(os.getenv(name, default)).strip())
+    except (TypeError, ValueError):
+        return int(default)
+
+
+TTS_ENABLED = _env_bool("TTS_ENABLED", "true")
+TTS_DISABLE_ON_NETWORK_ERROR = _env_bool("TTS_DISABLE_ON_NETWORK_ERROR", "true")
+TTS_NETWORK_ERROR_COOLDOWN_SECONDS = max(30, _env_int("TTS_NETWORK_ERROR_COOLDOWN_SECONDS", "300"))
+_tts_disabled_until = 0.0
+_tts_last_skip_log_ts = 0.0
+_tts_last_disable_reason = ""
 
 # ตั้งค่าเสียงสำหรับแต่ละภาษา
 LANGUAGE_SETTINGS = {
@@ -41,6 +63,84 @@ LANGUAGE_SETTINGS = {
     }
 }
 
+
+def _collect_exception_message(exc: Exception) -> str:
+    queue = deque([exc])
+    visited = set()
+    parts = []
+    while queue:
+        current = queue.popleft()
+        if not current:
+            continue
+        current_id = id(current)
+        if current_id in visited:
+            continue
+        visited.add(current_id)
+        text = str(current).strip()
+        if text:
+            parts.append(text)
+        for nested in (
+            getattr(current, "__cause__", None),
+            getattr(current, "__context__", None),
+            getattr(current, "os_error", None),
+        ):
+            if isinstance(nested, BaseException):
+                queue.append(nested)
+    return " | ".join(parts)
+
+
+def _is_network_resolution_error(exc: Exception) -> bool:
+    raw_message = _collect_exception_message(exc).lower()
+    normalized = re.sub(r"[^a-z0-9]+", " ", raw_message).strip()
+
+    direct_signatures = [
+        "temporary failure in name resolution",
+        "name or service not known",
+        "nodename nor servname provided",
+        "getaddrinfo failed",
+        "no address associated with hostname",
+        "could not resolve host",
+        "dns",
+    ]
+    if any(sig in raw_message for sig in direct_signatures):
+        return True
+
+    if "could not contact" in normalized and "dns server" in normalized:
+        return True
+    if "cannot connect to host" in raw_message and "speech.platform.bing.com" in raw_message:
+        return True
+    if "speech platform bing com" in normalized and (
+        "dns" in normalized
+        or "name resolution" in normalized
+        or "getaddrinfo" in normalized
+    ):
+        return True
+    return False
+
+
+def _is_tts_temporarily_disabled() -> bool:
+    return _tts_disabled_until > time.time()
+
+
+def _mark_tts_temporarily_disabled(reason: str) -> None:
+    global _tts_disabled_until, _tts_last_disable_reason
+    _tts_disabled_until = time.time() + float(TTS_NETWORK_ERROR_COOLDOWN_SECONDS)
+    _tts_last_disable_reason = str(reason or "").strip()
+
+
+def is_tts_available() -> bool:
+    if not TTS_ENABLED:
+        return False
+    return not _is_tts_temporarily_disabled()
+
+
+def _log_tts_skip_once(message: str) -> None:
+    global _tts_last_skip_log_ts
+    now_ts = time.time()
+    if now_ts - _tts_last_skip_log_ts >= 15:
+        logger.warning(message)
+        _tts_last_skip_log_ts = now_ts
+
 async def speak_segment(segment_text: str, settings: dict) -> AsyncGenerator[bytes, None]:
     """
     แปลงข้อความเป็นเสียงสำหรับ segment เดียว
@@ -70,9 +170,16 @@ async def speak_segment(segment_text: str, settings: dict) -> AsyncGenerator[byt
         logger.debug(f"✅ Generated {chunk_count} audio chunks for: '{segment_text[:30]}...'")
         
     except Exception as e:
+        if TTS_DISABLE_ON_NETWORK_ERROR and _is_network_resolution_error(e):
+            _mark_tts_temporarily_disabled(str(e))
+            logger.warning(
+                "⚠️ TTS temporarily disabled for %ss due to network/DNS error: %s",
+                TTS_NETWORK_ERROR_COOLDOWN_SECONDS,
+                e,
+            )
+            return
         logger.error(f"❌ TTS Error for '{segment_text[:30]}...': {e}")
-        # ส่ง silent audio เพื่อไม่ให้ stream หยุดทำงาน
-        yield b'\x00' * 1024
+        return
 
 async def speak(text: str) -> AsyncGenerator[bytes, None]:
     """
@@ -88,9 +195,18 @@ async def speak(text: str) -> AsyncGenerator[bytes, None]:
         >>> async for chunk in speak("สวัสดีครับ // Hello"):
         ...     # ส่ง chunk ไปยัง client
     """
+    if not TTS_ENABLED:
+        _log_tts_skip_once("⚠️ TTS disabled by configuration (TTS_ENABLED=false).")
+        return
+
+    if _is_tts_temporarily_disabled():
+        remaining = max(0, int(_tts_disabled_until - time.time()))
+        reason = _tts_last_disable_reason or "network error"
+        _log_tts_skip_once(f"⚠️ TTS temporarily unavailable ({remaining}s left): {reason}")
+        return
+
     if not text or not text.strip():
         logger.warning("⚠️ Empty text provided to TTS")
-        yield b'\x00' * 1024
         return
     
     try:
@@ -133,7 +249,7 @@ async def speak(text: str) -> AsyncGenerator[bytes, None]:
         
     except Exception as e:
         logger.error(f"❌ Critical TTS Error: {e}")
-        yield b'\x00' * 1024
+        return
 
 def preprocess_text(text: str) -> str:
     """

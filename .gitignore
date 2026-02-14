@@ -28,3 +28,5 @@ installed.txt
 /frontend/sound/
 /frontend/images/
 link_generate.py
+
+/backup

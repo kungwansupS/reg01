@@ -15,7 +15,7 @@ import asyncio
 import logging
 from concurrent.futures import ThreadPoolExecutor
 
-from app.tts import speak
+from app.tts import speak, is_tts_available
 from app.stt import transcribe
 from app.utils.llm.llm import ask_llm
 from app.utils.pose import suggest_pose
@@ -262,12 +262,28 @@ async def text_to_speech(text: str = Form(...)):
     Convert text to speech (TTS)
     Returns audio stream in MP3 format
     """
+    if not is_tts_available():
+        return Response(status_code=204)
+
+    stream = speak(text)
+    try:
+        first_chunk = await asyncio.wait_for(anext(stream), timeout=8.0)
+    except StopAsyncIteration:
+        return Response(status_code=204)
+    except asyncio.TimeoutError:
+        logger.warning("TTS prefetch timed out; skipping audio for this turn.")
+        return Response(status_code=204)
+    except Exception as e:
+        logger.error(f"TTS error: {e}")
+        return Response(status_code=204)
+
     async def audio_stream():
+        yield first_chunk
         try:
-            async for chunk in speak(text):
-                yield chunk
+            async for chunk in stream:
+                if chunk:
+                    yield chunk
         except Exception as e:
-            logger.error(f"❌ TTS error: {e}")
-            yield b'\x00' * 1024
-    
+            logger.error(f"TTS stream error: {e}")
+
     return StreamingResponse(audio_stream(), media_type="audio/mpeg")

@@ -1,3 +1,4 @@
+import asyncio
 import os
 import subprocess
 import time
@@ -21,6 +22,166 @@ logger = logging.getLogger(__name__)
 # Global async clients (singleton pattern)
 _async_openai_client = None
 _async_local_client = None
+
+
+def _split_csv_env(raw: str) -> list[str]:
+    return [item.strip() for item in str(raw or "").split(",") if item.strip()]
+
+
+def _dedupe_keep_order(items: list[str]) -> list[str]:
+    seen = set()
+    out = []
+    for item in items:
+        if item in seen:
+            continue
+        seen.add(item)
+        out.append(item)
+    return out
+
+
+def _load_openai_api_keys() -> list[str]:
+    explicit_list = _split_csv_env(os.getenv("OPENAI_API_KEYS", ""))
+    candidates = [
+        str(OPENAI_API_KEY or "").strip(),
+        str(os.getenv("OPENAI_API_KEY2", "")).strip(),
+        str(os.getenv("OPENAI_API_KEY_BACKUP", "")).strip(),
+        *explicit_list,
+    ]
+    keys = _dedupe_keep_order([key for key in candidates if key])
+    return keys
+
+
+def _mask_api_key(api_key: str) -> str:
+    value = str(api_key or "").strip()
+    if len(value) <= 10:
+        return "*" * len(value)
+    return f"{value[:6]}...{value[-4:]}"
+
+
+def _extract_status_code(exc: Exception) -> int | None:
+    status_code = getattr(exc, "status_code", None)
+    if isinstance(status_code, int):
+        return status_code
+    response = getattr(exc, "response", None)
+    response_status = getattr(response, "status_code", None)
+    if isinstance(response_status, int):
+        return response_status
+    return None
+
+
+def _is_retryable_openai_error(exc: Exception) -> bool:
+    status_code = _extract_status_code(exc)
+    if status_code in {408, 409, 425, 429}:
+        return True
+    if isinstance(status_code, int) and 500 <= status_code <= 599:
+        return True
+
+    transient_types = (
+        getattr(openai, "APIConnectionError", Exception),
+        getattr(openai, "APITimeoutError", Exception),
+        httpx.ConnectError,
+        httpx.ConnectTimeout,
+        httpx.ReadTimeout,
+        httpx.RemoteProtocolError,
+        httpx.NetworkError,
+    )
+    if isinstance(exc, transient_types):
+        return True
+
+    message = str(exc or "").lower()
+    markers = [
+        "429",
+        "rate limit",
+        "too many requests",
+        "resource_exhausted",
+        "quota exceeded",
+        "connection error",
+        "connect error",
+        "timeout",
+        "temporarily unavailable",
+        "server error",
+    ]
+    return any(token in message for token in markers)
+
+
+class _OpenAICompletionsFailover:
+    def __init__(self, pool):
+        self._pool = pool
+
+    async def create(self, *args, **kwargs):
+        return await self._pool.create_chat_completion(*args, **kwargs)
+
+
+class _OpenAIChatFailover:
+    def __init__(self, pool):
+        self.completions = _OpenAICompletionsFailover(pool)
+
+
+class OpenAIFailoverClient:
+    def __init__(self, clients: list, labels: list[str]):
+        if not clients:
+            raise ValueError("OpenAIFailoverClient requires at least one client.")
+        self._clients = clients
+        self._labels = labels
+        self._active_index = 0
+        self._switch_lock = asyncio.Lock()
+        self.chat = _OpenAIChatFailover(self)
+
+    async def create_chat_completion(self, *args, **kwargs):
+        retry_rounds = 2
+        last_retryable_error = None
+
+        for round_idx in range(retry_rounds):
+            async with self._switch_lock:
+                preferred_index = self._active_index
+
+            call_order = [preferred_index] + [idx for idx in range(len(self._clients)) if idx != preferred_index]
+
+            for idx in call_order:
+                client = self._clients[idx]
+                try:
+                    result = await client.chat.completions.create(*args, **kwargs)
+                    if idx != preferred_index:
+                        async with self._switch_lock:
+                            self._active_index = idx
+                        logger.warning(
+                            "OpenAI failover switched active key to #%d (%s).",
+                            idx + 1,
+                            self._labels[idx],
+                        )
+                    return result
+                except Exception as exc:
+                    if _is_retryable_openai_error(exc):
+                        last_retryable_error = exc
+                        status_code = _extract_status_code(exc)
+                        status_part = f"status={status_code}" if status_code is not None else "status=none"
+                        logger.warning(
+                            "OpenAI key #%d (%s) transient error (%s, %s); trying next key.",
+                            idx + 1,
+                            self._labels[idx],
+                            type(exc).__name__,
+                            status_part,
+                        )
+                        continue
+                    raise
+
+            if round_idx < retry_rounds - 1:
+                await asyncio.sleep(0.35 * (round_idx + 1))
+
+        if last_retryable_error is not None:
+            logger.warning(
+                "OpenAI transient errors persisted across failover rounds (%d rounds).",
+                retry_rounds,
+            )
+            raise last_retryable_error
+        raise RuntimeError("OpenAI failover could not create completion.")
+
+    async def close(self):
+        for idx, client in enumerate(self._clients):
+            try:
+                await client.close()
+            except Exception as exc:
+                logger.warning("Error closing OpenAI key #%d (%s): %s", idx + 1, self._labels[idx], exc)
 
 def ensure_local_llm_ready():
     """
@@ -85,16 +246,28 @@ def get_llm_model():
         return genai.Client(api_key=GEMINI_API_KEY)
 
     elif LLM_PROVIDER == "openai":
-        if not OPENAI_API_KEY:
+        openai_keys = _load_openai_api_keys()
+        if not openai_keys:
             raise ValueError("❌ ไม่พบ OPENAI_API_KEY")
         
         # ใช้ singleton pattern
         if _async_openai_client is None:
-            _async_openai_client = openai.AsyncOpenAI(
-                api_key=OPENAI_API_KEY,
-                base_url=OPENAI_BASE_URL,
-                timeout=httpx.Timeout(60.0, connect=10.0)
-            )
+            clients = []
+            labels = []
+            for idx, api_key in enumerate(openai_keys):
+                clients.append(
+                    openai.AsyncOpenAI(
+                        api_key=api_key,
+                        base_url=OPENAI_BASE_URL,
+                        timeout=httpx.Timeout(60.0, connect=10.0),
+                        max_retries=0,
+                    )
+                )
+                labels.append(_mask_api_key(api_key))
+                logger.info("OpenAI key #%d ready (%s)", idx + 1, labels[-1])
+            _async_openai_client = OpenAIFailoverClient(clients, labels)
+            if len(openai_keys) > 1:
+                logger.info("OpenAI failover enabled with %d keys.", len(openai_keys))
         return _async_openai_client
 
     elif LLM_PROVIDER == "local":

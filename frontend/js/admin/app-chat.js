@@ -201,12 +201,14 @@ function adminChat() {
             });
 
             this.newMessage = '';
+            const adminToken = localStorage.getItem('adminToken') || '';
 
             // ส่งข้อความผ่าน Socket
             this.socket.emit('admin_manual_reply', {
                 uid: this.currentSession.id,
                 platform: this.currentSession.platform,
-                text: text
+                text: text,
+                admin_token: adminToken
             });
         },
 

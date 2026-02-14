@@ -184,7 +184,7 @@ async def list_admin_files(root: str = "data", subdir: str = ""):
     return {"root": root, "current_path": clean_subdir, "entries": sorted(entries, key=lambda x: (x["type"] != "dir", x["name"].lower()))}
 
 @router.post("/mkdir", dependencies=[Depends(verify_admin)])
-async def create_directory(root: str = Form(...), path: str = Form(...), name: str = Form(...)):
+async def create_directory(root: str = Form(...), path: str = Form(""), name: str = Form(...)):
     try:
         target = os.path.join(get_secure_path(root, path), name)
         os.makedirs(target, exist_ok=True)

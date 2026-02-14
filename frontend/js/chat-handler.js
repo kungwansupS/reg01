@@ -5,9 +5,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const recordBtn = document.getElementById("record-button");
   const toggleButton = document.getElementById("toggle-mode");
 
-  // ตรวจสอบ Token เริ่มต้นสำหรับการพัฒนา
   if (!localStorage.getItem("auth_token")) {
-    localStorage.setItem("auth_token", "dev-token-" + Math.random().toString(36).substr(2, 9));
+    localStorage.setItem("auth_token", `dev-token-${Math.random().toString(36).slice(2, 11)}`);
   }
 
   window.isTextMode = false;
@@ -35,7 +34,7 @@ document.addEventListener("DOMContentLoaded", () => {
     sendText(inputBox, socket);
   });
 
-  document.addEventListener("keydown", async (event) => {
+  document.addEventListener("keydown", (event) => {
     if (window.isTextMode && event.code === "Enter") {
       event.preventDefault();
       sendText(inputBox, socket);
@@ -43,13 +42,22 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 });
 
+function syncSessionIdFromResponse(response, socket) {
+  const serverSession = (response.headers.get("x-session-id") || "").trim();
+  if (!serverSession) return;
+  window.session_id = serverSession;
+  localStorage.setItem("session_id", serverSession);
+  if (socket?.connected) {
+    socket.emit("client_register_session", { session_id: serverSession });
+  }
+}
+
 async function sendText(inputBox, socket) {
   const text = inputBox.value.trim();
   if (!text) return;
 
-  if (!socket.connected) {
-    showPopup("ไม่สามารถส่งข้อความได้: ไม่ได้เชื่อมต่อเซิร์ฟเวอร์");
-    return;
+  if (!socket?.connected) {
+    showPopup("Socket disconnected, using direct API mode.");
   }
 
   const userMessage = document.createElement("div");
@@ -61,25 +69,50 @@ async function sendText(inputBox, socket) {
 
   inputBox.value = "";
 
-  const form = new FormData();
   const sessionId = window.session_id || localStorage.getItem("session_id") || crypto.randomUUID();
+  window.session_id = sessionId;
+  localStorage.setItem("session_id", sessionId);
+
+  const form = new FormData();
   form.append("text", text);
   form.append("session_id", sessionId);
 
-  const authToken = localStorage.getItem("auth_token");
+  const authToken = localStorage.getItem("auth_token") || "";
 
   try {
-    await fetch(`/api/speech`, {
+    const response = await fetch("/api/speech", {
       method: "POST",
       body: form,
       headers: {
-        "X-API-Key": authToken
-      }
+        "X-API-Key": authToken,
+      },
     });
-    console.log("📨 ส่งข้อความสำเร็จ");
+    syncSessionIdFromResponse(response, socket);
+
+    if (!response.ok) {
+      showPopup(`Request failed (${response.status})`);
+      return;
+    }
+
+    const payload = await response.json().catch(() => null);
+    if (payload?.text) {
+      if (typeof window.handleAIResponse === "function") {
+        await window.handleAIResponse({
+          text: payload.text,
+          motion: payload.motion || "Idle",
+        });
+      } else {
+        const aiMessage = document.createElement("div");
+        aiMessage.className = "ai-message";
+        aiMessage.textContent = payload.text;
+        const subtitles = document.getElementById("subtitles");
+        subtitles?.appendChild(aiMessage);
+        subtitles.scrollTop = subtitles?.scrollHeight || 0;
+      }
+    }
   } catch (err) {
-    console.error("❌ Network Error:", err);
-    showPopup("เกิดข้อผิดพลาดขณะส่งข้อความ");
+    console.error("Network Error:", err);
+    showPopup("Network error while sending message.");
   }
 }
 

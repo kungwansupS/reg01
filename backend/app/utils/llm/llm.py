@@ -420,7 +420,7 @@ async def ask_llm(
             return output
 
         except Exception as exc:
-            logger.error(f"LLM Error: {exc}")
+            logger.error("LLM Error: %s", exc, exc_info=True)
             error_message = "ขออภัย ระบบขัดข้องชั่วคราว"
             error_tokens = {
                 "prompt_tokens": 0,

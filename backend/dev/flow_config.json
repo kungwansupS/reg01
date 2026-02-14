@@ -1,7 +1,7 @@
 {
-  "revision": 2,
-  "updated_at": "2026-02-13T14:01:01.244863+00:00",
-  "updated_by": "smoke-rollback",
+  "revision": 3,
+  "updated_at": "2026-02-14T10:38:23.979545+00:00",
+  "updated_by": "auto-test",
   "config": {
     "rag": {
       "mode": "keyword",

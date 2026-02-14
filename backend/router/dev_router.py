@@ -41,6 +41,13 @@ from dev.scenario_store import (
     save_scenario_run,
 )
 from dev.trace_store import get_trace, list_traces
+from memory.faq_cache import (
+    delete_faq_entry,
+    get_faq_entry,
+    list_faq_entries,
+    purge_expired_faq_entries,
+    save_faq_entry,
+)
 
 
 router = APIRouter(prefix="/api/dev", tags=["dev"])
@@ -385,6 +392,16 @@ class ScenarioRunRequest(BaseModel):
     session_id: Optional[str] = None
     updated_by: Optional[str] = Field(default="dev")
     include_debug: bool = True
+
+
+class FaqEntryUpsertRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=4000)
+    answer: str = Field(min_length=1, max_length=40000)
+    original_question: Optional[str] = Field(default=None, max_length=4000)
+    count: Optional[int] = Field(default=None, ge=0, le=1_000_000)
+    time_sensitive: Optional[bool] = None
+    ttl_seconds: Optional[int] = Field(default=None, ge=60, le=365 * 86400)
+    source: Optional[str] = Field(default="dev-ui", max_length=120)
 
 
 class FileWriteRequest(BaseModel):
@@ -1107,6 +1124,54 @@ async def run_scenario(scenario_id: str, payload: ScenarioRunRequest):
         "result": result,
         "effective_config": flow_cfg,
     }
+
+
+@router.get("/faq", dependencies=[Depends(verify_dev_access)])
+async def list_faq_items(
+    limit: int = 300,
+    query: str = "",
+    include_expired: bool = False,
+):
+    return list_faq_entries(limit=limit, query=query, include_expired=bool(include_expired))
+
+
+@router.get("/faq/entry", dependencies=[Depends(verify_dev_access)])
+async def get_faq_item(question: str):
+    item = get_faq_entry(question)
+    if not item:
+        raise HTTPException(status_code=404, detail=f"FAQ entry not found: {question}")
+    return item
+
+
+@router.put("/faq/entry", dependencies=[Depends(verify_dev_access)])
+async def upsert_faq_item(payload: FaqEntryUpsertRequest):
+    try:
+        item = save_faq_entry(
+            question=payload.question,
+            answer=payload.answer,
+            original_question=payload.original_question,
+            count=payload.count,
+            time_sensitive=payload.time_sensitive,
+            ttl_seconds=payload.ttl_seconds,
+            source=payload.source or "dev-ui",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"item": item}
+
+
+@router.delete("/faq/entry", dependencies=[Depends(verify_dev_access)])
+async def remove_faq_item(question: str):
+    try:
+        result = delete_faq_entry(question)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return result
+
+
+@router.post("/faq/purge-expired", dependencies=[Depends(verify_dev_access)])
+async def purge_faq_expired():
+    return purge_expired_faq_entries()
 
 
 @router.get("/fs/tree", dependencies=[Depends(verify_dev_access)])

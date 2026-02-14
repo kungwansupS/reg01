@@ -1,4 +1,5 @@
 import os
+import re
 import sqlite3
 import hashlib
 import logging
@@ -75,6 +76,58 @@ class VectorManager:
                 (filepath, file_hash, datetime.datetime.now())
             )
             conn.commit()
+
+    def remove_from_registry(self, filepath: str):
+        with sqlite3.connect(self.sqlite_path) as conn:
+            conn.execute("DELETE FROM file_registry WHERE file_path = ?", (filepath,))
+            conn.commit()
+
+    def purge_out_of_scope(self, valid_paths: set[str], allowed_root: str) -> Dict[str, int]:
+        normalized_valid = {os.path.normcase(os.path.abspath(path)) for path in valid_paths}
+        normalized_root = os.path.normcase(os.path.abspath(allowed_root))
+        root_with_sep = normalized_root + os.sep
+
+        try:
+            rows = self.collection.get(include=["metadatas", "documents"])
+        except Exception as exc:
+            logger.error(f"Failed to enumerate existing vectors: {exc}")
+            return {"removed_ids": 0, "removed_sources": 0}
+
+        ids = rows.get("ids", []) or []
+        metadatas = rows.get("metadatas", []) or []
+        documents = rows.get("documents", []) or []
+        if not ids:
+            return {"removed_ids": 0, "removed_sources": 0}
+
+        remove_ids = []
+        remove_sources = set()
+        for row_id, metadata, document in zip(ids, metadatas, documents):
+            source = str((metadata or {}).get("source") or "").strip()
+            if not source:
+                continue
+            normalized_source = os.path.normcase(os.path.abspath(source))
+            in_root = (
+                normalized_source == normalized_root
+                or normalized_source.startswith(root_with_sep)
+            )
+            doc_text = str(document or "").strip()
+            doc_alnum = len(re.findall(r"[A-Za-z0-9\u0E00-\u0E7F]", doc_text))
+            is_noisy_doc = doc_alnum < 10
+            if (not in_root) or (normalized_source not in normalized_valid) or is_noisy_doc:
+                remove_ids.append(row_id)
+                remove_sources.add(source)
+
+        if remove_ids:
+            self.collection.delete(ids=remove_ids)
+            for source in remove_sources:
+                self.remove_from_registry(source)
+            logger.info(
+                "Purged %s stale chunks from %s sources",
+                len(remove_ids),
+                len(remove_sources),
+            )
+
+        return {"removed_ids": len(remove_ids), "removed_sources": len(remove_sources)}
 
     def add_document(self, filepath: str, chunks: List[str], metadata: Optional[Dict] = None):
         """

@@ -18,7 +18,14 @@
       "enabled": true
     },
     "faq": {
-      "auto_learn": true
+      "auto_learn": true,
+      "lookup_enabled": true,
+      "block_time_sensitive": true,
+      "max_age_days": 45,
+      "time_sensitive_ttl_hours": 6,
+      "min_answer_chars": 30,
+      "min_retrieval_score": 0.35,
+      "similarity_threshold": 0.9
     },
     "prompt": {
       "extra_context_instruction": ""

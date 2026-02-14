@@ -1,0 +1,44 @@
+{
+  "run_at": "2026-02-14 19:08:28",
+  "base_url": "http://127.0.0.1:5000",
+  "cases": 1,
+  "http_ok": 1,
+  "accuracy_pass": 1,
+  "accuracy_rate": 100.0,
+  "latency_seconds": {
+    "avg": 14.17,
+    "p50": 14.17,
+    "p90": 14.17,
+    "min": 14.17,
+    "max": 14.17
+  },
+  "tokens": {
+    "avg_total": 6383,
+    "avg_prompt": 6002,
+    "avg_completion": 381,
+    "prompt_share_pct": 94.03,
+    "completion_share_pct": 5.97,
+    "total_tokens_all_cases": 6383
+  },
+  "rows": [
+    {
+      "id": "open_sem1_2568",
+      "message": "เปิดภาคการศึกษา ภาคเรียนที่ 1 ปีการศึกษา 2568 วันไหน",
+      "expected": "23 มิถุนายน 2568",
+      "http_ok": true,
+      "status_code": 200,
+      "latency_seconds_client": 14.176,
+      "latency_seconds_server": 14.17,
+      "trace_id": "6ec981856eca46d3a440388f70df7263",
+      "tokens": {
+        "prompt": 6002,
+        "completion": 381,
+        "total": 6383,
+        "error": false
+      },
+      "output": "ภาคเรียนที่ 1 ปีการศึกษา 2568 // เปิดภาคการศึกษา/เข้าชั้นเรียน // ในวันจันทร์ที่ 23 มิถุนายน 2568",
+      "ok": true,
+      "error": ""
+    }
+  ]
+}

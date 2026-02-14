@@ -1,0 +1,82 @@
+{
+  "run_at": "2026-02-14 19:10:21",
+  "base_url": "http://127.0.0.1:5000",
+  "cases": 3,
+  "http_ok": 3,
+  "accuracy_pass": 3,
+  "accuracy_rate": 100.0,
+  "latency_seconds": {
+    "avg": 4.69,
+    "p50": 1.58,
+    "p90": 1.58,
+    "min": 1.43,
+    "max": 11.06
+  },
+  "tokens": {
+    "avg_total": 3741.7,
+    "avg_prompt": 3131.3,
+    "avg_completion": 610.3,
+    "prompt_share_pct": 83.69,
+    "completion_share_pct": 16.31,
+    "total_tokens_all_cases": 11225
+  },
+  "rows": [
+    {
+      "id": "open_sem1_2568",
+      "message": "เปิดภาคการศึกษา ภาคเรียนที่ 1 ปีการศึกษา 2568 วันไหน",
+      "expected": "23 มิถุนายน 2568",
+      "http_ok": true,
+      "status_code": 200,
+      "latency_seconds_client": 11.073,
+      "latency_seconds_server": 11.06,
+      "trace_id": "6df74713ddb1432f98b874ad3b06af4c",
+      "tokens": {
+        "prompt": 3142,
+        "completion": 1048,
+        "total": 4190,
+        "error": false
+      },
+      "output": "วันเปิดภาคการศึกษา // ภาคเรียนที่ 1 // ปีการศึกษา 2568 // คือ // 23 มิถุนายน 2568",
+      "ok": true,
+      "error": ""
+    },
+    {
+      "id": "open_sem2_2568",
+      "message": "เปิดภาคการศึกษา ภาคเรียนที่ 2 ปีการศึกษา 2568 วันไหน",
+      "expected": "17 พฤศจิกายน 2568",
+      "http_ok": true,
+      "status_code": 200,
+      "latency_seconds_client": 1.586,
+      "latency_seconds_server": 1.58,
+      "trace_id": "93964584778b443b8c1fc655aab697ed",
+      "tokens": {
+        "prompt": 3604,
+        "completion": 433,
+        "total": 4037,
+        "error": false
+      },
+      "output": "วันเปิดภาคการศึกษา ภาคเรียนที่ 2 ปีการศึกษา 2568 คือ 17 พฤศจิกายน 2568 // วันจันทร์",
+      "ok": true,
+      "error": ""
+    },
+    {
+      "id": "payment_qr_deadline",
+      "message": "ชำระค่าธรรมเนียมผ่าน QR CODE ได้ถึงกี่โมง",
+      "expected": "QR ชำระได้ถึง 23.00 น.",
+      "http_ok": true,
+      "status_code": 200,
+      "latency_seconds_client": 1.433,
+      "latency_seconds_server": 1.43,
+      "trace_id": "2ac0f0b006ad4dccb10944af42199b07",
+      "tokens": {
+        "prompt": 2648,
+        "completion": 350,
+        "total": 2998,
+        "error": false
+      },
+      "output": "ชำระค่าธรรมเนียมผ่าน QR CODE ทำได้ถึง เวลา 23.00 น. //",
+      "ok": true,
+      "error": ""
+    }
+  ]
+}

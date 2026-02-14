@@ -28,6 +28,13 @@ DEFAULT_FLOW_CONFIG: Dict[str, Any] = {
     },
     "faq": {
         "auto_learn": True,
+        "lookup_enabled": True,
+        "block_time_sensitive": True,
+        "max_age_days": 45,
+        "time_sensitive_ttl_hours": 6,
+        "min_answer_chars": 30,
+        "min_retrieval_score": 0.35,
+        "similarity_threshold": 0.9,
     },
     "prompt": {
         "extra_context_instruction": "",
@@ -53,6 +60,20 @@ def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any
     return merged
 
 
+def _safe_int(value: Any, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_float(value: Any, default: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _sanitize_config(raw_config: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     cfg = _deep_merge(DEFAULT_FLOW_CONFIG, raw_config or {})
 
@@ -75,6 +96,13 @@ def _sanitize_config(raw_config: Optional[Dict[str, Any]]) -> Dict[str, Any]:
 
     faq = cfg["faq"]
     faq["auto_learn"] = bool(faq.get("auto_learn", True))
+    faq["lookup_enabled"] = bool(faq.get("lookup_enabled", True))
+    faq["block_time_sensitive"] = bool(faq.get("block_time_sensitive", True))
+    faq["max_age_days"] = max(1, min(365, _safe_int(faq.get("max_age_days"), 45)))
+    faq["time_sensitive_ttl_hours"] = max(1, min(168, _safe_int(faq.get("time_sensitive_ttl_hours"), 6)))
+    faq["min_answer_chars"] = max(10, min(2000, _safe_int(faq.get("min_answer_chars"), 30)))
+    faq["min_retrieval_score"] = max(0.0, min(1.0, _safe_float(faq.get("min_retrieval_score"), 0.35)))
+    faq["similarity_threshold"] = max(0.5, min(0.99, _safe_float(faq.get("similarity_threshold"), 0.9)))
 
     prompt = cfg["prompt"]
     prompt["extra_context_instruction"] = str(

@@ -1,0 +1,30 @@
+LLM Provider: openai
+LLM Provider: openai
+INFO:     127.0.0.1:63401 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58559 - "GET /socket.io/?EIO=4&transport=polling&t=PnSdCe_ HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63708 - "GET /socket.io/?EIO=4&transport=polling&t=PnSdCe_.0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63708 - "POST /socket.io/?EIO=4&transport=polling&t=PnSdCjo&sid=UEpyuDfImLDj3LFvAAAA HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58559 - "GET /socket.io/?EIO=4&transport=polling&t=PnSdCjo.0&sid=UEpyuDfImLDj3LFvAAAA HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58559 - "POST /socket.io/?EIO=4&transport=polling&t=PnSdCju&sid=ibA8n1_2-kH54irMAAAB HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63708 - "GET /socket.io/?EIO=4&transport=polling&t=PnSdCjv&sid=ibA8n1_2-kH54irMAAAB HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58559 - "GET /socket.io/?EIO=4&transport=polling&t=PnSdCjv.0&sid=UEpyuDfImLDj3LFvAAAA HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63708 - "GET /socket.io/?EIO=4&transport=polling&t=PnSdCjy&sid=ibA8n1_2-kH54irMAAAB HTTP/1.1" 200 OK
+DEBUG POSE: Idle
+INFO:     127.0.0.1:59375 - "POST /api/speech HTTP/1.1" 200 OK
+DEBUG POSE: Idle
+INFO:     127.0.0.1:51403 - "POST /api/speech HTTP/1.1" 200 OK
+DEBUG POSE: Idle
+INFO:     127.0.0.1:51410 - "POST /api/speech HTTP/1.1" 200 OK
+DEBUG POSE: Idle
+INFO:     127.0.0.1:51415 - "POST /api/speech HTTP/1.1" 200 OK
+DEBUG POSE: Idle
+INFO:     127.0.0.1:51422 - "POST /api/speech HTTP/1.1" 200 OK
+DEBUG POSE: Idle
+INFO:     127.0.0.1:51431 - "POST /api/speech HTTP/1.1" 200 OK
+DEBUG POSE: Idle
+INFO:     127.0.0.1:51437 - "POST /api/speech HTTP/1.1" 200 OK
+DEBUG POSE: Idle
+INFO:     127.0.0.1:51443 - "POST /api/speech HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53231 - "GET /admin/api/database/sessions HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49185 - "GET /admin/api/database/sessions HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54499 - "GET /admin/api/database/sessions HTTP/1.1" 200 OK

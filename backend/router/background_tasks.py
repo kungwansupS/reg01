@@ -3,6 +3,7 @@ Background Tasks & Workers
 จัดการงานพื้นหลัง: FB worker, maintenance, vector sync
 """
 import os
+import re
 import time
 import asyncio
 import httpx
@@ -71,6 +72,23 @@ async def sync_vector_db():
             logger.warning(f"⚠️ [Vector DB] Quick-use folder not found: {PDF_QUICK_USE_FOLDER}")
             return
 
+        valid_txt_paths = set()
+        for scan_root, _, scan_files in os.walk(PDF_QUICK_USE_FOLDER):
+            for scan_filename in scan_files:
+                if scan_filename.endswith(".txt"):
+                    valid_txt_paths.add(os.path.abspath(os.path.join(scan_root, scan_filename)))
+
+        purge_stats = vector_manager.purge_out_of_scope(
+            valid_paths=valid_txt_paths,
+            allowed_root=PDF_QUICK_USE_FOLDER,
+        )
+        if purge_stats.get("removed_ids", 0) > 0:
+            logger.info(
+                "Purged stale chunks: ids=%s sources=%s",
+                purge_stats.get("removed_ids", 0),
+                purge_stats.get("removed_sources", 0),
+            )
+
         sync_count = 0
         for root, _, files in os.walk(PDF_QUICK_USE_FOLDER):
             for filename in sorted(files):
@@ -84,7 +102,17 @@ async def sync_vector_db():
                                 content = f.read()
                             
                             separator = "==================="
-                            chunks = [c.strip() for c in content.split(separator) if c.strip()]
+                            raw_chunks = [c.strip() for c in content.split(separator) if c.strip()]
+                            chunks = []
+                            for chunk in raw_chunks:
+                                text = str(chunk or "").strip()
+                                text_chars = len(re.findall(r"[A-Za-z0-9\u0E00-\u0E7F]", text))
+                                if text_chars < 10:
+                                    continue
+                                chunks.append(text)
+                            if not chunks:
+                                logger.warning(f"⚠️ [Vector DB] No usable chunks for {filename}")
+                                continue
                             
                             metadata = metadata_extractor.extract(content, filepath)
                             vector_manager.add_document(filepath, chunks, metadata)

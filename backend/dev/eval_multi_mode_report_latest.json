@@ -1,0 +1,776 @@
+{
+  "run_at": "2026-02-14 21:08:36",
+  "runner_mode": "testclient",
+  "base_url": "http://127.0.0.1:5000",
+  "modes": [
+    "default",
+    "no_rag",
+    "low_cost"
+  ],
+  "cases": [
+    {
+      "case_id": "calendar_open_sem1_2568",
+      "category": "calendar",
+      "message": "เปิดภาคการศึกษา ภาคเรียนที่ 1 ปีการศึกษา 2568 วันไหน",
+      "expected": "23 มิถุนายน 2568",
+      "scorable": true
+    },
+    {
+      "case_id": "calendar_open_sem2_2568",
+      "category": "calendar",
+      "message": "เปิดภาคการศึกษา ภาคเรียนที่ 2 ปีการศึกษา 2568 วันไหน",
+      "expected": "17 พฤศจิกายน 2568",
+      "scorable": true
+    },
+    {
+      "case_id": "calendar_fee_window_sem1_2568",
+      "category": "calendar",
+      "message": "ชำระเงินค่าธรรมเนียม ภาคเรียนที่ 1/2568 ช่วงวันไหน",
+      "expected": "7-11 กรกฎาคม 2568",
+      "scorable": true
+    },
+    {
+      "case_id": "calendar_midterm_sem1_2568",
+      "category": "calendar",
+      "message": "สอบกลางภาค ภาคเรียนที่ 1/2568 ช่วงไหน",
+      "expected": "25-31 สิงหาคม 2568",
+      "scorable": true
+    },
+    {
+      "case_id": "procedure_withdraw_no_w_sem2_2568",
+      "category": "procedure",
+      "message": "ถอนกระบวนวิชาแบบไม่ได้รับ W ภาคเรียนที่ 2/2568 ช่วงไหน",
+      "expected": "15-28 พฤศจิกายน 2568",
+      "scorable": true
+    },
+    {
+      "case_id": "payment_qr_deadline",
+      "category": "payment",
+      "message": "ชำระค่าธรรมเนียมผ่าน QR CODE ได้ถึงกี่โมง",
+      "expected": "23.00 น.",
+      "scorable": true
+    },
+    {
+      "case_id": "payment_credit_treasury_deadline",
+      "category": "payment",
+      "message": "ชำระด้วยบัตรเครดิตที่กองคลังได้ถึงกี่โมง",
+      "expected": "16.30 น.",
+      "scorable": true
+    },
+    {
+      "case_id": "out_of_scope_weather",
+      "category": "out_of_scope",
+      "message": "พรุ่งนี้ฝนตกไหมที่เชียงใหม่",
+      "expected": "ควรตอบว่าอยู่นอกขอบเขตข้อมูลเอกสาร/ไม่มีข้อมูล",
+      "scorable": true
+    }
+  ],
+  "mode_summary": {
+    "default": {
+      "cases_total": 8,
+      "http_ok": 8,
+      "scorable_cases": 8,
+      "accuracy_pass": 4,
+      "accuracy_rate": 50.0,
+      "latency_seconds": {
+        "avg": 12.175,
+        "p50": 5.29,
+        "p90": 12.61,
+        "min": 0.02,
+        "max": 65.38
+      },
+      "tokens": {
+        "avg_total": 1811.6,
+        "avg_prompt": 1703.9,
+        "avg_completion": 107.8,
+        "prompt_share_pct": 94.05,
+        "completion_share_pct": 5.95,
+        "total_tokens_all_cases": 14493
+      },
+      "by_category": {
+        "calendar": {
+          "cases": 4,
+          "pass": 2,
+          "accuracy_rate": 50.0
+        },
+        "procedure": {
+          "cases": 1,
+          "pass": 0,
+          "accuracy_rate": 0.0
+        },
+        "payment": {
+          "cases": 2,
+          "pass": 1,
+          "accuracy_rate": 50.0
+        },
+        "out_of_scope": {
+          "cases": 1,
+          "pass": 1,
+          "accuracy_rate": 100.0
+        }
+      }
+    },
+    "no_rag": {
+      "cases_total": 8,
+      "http_ok": 8,
+      "scorable_cases": 8,
+      "accuracy_pass": 2,
+      "accuracy_rate": 25.0,
+      "latency_seconds": {
+        "avg": 0.776,
+        "p50": 0.83,
+        "p90": 0.91,
+        "min": 0.04,
+        "max": 1.15
+      },
+      "tokens": {
+        "avg_total": 161.9,
+        "avg_prompt": 141.8,
+        "avg_completion": 20.1,
+        "prompt_share_pct": 87.57,
+        "completion_share_pct": 12.43,
+        "total_tokens_all_cases": 1295
+      },
+      "by_category": {
+        "calendar": {
+          "cases": 4,
+          "pass": 0,
+          "accuracy_rate": 0.0
+        },
+        "procedure": {
+          "cases": 1,
+          "pass": 0,
+          "accuracy_rate": 0.0
+        },
+        "payment": {
+          "cases": 2,
+          "pass": 1,
+          "accuracy_rate": 50.0
+        },
+        "out_of_scope": {
+          "cases": 1,
+          "pass": 1,
+          "accuracy_rate": 100.0
+        }
+      }
+    },
+    "low_cost": {
+      "cases_total": 8,
+      "http_ok": 8,
+      "scorable_cases": 8,
+      "accuracy_pass": 1,
+      "accuracy_rate": 12.5,
+      "latency_seconds": {
+        "avg": 0.909,
+        "p50": 0.815,
+        "p90": 0.87,
+        "min": 0.02,
+        "max": 2.32
+      },
+      "tokens": {
+        "avg_total": 7,
+        "avg_prompt": 0,
+        "avg_completion": 7,
+        "prompt_share_pct": 0.0,
+        "completion_share_pct": 100.0,
+        "total_tokens_all_cases": 56
+      },
+      "by_category": {
+        "calendar": {
+          "cases": 4,
+          "pass": 0,
+          "accuracy_rate": 0.0
+        },
+        "procedure": {
+          "cases": 1,
+          "pass": 0,
+          "accuracy_rate": 0.0
+        },
+        "payment": {
+          "cases": 2,
+          "pass": 1,
+          "accuracy_rate": 50.0
+        },
+        "out_of_scope": {
+          "cases": 1,
+          "pass": 0,
+          "accuracy_rate": 0.0
+        }
+      }
+    }
+  },
+  "overall": {
+    "cases_total": 24,
+    "http_ok": 24,
+    "scorable_cases": 24,
+    "accuracy_pass": 7,
+    "accuracy_rate": 29.17,
+    "latency_seconds": {
+      "avg": 4.62,
+      "p50": 0.865,
+      "p90": 5.74,
+      "min": 0.02,
+      "max": 65.38
+    },
+    "tokens": {
+      "avg_total": 660.2,
+      "avg_prompt": 615.2,
+      "avg_completion": 45.0,
+      "prompt_share_pct": 93.19,
+      "completion_share_pct": 6.81,
+      "total_tokens_all_cases": 15844
+    },
+    "by_category": {
+      "calendar": {
+        "cases": 12,
+        "pass": 2,
+        "accuracy_rate": 16.67
+      },
+      "procedure": {
+        "cases": 3,
+        "pass": 0,
+        "accuracy_rate": 0.0
+      },
+      "payment": {
+        "cases": 6,
+        "pass": 3,
+        "accuracy_rate": 50.0
+      },
+      "out_of_scope": {
+        "cases": 3,
+        "pass": 2,
+        "accuracy_rate": 66.67
+      }
+    }
+  },
+  "rows": [
+    {
+      "mode": "default",
+      "id": "calendar_open_sem1_2568",
+      "category": "calendar",
+      "message": "เปิดภาคการศึกษา ภาคเรียนที่ 1 ปีการศึกษา 2568 วันไหน",
+      "expected": "23 มิถุนายน 2568",
+      "scorable": true,
+      "http_ok": true,
+      "status_code": 200,
+      "ok": true,
+      "latency_seconds_client": 12.619,
+      "latency_seconds_server": 12.61,
+      "trace_id": "8bc266374ec6493b974e851f68bd7913",
+      "tokens": {
+        "prompt": 6064,
+        "completion": 305,
+        "total": 6369,
+        "error": false
+      },
+      "output": "เปิดภาคการศึกษา / เข้าชั้นเรียน ภาคเรียนที่ 1 ปีการศึกษา 2568 คือ วันจันทร์ที่ 23 มิถุนายน 2568//.",
+      "error": ""
+    },
+    {
+      "mode": "default",
+      "id": "calendar_open_sem2_2568",
+      "category": "calendar",
+      "message": "เปิดภาคการศึกษา ภาคเรียนที่ 2 ปีการศึกษา 2568 วันไหน",
+      "expected": "17 พฤศจิกายน 2568",
+      "scorable": true,
+      "http_ok": true,
+      "status_code": 200,
+      "ok": false,
+      "latency_seconds_client": 5.746,
+      "latency_seconds_server": 5.74,
+      "trace_id": "1dcd387502424947a04882986f43b529",
+      "tokens": {
+        "prompt": 0,
+        "completion": 8,
+        "total": 8,
+        "error": true
+      },
+      "output": "Sorry, the system is temporarily unavailable.",
+      "error": ""
+    },
+    {
+      "mode": "default",
+      "id": "calendar_fee_window_sem1_2568",
+      "category": "calendar",
+      "message": "ชำระเงินค่าธรรมเนียม ภาคเรียนที่ 1/2568 ช่วงวันไหน",
+      "expected": "7-11 กรกฎาคม 2568",
+      "scorable": true,
+      "http_ok": true,
+      "status_code": 200,
+      "ok": true,
+      "latency_seconds_client": 65.38,
+      "latency_seconds_server": 65.38,
+      "trace_id": "f34323c887704c3a9068662fa5ae4bac",
+      "tokens": {
+        "prompt": 6433,
+        "completion": 334,
+        "total": 6767,
+        "error": false
+      },
+      "output": "ชำระเงินค่าธรรมเนียม ภาคเรียนที่ 1 / 2568 คือ ระหว่าง วันจันทร์ ที่ 7 กรกฎาคม 2568 ถึง วันศุกร์ ที่ 11 กรกฎาคม 2568//​",
+      "error": ""
+    },
+    {
+      "mode": "default",
+      "id": "calendar_midterm_sem1_2568",
+      "category": "calendar",
+      "message": "สอบกลางภาค ภาคเรียนที่ 1/2568 ช่วงไหน",
+      "expected": "25-31 สิงหาคม 2568",
+      "scorable": true,
+      "http_ok": true,
+      "status_code": 200,
+      "ok": false,
+      "latency_seconds_client": 4.847,
+      "latency_seconds_server": 4.84,
+      "trace_id": "fa1781fce8e546119c169c71f0374b13",
+      "tokens": {
+        "prompt": 0,
+        "completion": 8,
+        "total": 8,
+        "error": true
+      },
+      "output": "Sorry, the system is temporarily unavailable.",
+      "error": ""
+    },
+    {
+      "mode": "default",
+      "id": "procedure_withdraw_no_w_sem2_2568",
+      "category": "procedure",
+      "message": "ถอนกระบวนวิชาแบบไม่ได้รับ W ภาคเรียนที่ 2/2568 ช่วงไหน",
+      "expected": "15-28 พฤศจิกายน 2568",
+      "scorable": true,
+      "http_ok": true,
+      "status_code": 200,
+      "ok": false,
+      "latency_seconds_client": 6.36,
+      "latency_seconds_server": 6.36,
+      "trace_id": "5c9cbce8d6ba4be28e1c057a252f74e3",
+      "tokens": {
+        "prompt": 0,
+        "completion": 8,
+        "total": 8,
+        "error": true
+      },
+      "output": "Sorry, the system is temporarily unavailable.",
+      "error": ""
+    },
+    {
+      "mode": "default",
+      "id": "payment_qr_deadline",
+      "category": "payment",
+      "message": "ชำระค่าธรรมเนียมผ่าน QR CODE ได้ถึงกี่โมง",
+      "expected": "23.00 น.",
+      "scorable": true,
+      "http_ok": true,
+      "status_code": 200,
+      "ok": false,
+      "latency_seconds_client": 0.928,
+      "latency_seconds_server": 0.92,
+      "trace_id": "50db604112fb48c5be26b1728654290e",
+      "tokens": {
+        "prompt": 0,
+        "completion": 8,
+        "total": 8,
+        "error": true
+      },
+      "output": "Sorry, the system is temporarily unavailable.",
+      "error": ""
+    },
+    {
+      "mode": "default",
+      "id": "payment_credit_treasury_deadline",
+      "category": "payment",
+      "message": "ชำระด้วยบัตรเครดิตที่กองคลังได้ถึงกี่โมง",
+      "expected": "16.30 น.",
+      "scorable": true,
+      "http_ok": true,
+      "status_code": 200,
+      "ok": true,
+      "latency_seconds_client": 0.03,
+      "latency_seconds_server": 0.02,
+      "trace_id": "d6d3297df1a74028afa26cf146752b6f",
+      "tokens": {
+        "prompt": 0,
+        "completion": 0,
+        "total": 0,
+        "error": false
+      },
+      "output": "ชำระด้วยบัตรเครดิตที่กองคลังได้ถึงเวลา 16.30 น.//​(ตามที่ระบุในประกาศการชำระค่าธรรมเนียม ภาคการศึกษาที่ 1 ของ ปีการศึกษา 2568)",
+      "error": ""
+    },
+    {
+      "mode": "default",
+      "id": "out_of_scope_weather",
+      "category": "out_of_scope",
+      "message": "พรุ่งนี้ฝนตกไหมที่เชียงใหม่",
+      "expected": "ควรตอบว่าอยู่นอกขอบเขตข้อมูลเอกสาร/ไม่มีข้อมูล",
+      "scorable": true,
+      "http_ok": true,
+      "status_code": 200,
+      "ok": true,
+      "latency_seconds_client": 1.536,
+      "latency_seconds_server": 1.53,
+      "trace_id": "665f978d77cb40a28eb7b9e2fbaed54d",
+      "tokens": {
+        "prompt": 1134,
+        "completion": 191,
+        "total": 1325,
+        "error": false
+      },
+      "output": "พี่ไม่มีข้อมูลในส่วนนี้นะครับ",
+      "error": ""
+    },
+    {
+      "mode": "no_rag",
+      "id": "calendar_open_sem1_2568",
+      "category": "calendar",
+      "message": "เปิดภาคการศึกษา ภาคเรียนที่ 1 ปีการศึกษา 2568 วันไหน",
+      "expected": "23 มิถุนายน 2568",
+      "scorable": true,
+      "http_ok": true,
+      "status_code": 200,
+      "ok": false,
+      "latency_seconds_client": 0.789,
+      "latency_seconds_server": 0.77,
+      "trace_id": "e130098d69fc4f619ea5f56864fc96a7",
+      "tokens": {
+        "prompt": 0,
+        "completion": 8,
+        "total": 8,
+        "error": true
+      },
+      "output": "Sorry, the system is temporarily unavailable.",
+      "error": ""
+    },
+    {
+      "mode": "no_rag",
+      "id": "calendar_open_sem2_2568",
+      "category": "calendar",
+      "message": "เปิดภาคการศึกษา ภาคเรียนที่ 2 ปีการศึกษา 2568 วันไหน",
+      "expected": "17 พฤศจิกายน 2568",
+      "scorable": true,
+      "http_ok": true,
+      "status_code": 200,
+      "ok": false,
+      "latency_seconds_client": 0.912,
+      "latency_seconds_server": 0.91,
+      "trace_id": "2b0a5607f7344eee8c3a6511212594c7",
+      "tokens": {
+        "prompt": 0,
+        "completion": 8,
+        "total": 8,
+        "error": true
+      },
+      "output": "Sorry, the system is temporarily unavailable.",
+      "error": ""
+    },
+    {
+      "mode": "no_rag",
+      "id": "calendar_fee_window_sem1_2568",
+      "category": "calendar",
+      "message": "ชำระเงินค่าธรรมเนียม ภาคเรียนที่ 1/2568 ช่วงวันไหน",
+      "expected": "7-11 กรกฎาคม 2568",
+      "scorable": true,
+      "http_ok": true,
+      "status_code": 200,
+      "ok": false,
+      "latency_seconds_client": 0.833,
+      "latency_seconds_server": 0.83,
+      "trace_id": "4456bfa6b5414eb2bdb6a3836d84ccd9",
+      "tokens": {
+        "prompt": 0,
+        "completion": 8,
+        "total": 8,
+        "error": true
+      },
+      "output": "Sorry, the system is temporarily unavailable.",
+      "error": ""
+    },
+    {
+      "mode": "no_rag",
+      "id": "calendar_midterm_sem1_2568",
+      "category": "calendar",
+      "message": "สอบกลางภาค ภาคเรียนที่ 1/2568 ช่วงไหน",
+      "expected": "25-31 สิงหาคม 2568",
+      "scorable": true,
+      "http_ok": true,
+      "status_code": 200,
+      "ok": false,
+      "latency_seconds_client": 0.832,
+      "latency_seconds_server": 0.83,
+      "trace_id": "c4b0460953eb4005b994dad0bca6cd14",
+      "tokens": {
+        "prompt": 0,
+        "completion": 8,
+        "total": 8,
+        "error": true
+      },
+      "output": "Sorry, the system is temporarily unavailable.",
+      "error": ""
+    },
+    {
+      "mode": "no_rag",
+      "id": "procedure_withdraw_no_w_sem2_2568",
+      "category": "procedure",
+      "message": "ถอนกระบวนวิชาแบบไม่ได้รับ W ภาคเรียนที่ 2/2568 ช่วงไหน",
+      "expected": "15-28 พฤศจิกายน 2568",
+      "scorable": true,
+      "http_ok": true,
+      "status_code": 200,
+      "ok": false,
+      "latency_seconds_client": 0.902,
+      "latency_seconds_server": 0.9,
+      "trace_id": "003642f0e53c4bbaa8bb16ec1e916a1a",
+      "tokens": {
+        "prompt": 0,
+        "completion": 8,
+        "total": 8,
+        "error": true
+      },
+      "output": "Sorry, the system is temporarily unavailable.",
+      "error": ""
+    },
+    {
+      "mode": "no_rag",
+      "id": "payment_qr_deadline",
+      "category": "payment",
+      "message": "ชำระค่าธรรมเนียมผ่าน QR CODE ได้ถึงกี่โมง",
+      "expected": "23.00 น.",
+      "scorable": true,
+      "http_ok": true,
+      "status_code": 200,
+      "ok": false,
+      "latency_seconds_client": 0.786,
+      "latency_seconds_server": 0.78,
+      "trace_id": "5a399098b43e421d88311d907c5dc29a",
+      "tokens": {
+        "prompt": 0,
+        "completion": 8,
+        "total": 8,
+        "error": true
+      },
+      "output": "Sorry, the system is temporarily unavailable.",
+      "error": ""
+    },
+    {
+      "mode": "no_rag",
+      "id": "payment_credit_treasury_deadline",
+      "category": "payment",
+      "message": "ชำระด้วยบัตรเครดิตที่กองคลังได้ถึงกี่โมง",
+      "expected": "16.30 น.",
+      "scorable": true,
+      "http_ok": true,
+      "status_code": 200,
+      "ok": true,
+      "latency_seconds_client": 0.046,
+      "latency_seconds_server": 0.04,
+      "trace_id": "a0ca4283794043d4998129c0d2c863bf",
+      "tokens": {
+        "prompt": 0,
+        "completion": 0,
+        "total": 0,
+        "error": false
+      },
+      "output": "ชำระด้วยบัตรเครดิตที่กองคลังได้ถึงเวลา 16.30 น.//​(ตามที่ระบุในประกาศการชำระค่าธรรมเนียม ภาคการศึกษาที่ 1 ของ ปีการศึกษา 2568)",
+      "error": ""
+    },
+    {
+      "mode": "no_rag",
+      "id": "out_of_scope_weather",
+      "category": "out_of_scope",
+      "message": "พรุ่งนี้ฝนตกไหมที่เชียงใหม่",
+      "expected": "ควรตอบว่าอยู่นอกขอบเขตข้อมูลเอกสาร/ไม่มีข้อมูล",
+      "scorable": true,
+      "http_ok": true,
+      "status_code": 200,
+      "ok": true,
+      "latency_seconds_client": 1.15,
+      "latency_seconds_server": 1.15,
+      "trace_id": "71396777523642ceac440a706137f3d3",
+      "tokens": {
+        "prompt": 1134,
+        "completion": 113,
+        "total": 1247,
+        "error": false
+      },
+      "output": "พี่ไม่มีข้อมูลในส่วนนี้นะครับ//ขออภัยที่ไม่สามารถตอบได้ในขณะนี้.",
+      "error": ""
+    },
+    {
+      "mode": "low_cost",
+      "id": "calendar_open_sem1_2568",
+      "category": "calendar",
+      "message": "เปิดภาคการศึกษา ภาคเรียนที่ 1 ปีการศึกษา 2568 วันไหน",
+      "expected": "23 มิถุนายน 2568",
+      "scorable": true,
+      "http_ok": true,
+      "status_code": 200,
+      "ok": false,
+      "latency_seconds_client": 0.825,
+      "latency_seconds_server": 0.82,
+      "trace_id": "e719d3c06e204a369b69e60bbac626f1",
+      "tokens": {
+        "prompt": 0,
+        "completion": 8,
+        "total": 8,
+        "error": true
+      },
+      "output": "Sorry, the system is temporarily unavailable.",
+      "error": ""
+    },
+    {
+      "mode": "low_cost",
+      "id": "calendar_open_sem2_2568",
+      "category": "calendar",
+      "message": "เปิดภาคการศึกษา ภาคเรียนที่ 2 ปีการศึกษา 2568 วันไหน",
+      "expected": "17 พฤศจิกายน 2568",
+      "scorable": true,
+      "http_ok": true,
+      "status_code": 200,
+      "ok": false,
+      "latency_seconds_client": 0.786,
+      "latency_seconds_server": 0.78,
+      "trace_id": "a78900f505404ece9dc52cf363939385",
+      "tokens": {
+        "prompt": 0,
+        "completion": 8,
+        "total": 8,
+        "error": true
+      },
+      "output": "Sorry, the system is temporarily unavailable.",
+      "error": ""
+    },
+    {
+      "mode": "low_cost",
+      "id": "calendar_fee_window_sem1_2568",
+      "category": "calendar",
+      "message": "ชำระเงินค่าธรรมเนียม ภาคเรียนที่ 1/2568 ช่วงวันไหน",
+      "expected": "7-11 กรกฎาคม 2568",
+      "scorable": true,
+      "http_ok": true,
+      "status_code": 200,
+      "ok": false,
+      "latency_seconds_client": 2.323,
+      "latency_seconds_server": 2.32,
+      "trace_id": "063d3268dccd485291b959ddbf81451e",
+      "tokens": {
+        "prompt": 0,
+        "completion": 8,
+        "total": 8,
+        "error": true
+      },
+      "output": "Sorry, the system is temporarily unavailable.",
+      "error": ""
+    },
+    {
+      "mode": "low_cost",
+      "id": "calendar_midterm_sem1_2568",
+      "category": "calendar",
+      "message": "สอบกลางภาค ภาคเรียนที่ 1/2568 ช่วงไหน",
+      "expected": "25-31 สิงหาคม 2568",
+      "scorable": true,
+      "http_ok": true,
+      "status_code": 200,
+      "ok": false,
+      "latency_seconds_client": 0.81,
+      "latency_seconds_server": 0.81,
+      "trace_id": "be89c0ba56b2410ab056694ecdbc1fa9",
+      "tokens": {
+        "prompt": 0,
+        "completion": 8,
+        "total": 8,
+        "error": true
+      },
+      "output": "Sorry, the system is temporarily unavailable.",
+      "error": ""
+    },
+    {
+      "mode": "low_cost",
+      "id": "procedure_withdraw_no_w_sem2_2568",
+      "category": "procedure",
+      "message": "ถอนกระบวนวิชาแบบไม่ได้รับ W ภาคเรียนที่ 2/2568 ช่วงไหน",
+      "expected": "15-28 พฤศจิกายน 2568",
+      "scorable": true,
+      "http_ok": true,
+      "status_code": 200,
+      "ok": false,
+      "latency_seconds_client": 0.874,
+      "latency_seconds_server": 0.87,
+      "trace_id": "ffa290c71c87469da7eda11a15d84489",
+      "tokens": {
+        "prompt": 0,
+        "completion": 8,
+        "total": 8,
+        "error": true
+      },
+      "output": "Sorry, the system is temporarily unavailable.",
+      "error": ""
+    },
+    {
+      "mode": "low_cost",
+      "id": "payment_qr_deadline",
+      "category": "payment",
+      "message": "ชำระค่าธรรมเนียมผ่าน QR CODE ได้ถึงกี่โมง",
+      "expected": "23.00 น.",
+      "scorable": true,
+      "http_ok": true,
+      "status_code": 200,
+      "ok": false,
+      "latency_seconds_client": 0.794,
+      "latency_seconds_server": 0.79,
+      "trace_id": "fb507124b8354371a918d666d783482e",
+      "tokens": {
+        "prompt": 0,
+        "completion": 8,
+        "total": 8,
+        "error": true
+      },
+      "output": "Sorry, the system is temporarily unavailable.",
+      "error": ""
+    },
+    {
+      "mode": "low_cost",
+      "id": "payment_credit_treasury_deadline",
+      "category": "payment",
+      "message": "ชำระด้วยบัตรเครดิตที่กองคลังได้ถึงกี่โมง",
+      "expected": "16.30 น.",
+      "scorable": true,
+      "http_ok": true,
+      "status_code": 200,
+      "ok": true,
+      "latency_seconds_client": 0.028,
+      "latency_seconds_server": 0.02,
+      "trace_id": "ba520b495e7d43068c1f848fdbd91596",
+      "tokens": {
+        "prompt": 0,
+        "completion": 0,
+        "total": 0,
+        "error": false
+      },
+      "output": "ชำระด้วยบัตรเครดิตที่กองคลังได้ถึงเวลา 16.30 น.//​(ตามที่ระบุในประกาศการชำระค่าธรรมเนียม ภาคการศึกษาที่ 1 ของ ปีการศึกษา 2568)",
+      "error": ""
+    },
+    {
+      "mode": "low_cost",
+      "id": "out_of_scope_weather",
+      "category": "out_of_scope",
+      "message": "พรุ่งนี้ฝนตกไหมที่เชียงใหม่",
+      "expected": "ควรตอบว่าอยู่นอกขอบเขตข้อมูลเอกสาร/ไม่มีข้อมูล",
+      "scorable": true,
+      "http_ok": true,
+      "status_code": 200,
+      "ok": false,
+      "latency_seconds_client": 0.869,
+      "latency_seconds_server": 0.86,
+      "trace_id": "c98119624f354ea9a5a9ecb4db6da484",
+      "tokens": {
+        "prompt": 0,
+        "completion": 8,
+        "total": 8,
+        "error": true
+      },
+      "output": "Sorry, the system is temporarily unavailable.",
+      "error": ""
+    }
+  ]
+}

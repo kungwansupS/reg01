@@ -694,6 +694,28 @@
     .scenario-pane textarea.mono {
       min-height: 160px;
     }
+    .faq-shell {
+      display: grid;
+      grid-template-columns: minmax(300px, 0.95fr) minmax(460px, 1.4fr);
+      gap: 12px;
+      margin-top: 10px;
+    }
+    .faq-pane {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: rgba(9, 16, 30, 0.82);
+      padding: 10px;
+      min-height: 560px;
+    }
+    .faq-select {
+      min-height: 360px;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+    .faq-answer {
+      min-height: 320px;
+    }
     .history-row {
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto auto;
@@ -732,6 +754,8 @@
       .obs-pane { min-height: auto; }
       .scenario-shell { grid-template-columns: 1fr; }
       .scenario-pane { min-height: auto; }
+      .faq-shell { grid-template-columns: 1fr; }
+      .faq-pane { min-height: auto; }
       .file-tree { min-height: 300px; max-height: 340px; }
       .editor-host { min-height: 420px; max-height: 460px; }
       .code-editor { min-height: 420px; max-height: 460px; height: 460px; }
@@ -767,6 +791,7 @@
       <div class="card tabs-card">
         <div class="tabs-nav" role="tablist" aria-label="Developer Sections">
           <button type="button" class="tab-btn active" data-dev-tab-btn="flow-config" aria-selected="true">Flow Config</button>
+          <button type="button" class="tab-btn" data-dev-tab-btn="faq-cache" aria-selected="false">FAQ Cache</button>
           <button type="button" class="tab-btn" data-dev-tab-btn="flow-graph" aria-selected="false">Flow Graph</button>
           <button type="button" class="tab-btn" data-dev-tab-btn="observability" aria-selected="false">Observability</button>
           <button type="button" class="tab-btn" data-dev-tab-btn="scenarios" aria-selected="false">Scenarios</button>
@@ -813,6 +838,32 @@
           <div class="field">
             <label><input id="faq-auto-learn" type="checkbox" /> faq_auto_learn</label>
           </div>
+          <div class="field">
+            <label><input id="faq-lookup-enabled" type="checkbox" /> faq_lookup_enabled</label>
+          </div>
+          <div class="field">
+            <label><input id="faq-block-time-sensitive" type="checkbox" /> faq_block_time_sensitive</label>
+          </div>
+          <div class="field">
+            <label for="faq-max-age-days">faq_max_age_days (1-365)</label>
+            <input id="faq-max-age-days" type="number" min="1" max="365" />
+          </div>
+          <div class="field">
+            <label for="faq-time-ttl-hours">faq_time_sensitive_ttl_hours (1-168)</label>
+            <input id="faq-time-ttl-hours" type="number" min="1" max="168" />
+          </div>
+          <div class="field">
+            <label for="faq-min-answer-chars">faq_min_answer_chars (10-2000)</label>
+            <input id="faq-min-answer-chars" type="number" min="10" max="2000" />
+          </div>
+          <div class="field">
+            <label for="faq-min-retrieval-score">faq_min_retrieval_score (0-1)</label>
+            <input id="faq-min-retrieval-score" type="number" min="0" max="1" step="0.01" />
+          </div>
+          <div class="field">
+            <label for="faq-similarity-threshold">faq_similarity_threshold (0.5-0.99)</label>
+            <input id="faq-similarity-threshold" type="number" min="0.5" max="0.99" step="0.01" />
+          </div>
           <div class="field full">
             <label for="extra-instruction">extra_context_instruction</label>
             <textarea id="extra-instruction" placeholder="คำสั่งเพิ่มสำหรับนักพัฒนา (ต่อท้าย prompt)"></textarea>
@@ -827,6 +878,73 @@
           <button id="flow-rollback-btn" class="danger">Rollback</button>
         </div>
         <div id="flow-status" class="status"></div>
+      </div>
+
+      <div class="card tab-panel" data-dev-tab-panel="faq-cache">
+        <h2>FAQ Cache Review</h2>
+        <div class="faq-shell">
+          <div class="faq-pane">
+            <div class="ide-pane-head">
+              <strong>FAQ List</strong>
+              <button id="faq-refresh-btn">Refresh</button>
+            </div>
+            <div class="field">
+              <label for="faq-search-query">Search</label>
+              <input id="faq-search-query" type="text" placeholder="question or answer keyword" />
+            </div>
+            <div class="row" style="margin-top: 6px;">
+              <label><input id="faq-include-expired" type="checkbox" /> include expired</label>
+              <button id="faq-purge-btn" class="danger">Purge Expired</button>
+            </div>
+            <div class="field" style="margin-top: 8px;">
+              <label for="faq-select">Entries</label>
+              <select id="faq-select" class="faq-select" size="16"></select>
+            </div>
+            <div class="row">
+              <button id="faq-new-btn">New</button>
+              <button id="faq-load-btn">Load</button>
+              <button id="faq-delete-btn" class="danger">Delete</button>
+            </div>
+            <div id="faq-status" class="status"></div>
+            <div id="faq-summary" class="hint"></div>
+          </div>
+
+          <div class="faq-pane">
+            <div class="grid">
+              <div class="field full">
+                <label for="faq-original-question">original_question</label>
+                <input id="faq-original-question" type="text" readonly />
+              </div>
+              <div class="field full">
+                <label for="faq-question">question</label>
+                <input id="faq-question" type="text" placeholder="FAQ question" />
+              </div>
+              <div class="field full">
+                <label for="faq-answer">answer</label>
+                <textarea id="faq-answer" class="mono faq-answer" placeholder="FAQ answer"></textarea>
+              </div>
+              <div class="field">
+                <label for="faq-count">count</label>
+                <input id="faq-count" type="number" min="0" max="1000000" />
+              </div>
+              <div class="field">
+                <label><input id="faq-time-sensitive" type="checkbox" /> time_sensitive</label>
+              </div>
+              <div class="field">
+                <label for="faq-ttl-seconds">ttl_seconds</label>
+                <input id="faq-ttl-seconds" type="number" min="60" max="31536000" />
+              </div>
+              <div class="field">
+                <label for="faq-source">source</label>
+                <input id="faq-source" type="text" placeholder="dev-ui/manual" />
+              </div>
+            </div>
+            <div class="row">
+              <button id="faq-save-btn" class="primary">Save FAQ Entry</button>
+            </div>
+            <div id="faq-edit-status" class="status"></div>
+          </div>
+        </div>
       </div>
 
       <div class="card tab-panel" data-dev-tab-panel="flow-graph">

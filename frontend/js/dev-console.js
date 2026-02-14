@@ -167,6 +167,25 @@
     scenarioStatus: $("scenario-status"),
     scenarioRunMeta: $("scenario-run-meta"),
     scenarioRunOutput: $("scenario-run-output"),
+    faqRefreshBtn: $("faq-refresh-btn"),
+    faqPurgeBtn: $("faq-purge-btn"),
+    faqLoadBtn: $("faq-load-btn"),
+    faqNewBtn: $("faq-new-btn"),
+    faqDeleteBtn: $("faq-delete-btn"),
+    faqSaveBtn: $("faq-save-btn"),
+    faqSelect: $("faq-select"),
+    faqSearchQuery: $("faq-search-query"),
+    faqIncludeExpired: $("faq-include-expired"),
+    faqOriginalQuestion: $("faq-original-question"),
+    faqQuestion: $("faq-question"),
+    faqAnswer: $("faq-answer"),
+    faqCount: $("faq-count"),
+    faqTimeSensitive: $("faq-time-sensitive"),
+    faqTtlSeconds: $("faq-ttl-seconds"),
+    faqSource: $("faq-source"),
+    faqStatus: $("faq-status"),
+    faqSummary: $("faq-summary"),
+    faqEditStatus: $("faq-edit-status"),
   };
 
   const fields = {
@@ -179,6 +198,13 @@
     memoryRecent: $("memory-recent"),
     poseEnabled: $("pose-enabled"),
     faqAutoLearn: $("faq-auto-learn"),
+    faqLookupEnabled: $("faq-lookup-enabled"),
+    faqBlockTimeSensitive: $("faq-block-time-sensitive"),
+    faqMaxAgeDays: $("faq-max-age-days"),
+    faqTimeSensitiveTtlHours: $("faq-time-ttl-hours"),
+    faqMinAnswerChars: $("faq-min-answer-chars"),
+    faqMinRetrievalScore: $("faq-min-retrieval-score"),
+    faqSimilarityThreshold: $("faq-similarity-threshold"),
     extraInstruction: $("extra-instruction"),
     testMessage: $("test-message"),
     envRaw: $("env-raw"),
@@ -228,6 +254,12 @@
     scenarios: {
       items: [],
       selectedId: "",
+    },
+    faq: {
+      items: [],
+      selectedQuestion: "",
+      query: "",
+      includeExpired: false,
     },
     history: {
       flow: [],
@@ -435,6 +467,12 @@
       if (tabId === "scenarios") {
         if (refs.scenarioSelect && refs.scenarioSelect.options.length <= 1) {
           loadScenarios().catch((error) => setStatus(refs.scenarioStatus, `Scenario refresh failed: ${error.message}`));
+        }
+      }
+
+      if (tabId === "faq-cache") {
+        if (refs.faqSelect && refs.faqSelect.options.length <= 1) {
+          loadFaqList().catch((error) => setStatus(refs.faqStatus, `FAQ refresh failed: ${error.message}`));
         }
       }
     });
@@ -706,7 +744,16 @@
         recent_messages: Number(fields.memoryRecent.value || 10),
       },
       pose: { enabled: !!fields.poseEnabled.checked },
-      faq: { auto_learn: !!fields.faqAutoLearn.checked },
+      faq: {
+        auto_learn: !!fields.faqAutoLearn.checked,
+        lookup_enabled: !!fields.faqLookupEnabled.checked,
+        block_time_sensitive: !!fields.faqBlockTimeSensitive.checked,
+        max_age_days: Number(fields.faqMaxAgeDays.value || 45),
+        time_sensitive_ttl_hours: Number(fields.faqTimeSensitiveTtlHours.value || 6),
+        min_answer_chars: Number(fields.faqMinAnswerChars.value || 30),
+        min_retrieval_score: Number(fields.faqMinRetrievalScore.value || 0.35),
+        similarity_threshold: Number(fields.faqSimilarityThreshold.value || 0.9),
+      },
       prompt: { extra_context_instruction: fields.extraInstruction.value || "" },
     };
   }
@@ -726,6 +773,13 @@
     fields.memoryRecent.value = Number(memory.recent_messages || 10);
     fields.poseEnabled.checked = !!pose.enabled;
     fields.faqAutoLearn.checked = !!faq.auto_learn;
+    fields.faqLookupEnabled.checked = faq.lookup_enabled !== false;
+    fields.faqBlockTimeSensitive.checked = faq.block_time_sensitive !== false;
+    fields.faqMaxAgeDays.value = Number(faq.max_age_days || 45);
+    fields.faqTimeSensitiveTtlHours.value = Number(faq.time_sensitive_ttl_hours || 6);
+    fields.faqMinAnswerChars.value = Number(faq.min_answer_chars || 30);
+    fields.faqMinRetrievalScore.value = Number(faq.min_retrieval_score ?? 0.35);
+    fields.faqSimilarityThreshold.value = Number(faq.similarity_threshold ?? 0.9);
     fields.extraInstruction.value = prompt.extra_context_instruction || "";
   }
 
@@ -2394,6 +2448,179 @@
     setStatus(refs.logSearchStatus, `Log search done | scanned=${data.scanned || 0} matched=${data.matched || 0}`);
   }
 
+  function clearFaqForm(nextQuestion) {
+    const q = (nextQuestion || "").trim();
+    refs.faqOriginalQuestion.value = "";
+    refs.faqQuestion.value = q;
+    refs.faqAnswer.value = "";
+    refs.faqCount.value = "1";
+    refs.faqTimeSensitive.checked = false;
+    refs.faqTtlSeconds.value = "3888000";
+    refs.faqSource.value = "dev-ui";
+    setStatus(refs.faqEditStatus, q ? `New draft prepared: ${q}` : "Ready for new FAQ entry");
+  }
+
+  function fillFaqForm(item) {
+    const row = item || {};
+    refs.faqOriginalQuestion.value = row.question || "";
+    refs.faqQuestion.value = row.question || "";
+    refs.faqAnswer.value = row.answer || "";
+    refs.faqCount.value = String(Number(row.count || 0));
+    refs.faqTimeSensitive.checked = !!row.time_sensitive;
+    refs.faqTtlSeconds.value = String(Number(row.ttl_seconds || 0) || "");
+    refs.faqSource.value = row.source || "dev-ui";
+    const expiredTag = row.expired ? "expired=yes" : "expired=no";
+    setStatus(
+      refs.faqEditStatus,
+      `Loaded entry | ${expiredTag} | updated=${row.last_updated || "-"} | hits=${Number(row.count || 0)}`
+    );
+  }
+
+  function readFaqForm() {
+    const question = (refs.faqQuestion.value || "").trim();
+    const answer = refs.faqAnswer.value || "";
+    if (!question) {
+      throw new Error("FAQ question is required");
+    }
+    if (!answer.trim()) {
+      throw new Error("FAQ answer is required");
+    }
+
+    const payload = {
+      question,
+      answer,
+      source: (refs.faqSource.value || "dev-ui").trim() || "dev-ui",
+      original_question: (refs.faqOriginalQuestion.value || "").trim() || null,
+      time_sensitive: !!refs.faqTimeSensitive.checked,
+    };
+
+    const rawCount = String(refs.faqCount.value || "").trim();
+    if (rawCount) {
+      const count = Number(rawCount);
+      if (!Number.isFinite(count) || count < 0) {
+        throw new Error("count must be a non-negative number");
+      }
+      payload.count = Math.floor(count);
+    }
+
+    const rawTtl = String(refs.faqTtlSeconds.value || "").trim();
+    if (rawTtl) {
+      const ttl = Number(rawTtl);
+      if (!Number.isFinite(ttl) || ttl < 60) {
+        throw new Error("ttl_seconds must be >= 60");
+      }
+      payload.ttl_seconds = Math.floor(ttl);
+    } else {
+      payload.ttl_seconds = null;
+    }
+
+    return payload;
+  }
+
+  function currentFaqQuestion() {
+    return (refs.faqSelect.value || refs.faqQuestion.value || refs.faqOriginalQuestion.value || "").trim();
+  }
+
+  async function loadFaqList(preserveSelection) {
+    const keepSelection = preserveSelection !== false;
+    const previous = keepSelection ? (state.faq.selectedQuestion || currentFaqQuestion()) : "";
+    const search = (refs.faqSearchQuery.value || "").trim();
+    const includeExpired = !!(refs.faqIncludeExpired && refs.faqIncludeExpired.checked);
+
+    state.faq.query = search;
+    state.faq.includeExpired = includeExpired;
+    setStatus(refs.faqStatus, "Loading FAQ cache...");
+
+    const data = await api(
+      query("/api/dev/faq", {
+        limit: 1200,
+        query: search,
+        include_expired: includeExpired ? "true" : "false",
+      }),
+      { method: "GET" }
+    );
+
+    const items = Array.isArray(data.items) ? data.items : [];
+    state.faq.items = items;
+    const expiredCount = items.filter((row) => !!row.expired).length;
+    setSelectOptions(
+      refs.faqSelect,
+      items.map((row) => ({
+        value: row.question,
+        label: `${row.expired ? "[EXPIRED] " : ""}${row.question} | hits=${Number(row.count || 0)} | ttl=${Number(row.ttl_seconds || 0)}s`,
+      })),
+      "-- faq entries --"
+    );
+
+    const selected = previous && items.some((row) => row.question === previous)
+      ? previous
+      : (items[0] && items[0].question) || "";
+
+    state.faq.selectedQuestion = selected;
+    refs.faqSelect.value = selected;
+
+    refs.faqSummary.textContent = `Total=${Number(data.total || 0)} | Listed=${items.length} | ExpiredInList=${expiredCount} | query="${search || "-"}"`;
+    setStatus(refs.faqStatus, `FAQ list loaded (${items.length} items)`);
+
+    if (selected) {
+      await loadFaqEntryFromSelect();
+    } else {
+      clearFaqForm("");
+      setStatus(refs.faqEditStatus, "No FAQ entries found");
+    }
+  }
+
+  async function loadFaqEntryFromSelect() {
+    const question = (refs.faqSelect.value || "").trim();
+    if (!question) {
+      clearFaqForm("");
+      return;
+    }
+    const data = await api(query("/api/dev/faq/entry", { question }), { method: "GET" });
+    state.faq.selectedQuestion = question;
+    fillFaqForm(data);
+    setStatus(refs.faqStatus, `Loaded FAQ entry: ${question}`);
+  }
+
+  async function saveFaqEntryFromForm() {
+    const payload = readFaqForm();
+    setStatus(refs.faqEditStatus, "Saving FAQ entry...");
+    const data = await api("/api/dev/faq/entry", {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    });
+    const item = (data && data.item) || {};
+    state.faq.selectedQuestion = item.question || payload.question;
+    await loadFaqList(true);
+    if (state.faq.selectedQuestion) {
+      refs.faqSelect.value = state.faq.selectedQuestion;
+      await loadFaqEntryFromSelect();
+    }
+    setStatus(refs.faqEditStatus, `Saved FAQ entry: ${item.question || payload.question}`);
+  }
+
+  async function deleteFaqEntrySelected() {
+    const question = currentFaqQuestion();
+    if (!question) {
+      throw new Error("Select FAQ entry first");
+    }
+    await api(query("/api/dev/faq/entry", { question }), { method: "DELETE" });
+    state.faq.selectedQuestion = "";
+    await loadFaqList(false);
+    clearFaqForm("");
+    setStatus(refs.faqStatus, `Deleted FAQ entry: ${question}`);
+  }
+
+  async function purgeExpiredFaqEntries() {
+    setStatus(refs.faqStatus, "Purging expired FAQ entries...");
+    const data = await api("/api/dev/faq/purge-expired", {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    await loadFaqList(true);
+    setStatus(refs.faqStatus, `Purged expired FAQ entries: ${Number(data.removed || 0)}`);
+  }
+
   function clearScenarioForm() {
     refs.scenarioId.value = "";
     refs.scenarioName.value = "";
@@ -2841,6 +3068,7 @@
       loadConnections(),
       loadRoutes(),
       loadScenarios(),
+      loadFaqList(),
     ]);
     await ensureMonacoEditor();
     setStatus(refs.authStatus, "Connected");
@@ -3013,6 +3241,45 @@
     deleteScenarioSelected().catch((e) => setStatus(refs.scenarioStatus, `Scenario delete failed: ${e.message}`));
   });
   refs.scenarioRunBtn.addEventListener("click", () => runScenarioSelected().catch((e) => setStatus(refs.scenarioStatus, `Scenario run failed: ${e.message}`)));
+
+  refs.faqRefreshBtn.addEventListener("click", () => loadFaqList(true).catch((e) => setStatus(refs.faqStatus, `FAQ refresh failed: ${e.message}`)));
+  refs.faqLoadBtn.addEventListener("click", () => loadFaqEntryFromSelect().catch((e) => setStatus(refs.faqStatus, `FAQ load failed: ${e.message}`)));
+  refs.faqSelect.addEventListener("change", () => {
+    const question = (refs.faqSelect.value || "").trim();
+    if (question) {
+      state.faq.selectedQuestion = question;
+      setStatus(refs.faqStatus, `Selected FAQ entry: ${question}`);
+    }
+  });
+  refs.faqSearchQuery.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter") {
+      ev.preventDefault();
+      loadFaqList(false).catch((e) => setStatus(refs.faqStatus, `FAQ search failed: ${e.message}`));
+    }
+  });
+  refs.faqIncludeExpired.addEventListener("change", () => {
+    loadFaqList(false).catch((e) => setStatus(refs.faqStatus, `FAQ filter failed: ${e.message}`));
+  });
+  refs.faqNewBtn.addEventListener("click", () => {
+    const q = (refs.faqSearchQuery.value || "").trim();
+    state.faq.selectedQuestion = "";
+    refs.faqSelect.value = "";
+    clearFaqForm(q);
+    setStatus(refs.faqStatus, "New FAQ draft");
+  });
+  refs.faqSaveBtn.addEventListener("click", () => saveFaqEntryFromForm().catch((e) => setStatus(refs.faqEditStatus, `FAQ save failed: ${e.message}`)));
+  refs.faqDeleteBtn.addEventListener("click", () => {
+    if (!window.confirm("Delete selected FAQ entry?")) {
+      return;
+    }
+    deleteFaqEntrySelected().catch((e) => setStatus(refs.faqStatus, `FAQ delete failed: ${e.message}`));
+  });
+  refs.faqPurgeBtn.addEventListener("click", () => {
+    if (!window.confirm("Purge expired FAQ entries?")) {
+      return;
+    }
+    purgeExpiredFaqEntries().catch((e) => setStatus(refs.faqStatus, `FAQ purge failed: ${e.message}`));
+  });
 
   refs.ideEditor.addEventListener("input", () => {
     if (usingMonaco()) {

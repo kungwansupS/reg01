@@ -28,6 +28,3 @@ installed.txt
 /frontend/sound/
 /frontend/images/
 link_generate.py
-backend/memory/assistant_sessions.db
-frontend/__pycache__/
-tools/*_result.json

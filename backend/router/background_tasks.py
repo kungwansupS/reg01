@@ -191,6 +191,7 @@ async def fb_worker():
                 result = await ask_llm_fn(user_text, session_id, emit_fn=sio.emit)
                 reply = result["text"]
                 tokens = result.get("tokens", {})
+                trace_id = result.get("trace_id")
                 
                 fb_message = f"[Bot พี่เร็ก] {reply.replace('//', '')}"
                 await send_fb_text_fn(psid, fb_message)
@@ -212,7 +213,9 @@ async def fb_worker():
                     reply,
                     time.time() - start_time,
                     tokens=tokens,
-                    model_name=model_name
+                    model_name=model_name,
+                    session_id=session_id,
+                    trace_id=trace_id,
                 )
             except Exception as e:
                 logger.error(f"❌ FB Worker Error: {e}")

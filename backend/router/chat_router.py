@@ -17,7 +17,7 @@ from app.tts import speak
 from app.stt import transcribe
 from app.utils.llm.llm import ask_llm
 from app.utils.pose import suggest_pose
-from app.utils.token_counter import calculate_cost
+from dev.flow_store import get_effective_flow_config
 from app.config import LLM_PROVIDER, GEMINI_MODEL_NAME, OPENAI_MODEL_NAME, LOCAL_MODEL_NAME
 from memory.session import get_or_create_history, save_history, get_bot_enabled
 
@@ -116,7 +116,12 @@ async def handle_speech(
         
         result = await ask_llm(text, final_session_id, emit_fn=sio.emit)
         reply = result["text"]
-        motion = await suggest_pose(reply)
+        trace_id = result.get("trace_id")
+        flow_config = get_effective_flow_config()
+        if flow_config.get("pose", {}).get("enabled", True):
+            motion = await suggest_pose(reply)
+        else:
+            motion = "Idle"
         tokens = result.get("tokens", {})
     
     model_name = GEMINI_MODEL_NAME if LLM_PROVIDER == "gemini" else (
@@ -131,7 +136,9 @@ async def handle_speech(
             reply,
             time.time() - start_time,
             tokens=tokens,
-            model_name=model_name
+            model_name=model_name,
+            session_id=final_session_id,
+            trace_id=trace_id,
         )
     
     display_text = f"[Bot พี่เร็ก] {reply.replace('//', '')}"

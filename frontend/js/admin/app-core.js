@@ -25,14 +25,12 @@ function adminApp() {
         files: null,
         logs: null,
         database: null,
-        socket: null,
         
         // Data State
         stats: {
             recent_logs: [],
             bot_settings: {},
-            faq_analytics: {},
-            token_analytics: {}
+            faq_analytics: {}
         },
         
         sessionStats: {
@@ -44,10 +42,6 @@ function adminApp() {
         currentTime: '',
         currentDate: '',
         clockInterval: null,
-        
-        // Realtime update tracking
-        lastLogCount: 0,
-        dashboardAutoRefresh: null,
 
         /**
          * Initialize Application
@@ -57,8 +51,6 @@ function adminApp() {
             this.loadSettings();
             if (this.isLoggedIn) {
                 this.startClock();
-                this.initSocket();
-                this.startDashboardMonitoring();
             }
             
             // Initialize modules
@@ -73,106 +65,6 @@ function adminApp() {
             }
             if (typeof initDatabaseModule === 'function') {
                 initDatabaseModule(this);
-            }
-        },
-        
-        /**
-         * Initialize Socket.IO for Realtime Updates
-         */
-        initSocket() {
-            if (this.socket) return;
-            
-            try {
-                this.socket = io();
-                
-                this.socket.on('connect', () => {
-                    console.log('✅ Dashboard Socket.IO connected');
-                });
-                
-                this.socket.on('disconnect', () => {
-                    console.log('❌ Dashboard Socket.IO disconnected');
-                });
-                
-                // Listen for new messages/activities
-                this.socket.on('admin_new_message', (data) => {
-                    console.log('📩 New activity detected, refreshing dashboard...');
-                    this.refreshDashboardData();
-                });
-                
-                this.socket.on('admin_bot_reply', (data) => {
-                    console.log('🤖 Bot reply detected, refreshing dashboard...');
-                    this.refreshDashboardData();
-                });
-                
-            } catch (e) {
-                console.error('❌ Failed to initialize dashboard socket:', e);
-            }
-        },
-        
-        /**
-         * Start Dashboard Monitoring (รีเฟชเฉพาะเมื่อมีข้อมูลใหม่)
-         */
-        startDashboardMonitoring() {
-            // เช็คทุก 10 วินาทีว่ามีข้อมูลใหม่หรือไม่
-            this.dashboardAutoRefresh = setInterval(async () => {
-                if (this.activeTab === 'dashboard') {
-                    await this.checkForNewData();
-                }
-            }, 10000); // 10 seconds
-        },
-        
-        /**
-         * Stop Dashboard Monitoring
-         */
-        stopDashboardMonitoring() {
-            if (this.dashboardAutoRefresh) {
-                clearInterval(this.dashboardAutoRefresh);
-                this.dashboardAutoRefresh = null;
-            }
-        },
-        
-        /**
-         * Check for New Data (ไม่รีเฟชหากไม่มีข้อมูลใหม่)
-         */
-        async checkForNewData() {
-            try {
-                const res = await fetch('/api/admin/stats', {
-                    headers: { 'X-Admin-Token': this.adminToken }
-                });
-                
-                if (!res.ok) return;
-                
-                const data = await res.json();
-                const newLogCount = data.recent_logs?.length || 0;
-                
-                // ✅ รีเฟชเฉพาะเมื่อมีข้อมูลใหม่
-                if (newLogCount > this.lastLogCount) {
-                    console.log(`📊 New data detected: ${newLogCount} logs (was ${this.lastLogCount})`);
-                    this.stats = data;
-                    this.lastLogCount = newLogCount;
-                    await this.loadSessionStats();
-                } else {
-                    console.log(`⏸️ No new data (${newLogCount} logs)`);
-                }
-            } catch (e) {
-                console.error('❌ Failed to check for new data:', e);
-            }
-        },
-        
-        /**
-         * Refresh Dashboard Data (เรียกเมื่อมี event จาก Socket)
-         */
-        async refreshDashboardData() {
-            if (this.activeTab !== 'dashboard') return;
-            
-            try {
-                const data = await this.apiCall('/api/admin/stats');
-                this.stats = data;
-                this.lastLogCount = data.recent_logs?.length || 0;
-                await this.loadSessionStats();
-                console.log('✅ Dashboard data refreshed');
-            } catch (e) {
-                console.error('❌ Failed to refresh dashboard:', e);
             }
         },
 
@@ -207,8 +99,6 @@ function adminApp() {
                     localStorage.setItem('adminToken', this.adminToken);
                     this.isLoggedIn = true;
                     this.startClock();
-                    this.initSocket();
-                    this.startDashboardMonitoring();
                     await this.refreshAll();
                     this.showNotification('เข้าสู่ระบบสำเร็จ', 'success');
                 } else {
@@ -231,11 +121,6 @@ function adminApp() {
                 this.adminToken = '';
                 this.tokenInput = '';
                 this.stopClock();
-                this.stopDashboardMonitoring();
-                if (this.socket) {
-                    this.socket.disconnect();
-                    this.socket = null;
-                }
                 this.showNotification('ออกจากระบบเรียบร้อย', 'success');
             }
         },
@@ -297,7 +182,6 @@ function adminApp() {
         async refreshAll() {
             try {
                 this.stats = await this.apiCall('/api/admin/stats');
-                this.lastLogCount = this.stats.recent_logs?.length || 0;
                 
                 // โหลดข้อมูล Session Stats
                 await this.loadSessionStats();

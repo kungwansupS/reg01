@@ -1,30 +1,20 @@
 import os
 from dotenv import load_dotenv
 
-# โหลดค่าจากไฟล์ .env
+# เนเธซเธฅเธ”เธเนเธฒเธเธฒเธเนเธเธฅเน .env
 load_dotenv()
 
-# Path พื้นฐานของโปรเจกต์
+# Path เธเธทเนเธเธเธฒเธเธเธญเธเนเธเธฃเน€เธเธเธ•เน
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # ----------------------------------------------------------------------------- #
 # LLM PROVIDER & MODEL CONFIGURATION
 # ----------------------------------------------------------------------------- #
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "gemini")  # ตัวเลือก: gemini, openai, local
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "gemini")  # เธ•เธฑเธงเน€เธฅเธทเธญเธ: gemini, openai, local
 
 # Gemini Configuration
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL_NAME = os.getenv("GEMINI_MODEL_NAME", "gemini-2.0-flash")
-GEMINI_FALLBACK_MODELS = [
-    m.strip()
-    for m in os.getenv(
-        "GEMINI_FALLBACK_MODELS",
-        "gemini-2.5-flash-lite,gemini-2.0-flash,gemini-2.0-flash-lite",
-    ).split(",")
-    if m.strip()
-]
-GEMINI_MAX_RETRIES = int(os.getenv("GEMINI_MAX_RETRIES", "2"))
-GEMINI_RETRY_BASE_SECONDS = float(os.getenv("GEMINI_RETRY_BASE_SECONDS", "1.5"))
 
 # OpenAI Configuration
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
@@ -36,32 +26,32 @@ LOCAL_API_KEY = os.getenv("LOCAL_API_KEY", "ollama")
 LOCAL_MODEL_NAME = os.getenv("LOCAL_MODEL_NAME", "chinda-qwen3-4b")
 LOCAL_BASE_URL = os.getenv("LOCAL_BASE_URL", "http://localhost:11434/v1")
 
-# แสดงสถานะเริ่มต้น
-print(f"[INFO] LLM Provider: {LLM_PROVIDER}")
+# เนเธชเธ”เธเธชเธ–เธฒเธเธฐเน€เธฃเธดเนเธกเธ•เนเธ
+print(f"LLM Provider: {LLM_PROVIDER}")
 
 # ----------------------------------------------------------------------------- #
 # RAG & CONTENT FOLDER CONFIGURATION
 # ----------------------------------------------------------------------------- #
-# โฟลเดอร์เก็บ PDF ต้นฉบับ
+# เนเธเธฅเน€เธ”เธญเธฃเนเน€เธเนเธ PDF เธ•เนเธเธเธเธฑเธ
 PDF_INPUT_FOLDER = os.getenv(
     "PDF_INPUT_FOLDER",
     os.path.join(BASE_DIR, "static/docs")
 )
 
-# โฟลเดอร์เก็บไฟล์ .txt ที่แปลงแล้วสำหรับ RAG
+# เนเธเธฅเน€เธ”เธญเธฃเนเน€เธเนเธเนเธเธฅเน .txt เธ—เธตเนเนเธเธฅเธเนเธฅเนเธงเธชเธณเธซเธฃเธฑเธ RAG
 PDF_QUICK_USE_FOLDER = os.getenv(
     "PDF_QUICK_USE_FOLDER",
     os.path.join(BASE_DIR, "static/quick_use")
 )
 
-# ✅ FIX: เปลี่ยนจาก session_storage เป็น sessions หรือตามชื่อโฟลเดอร์จริง
-# โฟลเดอร์สำหรับเก็บประวัติการสนทนา (Session Memory)
+# โ… FIX: เน€เธเธฅเธตเนเธขเธเธเธฒเธ session_storage เน€เธเนเธ sessions เธซเธฃเธทเธญเธ•เธฒเธกเธเธทเนเธญเนเธเธฅเน€เธ”เธญเธฃเนเธเธฃเธดเธ
+# เนเธเธฅเน€เธ”เธญเธฃเนเธชเธณเธซเธฃเธฑเธเน€เธเนเธเธเธฃเธฐเธงเธฑเธ•เธดเธเธฒเธฃเธชเธเธ—เธเธฒ (Session Memory)
 SESSION_DIR = os.getenv(
     "SESSION_DIR",
-    os.path.join(BASE_DIR, "../memory/session_storage")  # ใช้ชื่อ session_storage
+    os.path.join(BASE_DIR, "../memory/session_storage")  # เนเธเนเธเธทเนเธญ session_storage
 )
 
-# ไฟล์เก็บการตั้งค่าสถานะ Bot
+# เนเธเธฅเนเน€เธเนเธเธเธฒเธฃเธ•เธฑเนเธเธเนเธฒเธชเธ–เธฒเธเธฐ Bot
 BOT_SETTINGS_FILE = os.path.join(BASE_DIR, "../memory/bot_settings.json")
 
 # ----------------------------------------------------------------------------- #
@@ -74,10 +64,10 @@ ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
 # ----------------------------------------------------------------------------- #
 # RESOURCE CONTROL & SECURITY (PHASE 1 & 2)
 # ----------------------------------------------------------------------------- #
-# [PHASE 1] จำกัดจำนวนการเรียก LLM พร้อมกัน (Global Semaphore)
+# [PHASE 1] เธเธณเธเธฑเธ”เธเธณเธเธงเธเธเธฒเธฃเน€เธฃเธตเธขเธ LLM เธเธฃเนเธญเธกเธเธฑเธ (Global Semaphore)
 MAX_CONCURRENT_LLM_CALLS = int(os.getenv("MAX_CONCURRENT_LLM_CALLS", "10"))
 
-# [PHASE 2] คีย์สำหรับตรวจสอบความถูกต้อง
+# [PHASE 2] เธเธตเธขเนเธชเธณเธซเธฃเธฑเธเธ•เธฃเธงเธเธชเธญเธเธเธงเธฒเธกเธ–เธนเธเธ•เนเธญเธ
 AUTH_SECRET_KEY = os.getenv("AUTH_SECRET_KEY", "your-university-sso-secret")
 
 # ----------------------------------------------------------------------------- #
@@ -85,7 +75,7 @@ AUTH_SECRET_KEY = os.getenv("AUTH_SECRET_KEY", "your-university-sso-secret")
 # ----------------------------------------------------------------------------- #
 def debug_list_files(folder_path: str, label: str = "Files"):
     """
-    ฟังก์ชันช่วยตรวจสอบไฟล์ในโฟลเดอร์ (ใช้ใน retriever)
+    เธเธฑเธเธเนเธเธฑเธเธเนเธงเธขเธ•เธฃเธงเธเธชเธญเธเนเธเธฅเนเนเธเนเธเธฅเน€เธ”เธญเธฃเน (เนเธเนเนเธ retriever)
     """
     if not os.path.exists(folder_path):
         print(f"Folder not found: {folder_path}")

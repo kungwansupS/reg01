@@ -5,7 +5,7 @@ if (!session_id) {
 }
 window.session_id = session_id;
 
-window.socket = io();
+window.socket = io("http://localhost:5000");
 
 socket.on("connect", () => console.log("✅ Socket connected"));
 socket.on("disconnect", () => console.log("❌ Socket disconnected"));

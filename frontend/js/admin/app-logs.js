@@ -5,9 +5,7 @@ window.logsState = {
     sortBy: 'timestamp',
     sortDesc: true,
     currentPage: 1,
-    itemsPerPage: 20,
-    loading: false,
-    error: null
+    itemsPerPage: 20
 };
 
 /**
@@ -18,26 +16,15 @@ window.loadLogsTab = function() {
     if (!container) return;
     
     container.innerHTML = `
-        <div x-data="logsModule()" x-init="init()" class="animate-in">
+        <div x-data="logsModule()" x-init="loadLogs()" class="animate-in">
             <!-- Header -->
             <div class="mb-8">
                 <h1 class="text-4xl md:text-5xl font-black gradient-text-cmu mb-2">Audit Logs</h1>
                 <p class="font-medium" style="color: var(--text-secondary);">System Activity Monitoring & Analytics</p>
             </div>
 
-            <!-- Error Alert -->
-            <div x-show="error" class="mb-6 card-enterprise p-4 rounded-xl border-2 border-red-500 bg-red-50">
-                <div class="flex items-center gap-3">
-                    <i data-lucide="alert-triangle" class="w-5 h-5 text-red-600"></i>
-                    <div>
-                        <p class="font-bold text-red-800">เกิดข้อผิดพลาด</p>
-                        <p class="text-sm text-red-600" x-text="error"></p>
-                    </div>
-                </div>
-            </div>
-
             <!-- Stats Summary -->
-            <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
                 <!-- Total Queries -->
                 <div class="card-enterprise stat-card p-6 rounded-xl shadow-lg">
                     <p class="text-xs font-bold uppercase tracking-wider mb-2" style="color: var(--text-tertiary);">Total Queries</p>
@@ -47,19 +34,13 @@ window.loadLogsTab = function() {
                 <!-- Avg Response Time -->
                 <div class="card-enterprise stat-card p-6 rounded-xl shadow-lg">
                     <p class="text-xs font-bold uppercase tracking-wider mb-2" style="color: var(--text-tertiary);">Avg Response Time</p>
-                    <h3 class="text-3xl font-black gradient-text-cmu" x-text="calculateAvgLatency() + 's'">0s</h3>
+                    <h3 class="text-3xl font-black gradient-text-cmu" x-text="calculateAvgLatency() + 's'">0ms</h3>
                 </div>
                 
                 <!-- Total Tokens -->
                 <div class="card-enterprise stat-card p-6 rounded-xl shadow-lg">
                     <p class="text-xs font-bold uppercase tracking-wider mb-2" style="color: var(--text-tertiary);">Total Tokens</p>
                     <h3 class="text-3xl font-black" style="color: var(--accent-gold);" x-text="calculateTotalTokens().toLocaleString()">0</h3>
-                </div>
-                
-                <!-- Success Rate -->
-                <div class="card-enterprise stat-card p-6 rounded-xl shadow-lg">
-                    <p class="text-xs font-bold uppercase tracking-wider mb-2" style="color: var(--text-tertiary);">Success Rate</p>
-                    <h3 class="text-3xl font-black" style="color: var(--success);" x-text="calculateSuccessRate() + '%'">100%</h3>
                 </div>
             </div>
 
@@ -75,8 +56,7 @@ window.loadLogsTab = function() {
                                 x-model="searchQuery" 
                                 @input="filterLogs()"
                                 placeholder="ค้นหา query, response, user..."
-                                class="w-full pl-10 pr-4 py-3 rounded-xl border-2 transition-all"
-                                style="border-color: var(--border-primary); background-color: var(--bg-secondary); color: var(--text-primary);">
+                                class="w-full pl-10 pr-4 py-3 rounded-xl border-2 transition-all">
                         </div>
                     </div>
 
@@ -85,12 +65,10 @@ window.loadLogsTab = function() {
                         <select 
                             x-model="sortBy" 
                             @change="filterLogs()"
-                            class="px-4 py-3 rounded-xl border-2 font-bold transition-all"
-                            style="border-color: var(--border-primary); background-color: var(--bg-secondary); color: var(--text-primary);">
+                            class="px-4 py-3 rounded-xl border-2 font-bold transition-all">
                             <option value="timestamp">เวลา</option>
                             <option value="latency">Latency</option>
                             <option value="anon_id">User ID</option>
-                            <option value="platform">Platform</option>
                         </select>
                         
                         <button 
@@ -102,24 +80,16 @@ window.loadLogsTab = function() {
                         
                         <button 
                             @click="loadLogs()"
-                            :disabled="loading"
-                            class="p-3 rounded-xl text-white btn-enterprise disabled:opacity-50"
+                            class="p-3 rounded-xl text-white btn-enterprise"
                             style="background-color: var(--cmu-purple);">
-                            <i :data-lucide="loading ? 'loader' : 'refresh-cw'" class="w-5 h-5" :class="{'animate-spin': loading}"></i>
+                            <i data-lucide="refresh-cw" class="w-5 h-5"></i>
                         </button>
                     </div>
                 </div>
             </div>
 
-            <!-- Loading State -->
-            <div x-show="loading && logs.length === 0" class="text-center py-12">
-                <div class="w-16 h-16 border-4 rounded-full animate-spin mx-auto mb-4" 
-                     style="border-color: var(--bg-tertiary); border-top-color: var(--cmu-purple);"></div>
-                <p class="text-lg font-bold" style="color: var(--text-secondary);">กำลังโหลด logs...</p>
-            </div>
-
             <!-- Logs Table -->
-            <div x-show="!loading || logs.length > 0" class="card-enterprise rounded-2xl shadow-lg overflow-hidden">
+            <div class="card-enterprise rounded-2xl shadow-lg overflow-hidden">
                 <div class="overflow-x-auto">
                     <table class="w-full table-enterprise">
                         <thead style="background-color: var(--bg-tertiary); border-bottom: 2px solid var(--border-primary);">
@@ -134,8 +104,8 @@ window.loadLogsTab = function() {
                             </tr>
                         </thead>
                         <tbody style="border-top: 1px solid var(--border-secondary);">
-                            <template x-for="log in paginatedLogs" :key="log.timestamp + log.anon_id + Math.random()">
-                                <tr class="cursor-pointer transition-colors border-b hover:bg-opacity-50" 
+                            <template x-for="log in paginatedLogs" :key="log.timestamp + log.anon_id">
+                                <tr class="cursor-pointer transition-colors border-b" 
                                     style="border-color: var(--border-secondary);"
                                     @click="showLogDetail(log)">
                                     
@@ -158,7 +128,7 @@ window.loadLogsTab = function() {
                                     <td class="px-6 py-4 text-sm">
                                         <span class="badge-enterprise" 
                                               style="background-color: rgba(81, 45, 109, 0.1); color: var(--cmu-purple);"
-                                              x-text="log.anon_id ? log.anon_id.substring(0, 8) + '...' : 'Anonymous'">
+                                              x-text="log.anon_id || 'Anonymous'">
                                         </span>
                                     </td>
                                     
@@ -174,10 +144,10 @@ window.loadLogsTab = function() {
                                     
                                     <td class="px-6 py-4 text-sm">
                                         <span class="badge-enterprise"
-                                            :style="log.latency < 1 ? 'background-color: rgba(52, 199, 89, 0.1); color: var(--success);' : 
-                                                    log.latency < 3 ? 'background-color: rgba(255, 149, 0, 0.1); color: var(--warning);' : 
+                                            :style="log.latency < 1000 ? 'background-color: rgba(52, 199, 89, 0.1); color: var(--success);' : 
+                                                    log.latency < 3000 ? 'background-color: rgba(255, 149, 0, 0.1); color: var(--warning);' : 
                                                     'background-color: rgba(255, 59, 48, 0.1); color: var(--danger);'"
-                                            x-text="log.latency.toFixed(2) + 's'">
+                                            x-text="log.latency + 's'">
                                         </span>
                                     </td>
 
@@ -186,7 +156,7 @@ window.loadLogsTab = function() {
                                             <div class="flex flex-col gap-1">
                                                 <span class="badge-enterprise text-xs" 
                                                       style="background-color: rgba(81, 45, 109, 0.1); color: var(--cmu-purple);"
-                                                      x-text="log.tokens.total.toLocaleString() + ' tokens'">
+                                                      x-text="log.tokens.total + ' tokens'">
                                                 </span>
                                                 <template x-if="log.tokens.cost_usd">
                                                     <span class="badge-enterprise text-xs" 
@@ -206,17 +176,9 @@ window.loadLogsTab = function() {
                     </table>
 
                     <!-- Empty State -->
-                    <div x-show="filteredLogs.length === 0 && !loading" class="text-center py-20">
+                    <div x-show="filteredLogs.length === 0" class="text-center py-20">
                         <i data-lucide="inbox" class="w-16 h-16 mx-auto mb-4" style="color: var(--border-primary);"></i>
-                        <p class="font-semibold text-lg mb-2" style="color: var(--text-secondary);">ไม่พบข้อมูล</p>
-                        <p class="text-sm" style="color: var(--text-tertiary);">
-                            <template x-if="searchQuery">
-                                ลองค้นหาด้วยคำอื่น หรือกดปุ่มรีเฟรช
-                            </template>
-                            <template x-if="!searchQuery">
-                                ยังไม่มี logs ในระบบ หรือกดปุ่มรีเฟรชเพื่อโหลดข้อมูล
-                            </template>
-                        </p>
+                        <p class="font-semibold" style="color: var(--text-tertiary);">ไม่พบข้อมูล</p>
                     </div>
                 </div>
 
@@ -295,7 +257,7 @@ window.loadLogsTab = function() {
                         
                         <div>
                             <label class="text-xs font-bold uppercase tracking-wider" style="color: var(--text-tertiary);">User ID</label>
-                            <p class="font-semibold mt-1 font-mono text-xs" style="color: var(--text-primary);" 
+                            <p class="font-semibold mt-1" style="color: var(--text-primary);" 
                                x-text="selectedLog && (selectedLog.anon_id || 'Anonymous')"></p>
                         </div>
                         
@@ -319,10 +281,10 @@ window.loadLogsTab = function() {
                             <div>
                                 <label class="text-xs font-bold uppercase tracking-wider" style="color: var(--text-tertiary);">Latency</label>
                                 <p class="text-2xl font-black gradient-text-cmu mt-1" 
-                                   x-text="selectedLog && selectedLog.latency.toFixed(2) + 's'"></p>
+                                   x-text="selectedLog && selectedLog.latency + 's'"></p>
                             </div>
                             
-                            <div x-show="selectedLog && selectedLog.rating && selectedLog.rating !== 'none'">
+                            <div x-show="selectedLog && selectedLog.rating">
                                 <label class="text-xs font-bold uppercase tracking-wider" style="color: var(--text-tertiary);">Rating</label>
                                 <p class="text-2xl font-black mt-1" style="color: var(--success);" 
                                    x-text="selectedLog && selectedLog.rating"></p>
@@ -336,17 +298,17 @@ window.loadLogsTab = function() {
                                 <div class="p-4 rounded-xl" style="background-color: rgba(81, 45, 109, 0.05);">
                                     <p class="text-xs font-bold mb-1" style="color: var(--text-tertiary);">Prompt</p>
                                     <p class="text-xl font-black" style="color: var(--cmu-purple);" 
-                                       x-text="selectedLog && selectedLog.tokens && selectedLog.tokens.prompt.toLocaleString() || 0"></p>
+                                       x-text="selectedLog && selectedLog.tokens && selectedLog.tokens.prompt || 0"></p>
                                 </div>
                                 <div class="p-4 rounded-xl" style="background-color: rgba(52, 199, 89, 0.05);">
                                     <p class="text-xs font-bold mb-1" style="color: var(--text-tertiary);">Completion</p>
                                     <p class="text-xl font-black" style="color: var(--success);" 
-                                       x-text="selectedLog && selectedLog.tokens && selectedLog.tokens.completion.toLocaleString() || 0"></p>
+                                       x-text="selectedLog && selectedLog.tokens && selectedLog.tokens.completion || 0"></p>
                                 </div>
                                 <div class="p-4 rounded-xl" style="background-color: rgba(196, 160, 82, 0.05);">
                                     <p class="text-xs font-bold mb-1" style="color: var(--text-tertiary);">Total</p>
                                     <p class="text-xl font-black" style="color: var(--accent-gold);" 
-                                       x-text="selectedLog && selectedLog.tokens && selectedLog.tokens.total.toLocaleString() || 0"></p>
+                                       x-text="selectedLog && selectedLog.tokens && selectedLog.tokens.total || 0"></p>
                                 </div>
                                 <div class="p-4 rounded-xl" style="background-color: rgba(255, 149, 0, 0.05);" 
                                      x-show="selectedLog && selectedLog.tokens && selectedLog.tokens.cost_usd">
@@ -398,60 +360,20 @@ window.logsModule = function() {
             return Math.ceil(this.filteredLogs.length / this.itemsPerPage);
         },
 
-        init() {
-            console.log('🚀 [Logs] Initializing Logs Module...');
-            this.loadLogs();
-        },
-
         async loadLogs() {
             const token = localStorage.getItem('adminToken');
             
-            if (!token) {
-                console.error('❌ [Logs] No admin token found');
-                this.error = 'ไม่พบ Admin Token - กรุณา Login ใหม่';
-                return;
-            }
-            
-            this.loading = true;
-            this.error = null;
-            
             try {
-                console.log('📡 [Logs] Fetching from /api/admin/stats...');
-                
                 const res = await fetch('/api/admin/stats', {
                     headers: { 'X-Admin-Token': token }
                 });
-                
-                if (!res.ok) {
-                    throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-                }
-                
                 const data = await res.json();
-                
-                console.log('📦 [Logs] Response:', {
-                    hasRecentLogs: !!data.recent_logs,
-                    logsCount: data.recent_logs?.length || 0,
-                    sampleLog: data.recent_logs?.[0]
-                });
-                
-                if (!data.recent_logs) {
-                    console.warn('⚠️ [Logs] No recent_logs in response');
-                    this.logs = [];
-                } else {
-                    this.logs = data.recent_logs;
-                    console.log(`✅ [Logs] Loaded ${this.logs.length} logs successfully`);
-                }
-                
+                this.logs = data.recent_logs || [];
                 this.filterLogs();
                 
                 setTimeout(() => lucide.createIcons(), 100);
             } catch (e) {
-                console.error('❌ [Logs] Failed to load:', e);
-                this.error = `ไม่สามารถโหลด logs: ${e.message}`;
-                this.logs = [];
-                this.filteredLogs = [];
-            } finally {
-                this.loading = false;
+                console.error('Failed to load logs:', e);
             }
         },
 
@@ -486,19 +408,10 @@ window.logsModule = function() {
 
             this.filteredLogs = filtered;
             this.currentPage = 1;
-            
-            console.log(`🔍 [Logs] Filtered to ${filtered.length} logs`);
         },
 
         formatTimestamp(timestamp) {
-            if (!timestamp) return 'N/A';
-            
             const date = new Date(timestamp);
-            
-            if (isNaN(date.getTime())) {
-                return timestamp;
-            }
-            
             const day = String(date.getDate()).padStart(2, '0');
             const month = String(date.getMonth() + 1).padStart(2, '0');
             const year = date.getFullYear();
@@ -517,7 +430,7 @@ window.logsModule = function() {
         calculateAvgLatency() {
             if (this.logs.length === 0) return 0;
             const sum = this.logs.reduce((a, b) => a + (b.latency || 0), 0);
-            return (sum / this.logs.length).toFixed(1);
+            return (sum / this.logs.length).toFixed(0);
         },
 
         calculateSuccessRate() {

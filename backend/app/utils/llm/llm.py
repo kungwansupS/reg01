@@ -44,6 +44,7 @@ from app.utils.token_counter import count_tokens, format_token_usage, get_token_
 from dev.flow_store import get_effective_flow_config
 from dev.trace_store import record_trace
 from memory.faq_cache import get_faq_answer, update_faq
+from memory.greeting_cache import get_greeting_response
 from memory.session import get_or_create_history, save_history
 from retriever.context_selector import retrieve_top_k_chunks
 from retriever.intent_analyzer import needs_retrieval
@@ -246,39 +247,60 @@ async def ask_llm(
             "retrieved": [],
         }
 
-        # ── Step 4: FAQ Lookup (local, no LLM call) ─────────────────
-        faq_lookup_step = step_start("faq_lookup", "FAQ Lookup")
+        # ── Step 4a: Tier 1 — Greeting Cache (exact match, 0 tokens) ──
+        greeting_step = step_start("greeting_lookup", "Tier 1: Greeting Cache")
+        greeting_reply = get_greeting_response(msg)
+        if greeting_reply:
+            reply = greeting_reply
+            total_token_usage["cached"] = True
+            step_finish(greeting_step, "ok", {"hit": True, "tier": 1})
+            logger.info("[GREETING HIT] '%s' → instant response (0 tokens)", msg[:40])
+
+            history.append({"role": "model", "parts": [{"text": reply}]})
+            await asyncio.to_thread(save_history, session_id, history)
+
+            trace_meta["status"] = "ok"
+            trace_meta["ended_at"] = _now_iso()
+            trace_meta["latency_ms"] = round((time.perf_counter() - trace_started_perf) * 1000, 2)
+            trace_meta["tokens"] = total_token_usage
+            trace_meta["detected_language"] = detected_lang
+            trace_meta["rag"] = rag_debug
+            record_trace(trace_meta)
+
+            output = {"text": reply, "from_faq": True, "tokens": total_token_usage, "trace_id": trace_id}
+            if include_debug:
+                output["debug"] = {
+                    "trace_id": trace_id, "detected_language": detected_lang,
+                    "rag": rag_debug, "steps": trace_steps,
+                    "flow_config_snapshot": active_flow,
+                    "greeting_hit": True, "tier": 1,
+                }
+            return output
+        step_finish(greeting_step, "skipped", {"hit": False})
+
+        # ── Step 4b: Tier 2 — RAG FAQ Cache (exact match, 0 tokens) ──
+        faq_lookup_step = step_start("faq_lookup", "Tier 2: RAG FAQ Cache")
         faq_lookup_enabled = bool(faq_cfg.get("lookup_enabled", True))
-        faq_block_time_sensitive = bool(faq_cfg.get("block_time_sensitive", True))
-        faq_similarity_raw = faq_cfg.get("similarity_threshold", 0.9)
-        try:
-            faq_similarity = float(faq_similarity_raw)
-        except (TypeError, ValueError):
-            faq_similarity = 0.9
-        faq_similarity = max(0.5, min(0.99, faq_similarity))
 
         faq_hit = None
         if faq_lookup_enabled:
             faq_hit = await asyncio.to_thread(
                 get_faq_answer, msg,
-                similarity_threshold=faq_similarity,
                 include_meta=True,
-                allow_time_sensitive=not faq_block_time_sensitive,
-                max_age_days=faq_cfg.get("max_age_days"),
             )
 
         if isinstance(faq_hit, dict) and str(faq_hit.get("answer") or "").strip():
             reply = str(faq_hit["answer"]).strip()
             total_token_usage["cached"] = True
             step_finish(faq_lookup_step, "ok", {
-                "hit": True,
+                "hit": True, "tier": 2,
                 "matched_question": faq_hit.get("question"),
                 "score": faq_hit.get("score"),
-                "time_sensitive": faq_hit.get("time_sensitive", False),
+                "last_validated": faq_hit.get("last_validated"),
                 "ttl_seconds": faq_hit.get("ttl_seconds"),
             })
 
-            logger.info("[FAQ HIT] matched=%s score=%s", faq_hit.get("question"), faq_hit.get("score"))
+            logger.info("[FAQ HIT] exact match='%s' (0 tokens)", faq_hit.get("question", "")[:60])
             history.append({"role": "model", "parts": [{"text": reply}]})
             await asyncio.to_thread(save_history, session_id, history)
 
@@ -296,13 +318,13 @@ async def ask_llm(
                     "trace_id": trace_id, "detected_language": detected_lang,
                     "rag": rag_debug, "steps": trace_steps,
                     "flow_config_snapshot": active_flow, "faq_hit": faq_hit,
+                    "tier": 2,
                 }
             return output
 
         step_finish(faq_lookup_step, "skipped", {
             "hit": False, "lookup_enabled": faq_lookup_enabled,
-            "reason": "lookup_disabled" if not faq_lookup_enabled else "cache_miss_or_filtered",
-            "similarity_threshold": faq_similarity,
+            "reason": "lookup_disabled" if not faq_lookup_enabled else "exact_match_miss",
         })
 
         # ── Step 5: Retrieval Decision (rule-based, no LLM call) ─────
@@ -460,10 +482,8 @@ async def ask_llm(
                     "retrieval_count": len(top_chunks),
                     "retrieval_top_score": top_score,
                     "min_retrieval_score": faq_cfg.get("min_retrieval_score", 0.35),
-                    "block_time_sensitive": bool(faq_cfg.get("block_time_sensitive", True)),
-                    "max_age_days": faq_cfg.get("max_age_days", 45),
-                    "time_sensitive_ttl_hours": faq_cfg.get("time_sensitive_ttl_hours", 6),
                     "min_answer_chars": faq_cfg.get("min_answer_chars", 30),
+                    "ttl_seconds": 86400,  # 24h TTL, refreshed daily
                 }
                 faq_update_result = await asyncio.to_thread(update_faq, msg, reply, learn_meta)
                 step_finish(

@@ -1,60 +1,47 @@
+"""
+Tier 2: RAG FAQ Cache — Exact-Match + Daily Refresh
+────────────────────────────────────────────────────
+Cached Q&A from RAG retrieval pipeline.
+
+Key design decisions:
+  1. EXACT string match only (after whitespace normalization).
+     "เปิดเทอมวันไหน" ≠ "เปิดเทอมวันไหนครับ"
+  2. No SentenceTransformer — zero model loading overhead.
+  3. TTL = 24 hours default. Daily refresh re-validates all entries.
+  4. Low-quality answers are never cached.
+  5. Backward-compatible with all admin API endpoints.
+"""
 import json
 import logging
 import os
 import re
 from datetime import datetime, timezone
 from threading import RLock
-from typing import Any, Dict, Optional
-
-from sentence_transformers import SentenceTransformer, util
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FAQ_FILE = os.path.join(BASE_DIR, "cache/faq_cache.json")
 
 MAX_FAQ = 500
-SIM_THRESHOLD = 0.9
-ANSWER_CONFLICT_SIM_THRESHOLD = 0.68
-PROTECTED_HIT_COUNT = 3
-DEFAULT_STATIC_TTL_DAYS = 45
-DEFAULT_TIME_SENSITIVE_TTL_HOURS = 6
+DEFAULT_TTL_SECONDS = 86400  # 24 hours
 DEFAULT_MIN_ANSWER_CHARS = 30
-DEFAULT_MIN_RETRIEVAL_SCORE = 0.35
-
-TIME_PATTERNS = [
-    re.compile(
-        r"(today|tomorrow|yesterday|now|current|latest|"
-        r"this\s+(week|month|semester|term|year)|next\s+(week|month|semester|term|year))",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        r"(วันนี้|พรุ่งนี้|เมื่อวาน|ตอนนี้|ล่าสุด|ปัจจุบัน|อัปเดต|อัพเดต|"
-        r"เทอมนี้|ภาคเรียนนี้|ปีนี้|สัปดาห์นี้|เดือนนี้|อีกกี่|กี่วัน|เมื่อไหร่|วันไหน|เวลาไหน)",
-        re.IGNORECASE,
-    ),
-]
 
 LOW_QUALITY_PATTERNS = [
     re.compile(r"ขออภัย.*(ขัดข้อง|ชั่วคราว|ไม่สามารถ)", re.IGNORECASE),
     re.compile(r"ระบบ.*ขัดข้อง", re.IGNORECASE),
     re.compile(r"ไม่พบข้อมูล", re.IGNORECASE),
+    re.compile(r"ไม่มีข้อมูล", re.IGNORECASE),
     re.compile(r"ไม่แน่ใจ|ไม่ทราบ", re.IGNORECASE),
+    re.compile(r"ข้อมูลส่วนนี้ไม่มีระบุ", re.IGNORECASE),
+    re.compile(r"พี่ไม่มีข้อมูล", re.IGNORECASE),
     re.compile(r"\berror\b|\bexception\b|\btimeout\b", re.IGNORECASE),
     re.compile(r"\bsorry\b|\btemporar(y|ily)\b|\bunknown\b", re.IGNORECASE),
 ]
 
 _LOCK = RLock()
-_question_vec_cache: Dict[str, Any] = {}
 
-
-def _load_env_int(name: str, default: int, minimum: int, maximum: int) -> int:
-    raw = os.getenv(name, "")
-    try:
-        value = int(raw)
-    except (TypeError, ValueError):
-        value = default
-    return max(minimum, min(maximum, value))
-
+# ─── Helpers ──────────────────────────────────────────────────────
 
 def _safe_int(value: Any, default: int, minimum: int, maximum: int) -> int:
     try:
@@ -64,38 +51,12 @@ def _safe_int(value: Any, default: int, minimum: int, maximum: int) -> int:
     return max(minimum, min(maximum, parsed))
 
 
-def _safe_float(value: Any, default: float, minimum: float, maximum: float) -> float:
-    try:
-        parsed = float(value)
-    except (TypeError, ValueError):
-        parsed = default
-    return max(minimum, min(maximum, parsed))
-
-
-MAX_FAQ = _load_env_int("FAQ_MAX_ITEMS", MAX_FAQ, 50, 5000)
-SIM_THRESHOLD = _safe_float(os.getenv("FAQ_SIM_THRESHOLD"), SIM_THRESHOLD, 0.5, 0.99)
-DEFAULT_STATIC_TTL_DAYS = _load_env_int("FAQ_STATIC_TTL_DAYS", DEFAULT_STATIC_TTL_DAYS, 1, 365)
-DEFAULT_TIME_SENSITIVE_TTL_HOURS = _load_env_int(
-    "FAQ_TIME_SENSITIVE_TTL_HOURS", DEFAULT_TIME_SENSITIVE_TTL_HOURS, 1, 168
-)
-DEFAULT_MIN_ANSWER_CHARS = _load_env_int("FAQ_MIN_ANSWER_CHARS", DEFAULT_MIN_ANSWER_CHARS, 10, 2000)
-
-# Load model once at module level.
-model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
-
-try:
-    with open(FAQ_FILE, "r", encoding="utf-8") as f:
-        loaded = json.load(f)
-        faq_cache = loaded if isinstance(loaded, dict) else {}
-except (FileNotFoundError, json.JSONDecodeError):
-    faq_cache = {}
-
-
 def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
 
 def _normalize_text(value: Any) -> str:
+    """Collapse whitespace only — NO lowercasing, NO stemming."""
     return " ".join(str(value or "").strip().split())
 
 
@@ -111,86 +72,35 @@ def _parse_iso_to_utc(raw_value: Any) -> Optional[datetime]:
     return parsed.astimezone(timezone.utc)
 
 
-def _is_time_sensitive(text: str) -> bool:
-    normalized = _normalize_text(text)
-    if not normalized:
-        return False
-    return any(pattern.search(normalized) for pattern in TIME_PATTERNS)
-
-
-def _is_low_quality_answer(answer: str, min_answer_chars: int) -> bool:
+def _is_low_quality_answer(answer: str, min_chars: int = DEFAULT_MIN_ANSWER_CHARS) -> bool:
     text = _normalize_text(answer)
-    if len(text) < min_answer_chars:
+    if len(text) < min_chars:
         return True
     if text.count("?") >= 8:
         return True
-    for pattern in LOW_QUALITY_PATTERNS:
-        if pattern.search(text):
-            return True
-    return False
+    return any(p.search(text) for p in LOW_QUALITY_PATTERNS)
 
 
-def _looks_unusable_answer(answer: str) -> bool:
-    text = _normalize_text(answer)
-    if not text:
-        return True
-    if text.count("?") >= 8:
-        return True
-    for pattern in LOW_QUALITY_PATTERNS:
-        if pattern.search(text):
-            return True
-    return False
-
-
-def _compute_ttl_seconds(
-    *,
-    time_sensitive: bool,
-    max_age_days: Optional[Any] = None,
-    time_sensitive_ttl_hours: Optional[Any] = None,
-) -> int:
-    static_days = _safe_int(max_age_days, DEFAULT_STATIC_TTL_DAYS, 1, 365)
-    dynamic_hours = _safe_int(
-        time_sensitive_ttl_hours,
-        DEFAULT_TIME_SENSITIVE_TTL_HOURS,
-        1,
-        168,
-    )
-    if time_sensitive:
-        return dynamic_hours * 3600
-    return static_days * 86400
-
-
-def _entry_ttl_seconds(
-    entry: Dict[str, Any],
-    max_age_days: Optional[Any] = None,
-    question_text: str = "",
-) -> int:
-    entry_ttl = entry.get("ttl_seconds")
-    if entry_ttl is not None:
-        return _safe_int(entry_ttl, 3600, 60, 365 * 86400)
-    inferred_time_sensitive = bool(entry.get("time_sensitive", _is_time_sensitive(question_text)))
-    return _compute_ttl_seconds(
-        time_sensitive=inferred_time_sensitive,
-        max_age_days=max_age_days,
-        time_sensitive_ttl_hours=entry.get("time_sensitive_ttl_hours"),
-    )
-
-
-def _is_entry_expired(
-    entry: Dict[str, Any],
-    now_utc: datetime,
-    max_age_days: Optional[Any] = None,
-    question_text: str = "",
-) -> bool:
-    updated_at = _parse_iso_to_utc(entry.get("last_updated"))
+def _is_entry_expired(entry: Dict[str, Any], now_utc: datetime) -> bool:
+    updated_at = _parse_iso_to_utc(entry.get("last_validated") or entry.get("last_updated"))
     if updated_at is None:
         return True
-    age_seconds = (now_utc - updated_at).total_seconds()
-    return age_seconds > _entry_ttl_seconds(
-        entry,
-        max_age_days=max_age_days,
-        question_text=question_text,
-    )
+    ttl = _safe_int(entry.get("ttl_seconds"), DEFAULT_TTL_SECONDS, 60, 365 * 86400)
+    return (now_utc - updated_at).total_seconds() > ttl
+
+
+# ─── Cache I/O ────────────────────────────────────────────────────
+
+def _load_cache() -> dict:
+    try:
+        with open(FAQ_FILE, "r", encoding="utf-8") as f:
+            loaded = json.load(f)
+            return loaded if isinstance(loaded, dict) else {}
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+faq_cache: Dict[str, Any] = _load_cache()
 
 
 def save_faq_cache() -> None:
@@ -203,132 +113,85 @@ def save_faq_cache() -> None:
             logger.error("Save FAQ Error: %s", exc, exc_info=True)
 
 
-def encode_text(text: str):
-    return model.encode(text, convert_to_tensor=True, show_progress_bar=False)
-
-
-def _question_vector(text: str):
-    normalized = _normalize_text(text)
-    if not normalized:
-        return encode_text("")
-    with _LOCK:
-        cached = _question_vec_cache.get(normalized)
-    if cached is not None:
-        return cached
-    vector = encode_text(normalized)
-    with _LOCK:
-        _question_vec_cache[normalized] = vector
-    return vector
-
-
 def _cleanup_cache_locked(now_utc: Optional[datetime] = None) -> int:
     now_utc = now_utc or _now_utc()
     removed = 0
     for question, entry in list(faq_cache.items()):
         if not isinstance(entry, dict):
             del faq_cache[question]
-            _question_vec_cache.pop(question, None)
             removed += 1
             continue
         if not _normalize_text(entry.get("answer")):
             del faq_cache[question]
-            _question_vec_cache.pop(question, None)
             removed += 1
             continue
-        if _looks_unusable_answer(str(entry.get("answer", ""))):
+        if _is_low_quality_answer(str(entry.get("answer", ""))):
             del faq_cache[question]
-            _question_vec_cache.pop(question, None)
             removed += 1
             continue
-        if _is_entry_expired(entry, now_utc, question_text=question):
+        if _is_entry_expired(entry, now_utc):
             del faq_cache[question]
-            _question_vec_cache.pop(question, None)
             removed += 1
     return removed
 
 
-def _answer_similarity(answer_a: str, answer_b: str) -> float:
-    vec_a = encode_text(_normalize_text(answer_a))
-    vec_b = encode_text(_normalize_text(answer_b))
-    return float(util.cos_sim(vec_a, vec_b).item())
-
+# ─── Core API: get / update ───────────────────────────────────────
 
 def get_faq_answer(
     question: str,
-    similarity_threshold: Optional[float] = None,
+    similarity_threshold: Optional[float] = None,  # kept for API compat, ignored
     include_meta: bool = False,
-    allow_time_sensitive: bool = False,
-    max_age_days: Optional[Any] = None,
+    allow_time_sensitive: bool = True,  # changed default: allow all
+    max_age_days: Optional[Any] = None,  # kept for API compat
 ):
+    """
+    Exact-match FAQ lookup.
+    Returns cached answer ONLY if the normalized question matches exactly.
+    """
     question_text = _normalize_text(question)
     if not question_text:
         return None
 
-    threshold = _safe_float(similarity_threshold, SIM_THRESHOLD, 0.5, 0.99)
     now_utc = _now_utc()
 
     with _LOCK:
         if not faq_cache:
             return None
-        removed = _cleanup_cache_locked(now_utc)
-        if removed:
-            save_faq_cache()
-        items = list(faq_cache.items())
-
-    if not items:
-        return None
-
-    query_vec = _question_vector(question_text)
-    best_match = None
-    best_score = threshold
-
-    for cached_question, entry in items:
-        if not isinstance(entry, dict):
-            continue
-        entry_time_sensitive = bool(entry.get("time_sensitive", _is_time_sensitive(cached_question)))
-        if not allow_time_sensitive and entry_time_sensitive:
-            continue
-        if _is_entry_expired(
-            entry,
-            now_utc,
-            max_age_days=max_age_days,
-            question_text=cached_question,
-        ):
-            continue
-        score = float(util.cos_sim(query_vec, _question_vector(cached_question)).item())
-        if score > best_score:
-            best_score = score
-            best_match = cached_question
-
-    if not best_match:
-        return None
-
-    with _LOCK:
-        entry = faq_cache.get(best_match)
+        entry = faq_cache.get(question_text)
         if not isinstance(entry, dict):
             return None
+        if _is_entry_expired(entry, now_utc):
+            return None
+
+        answer = str(entry.get("answer") or "").strip()
+        if not answer:
+            return None
+
+        # Update hit stats
         entry["count"] = int(entry.get("count", 0)) + 1
         entry["last_hit_at"] = now_utc.isoformat()
         save_faq_cache()
-        answer = str(entry.get("answer") or "")
-        metadata = {
-            "question": best_match,
-            "score": round(best_score, 4),
-            "time_sensitive": bool(entry.get("time_sensitive", _is_time_sensitive(best_match))),
-            "last_updated": entry.get("last_updated"),
-            "ttl_seconds": _entry_ttl_seconds(
-                entry,
-                max_age_days=max_age_days,
-                question_text=best_match,
-            ),
-        }
+
+    logger.info("[FAQ HIT] exact match: '%s' (hits=%d)", question_text[:60], entry.get("count", 0))
 
     if include_meta:
-        return {"answer": answer, **metadata}
+        return {
+            "answer": answer,
+            "question": question_text,
+            "score": 1.0,  # exact match = perfect score
+            "time_sensitive": False,
+            "last_updated": entry.get("last_updated"),
+            "last_validated": entry.get("last_validated"),
+            "ttl_seconds": _safe_int(entry.get("ttl_seconds"), DEFAULT_TTL_SECONDS, 60, 365 * 86400),
+        }
     return answer
 
 
 def update_faq(question: str, answer: str, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """
+    Auto-learn: cache a RAG answer for exact-match future lookups.
+    Only caches high-quality answers from successful RAG retrievals.
+    """
     metadata = metadata or {}
     question_text = _normalize_text(question)
     answer_text = _normalize_text(answer)
@@ -337,34 +200,18 @@ def update_faq(question: str, answer: str, metadata: Optional[Dict[str, Any]] = 
     if not question_text or not answer_text:
         return {"updated": False, "reason": "empty_question_or_answer"}
 
-    min_answer_chars = _safe_int(
-        metadata.get("min_answer_chars"),
-        DEFAULT_MIN_ANSWER_CHARS,
-        10,
-        2000,
-    )
-    if _is_low_quality_answer(answer_text, min_answer_chars=min_answer_chars):
+    min_answer_chars = _safe_int(metadata.get("min_answer_chars"), DEFAULT_MIN_ANSWER_CHARS, 10, 2000)
+    if _is_low_quality_answer(answer_text, min_chars=min_answer_chars):
         return {"updated": False, "reason": "low_quality_answer"}
 
-    block_time_sensitive = bool(metadata.get("block_time_sensitive", True))
-    question_is_time_sensitive = _is_time_sensitive(question_text)
-    answer_is_time_sensitive = _is_time_sensitive(answer_text)
-    time_sensitive = question_is_time_sensitive or answer_is_time_sensitive
-    if block_time_sensitive and time_sensitive:
-        return {"updated": False, "reason": "time_sensitive_blocked"}
-
+    # Require RAG retrieval context
     require_retrieval = bool(metadata.get("require_retrieval", False))
     retrieval_count = _safe_int(metadata.get("retrieval_count"), 0, 0, 1000)
     if require_retrieval and retrieval_count <= 0:
         return {"updated": False, "reason": "no_retrieval_context"}
 
-    min_retrieval_score = _safe_float(
-        metadata.get("min_retrieval_score"),
-        DEFAULT_MIN_RETRIEVAL_SCORE,
-        0.0,
-        1.0,
-    )
-    retrieval_top_score = _safe_float(metadata.get("retrieval_top_score"), 0.0, 0.0, 1.0)
+    retrieval_top_score = float(metadata.get("retrieval_top_score", 0.0))
+    min_retrieval_score = float(metadata.get("min_retrieval_score", 0.35))
     if require_retrieval and retrieval_count > 0 and retrieval_top_score < min_retrieval_score:
         return {
             "updated": False,
@@ -373,100 +220,112 @@ def update_faq(question: str, answer: str, metadata: Optional[Dict[str, Any]] = 
             "min_retrieval_score": min_retrieval_score,
         }
 
-    ttl_seconds = _compute_ttl_seconds(
-        time_sensitive=time_sensitive,
-        max_age_days=metadata.get("max_age_days"),
-        time_sensitive_ttl_hours=metadata.get("time_sensitive_ttl_hours"),
-    )
-
-    query_vec = _question_vector(question_text)
-    best_match = None
-    best_score = SIM_THRESHOLD
-    with _LOCK:
-        existing_questions = list(faq_cache.keys())
-    for cached_question in existing_questions:
-        score = float(util.cos_sim(query_vec, _question_vector(cached_question)).item())
-        if score > best_score:
-            best_score = score
-            best_match = cached_question
-
-    source = str(metadata.get("source") or "auto").strip().lower()
-    if not source:
-        source = "auto"
-
-    if best_match:
-        with _LOCK:
-            current_entry = faq_cache.get(best_match, {})
-            current_answer = _normalize_text(current_entry.get("answer"))
-            hit_count = int(current_entry.get("count", 0))
-
-        if current_answer and current_answer != answer_text:
-            answer_similarity = _answer_similarity(current_answer, answer_text)
-            if hit_count >= PROTECTED_HIT_COUNT and answer_similarity < ANSWER_CONFLICT_SIM_THRESHOLD:
-                return {
-                    "updated": False,
-                    "reason": "conflict_with_verified_answer",
-                    "matched_question": best_match,
-                    "answer_similarity": round(answer_similarity, 4),
-                }
-
-        with _LOCK:
-            entry = faq_cache.get(best_match, {})
-            entry["answer"] = answer_text
-            entry["last_updated"] = now_iso
-            entry["learned"] = True
-            entry["time_sensitive"] = time_sensitive
-            entry["ttl_seconds"] = ttl_seconds
-            entry["source"] = source
-            entry["min_answer_chars"] = min_answer_chars
-            entry["learned_count"] = int(entry.get("learned_count", 0)) + 1
-            entry["retrieval_top_score"] = retrieval_top_score
-            faq_cache[best_match] = entry
-            save_faq_cache()
-
-        return {
-            "updated": True,
-            "action": "updated_existing",
-            "matched_question": best_match,
-            "similarity": round(best_score, 4),
-            "time_sensitive": time_sensitive,
-        }
+    source = str(metadata.get("source") or "rag").strip().lower() or "rag"
+    ttl = _safe_int(metadata.get("ttl_seconds"), DEFAULT_TTL_SECONDS, 60, 365 * 86400)
 
     with _LOCK:
-        if len(faq_cache) >= MAX_FAQ:
-            sorted_faq = sorted(
-                faq_cache.items(),
-                key=lambda item: (
-                    int(item[1].get("count", 0)) if isinstance(item[1], dict) else 0,
-                    str(item[1].get("last_updated", "")) if isinstance(item[1], dict) else "",
-                ),
-            )
-            oldest_question = sorted_faq[0][0]
-            del faq_cache[oldest_question]
-            _question_vec_cache.pop(oldest_question, None)
+        # Exact match update or create
+        existing = faq_cache.get(question_text, {})
+        if isinstance(existing, dict) and existing:
+            # Update existing entry
+            existing["answer"] = answer_text
+            existing["last_updated"] = now_iso
+            existing["last_validated"] = now_iso
+            existing["learned_count"] = int(existing.get("learned_count", 0)) + 1
+            existing["retrieval_top_score"] = retrieval_top_score
+            existing["source"] = source
+            existing["ttl_seconds"] = ttl
+            faq_cache[question_text] = existing
+        else:
+            # Evict oldest if at capacity
+            if len(faq_cache) >= MAX_FAQ:
+                sorted_faq = sorted(
+                    faq_cache.items(),
+                    key=lambda item: (
+                        int(item[1].get("count", 0)) if isinstance(item[1], dict) else 0,
+                        str(item[1].get("last_updated", "")) if isinstance(item[1], dict) else "",
+                    ),
+                )
+                del faq_cache[sorted_faq[0][0]]
 
-        faq_cache[question_text] = {
-            "answer": answer_text,
-            "count": 1,
-            "last_updated": now_iso,
-            "learned": True,
-            "learned_count": 1,
-            "time_sensitive": time_sensitive,
-            "ttl_seconds": ttl_seconds,
-            "source": source,
-            "min_answer_chars": min_answer_chars,
-            "retrieval_top_score": retrieval_top_score,
-        }
+            faq_cache[question_text] = {
+                "answer": answer_text,
+                "count": 0,
+                "last_updated": now_iso,
+                "last_validated": now_iso,
+                "learned": True,
+                "learned_count": 1,
+                "source": source,
+                "ttl_seconds": ttl,
+                "retrieval_top_score": retrieval_top_score,
+            }
+
         save_faq_cache()
 
     return {
         "updated": True,
-        "action": "created",
+        "action": "updated_existing" if existing else "created",
         "matched_question": question_text,
         "similarity": 1.0,
-        "time_sensitive": time_sensitive,
     }
 
+
+# ─── Daily Refresh Support ────────────────────────────────────────
+
+def get_entries_needing_refresh(max_age_hours: int = 24) -> List[str]:
+    """Return list of questions whose entries are older than max_age_hours."""
+    now_utc = _now_utc()
+    max_age_sec = max_age_hours * 3600
+    stale = []
+    with _LOCK:
+        for question, entry in faq_cache.items():
+            if not isinstance(entry, dict):
+                continue
+            validated_at = _parse_iso_to_utc(entry.get("last_validated") or entry.get("last_updated"))
+            if validated_at is None or (now_utc - validated_at).total_seconds() > max_age_sec:
+                stale.append(question)
+    return stale
+
+
+def mark_validated(question: str, new_answer: Optional[str] = None) -> bool:
+    """
+    Mark an FAQ entry as validated (refreshed).
+    If new_answer is provided and differs, update it.
+    Returns True if entry was found and updated.
+    """
+    question_text = _normalize_text(question)
+    now_iso = _now_utc().isoformat()
+    with _LOCK:
+        entry = faq_cache.get(question_text)
+        if not isinstance(entry, dict):
+            return False
+        entry["last_validated"] = now_iso
+        if new_answer is not None:
+            new_text = _normalize_text(new_answer)
+            if new_text and not _is_low_quality_answer(new_text):
+                old_answer = _normalize_text(entry.get("answer", ""))
+                if new_text != old_answer:
+                    entry["answer"] = new_text
+                    entry["last_updated"] = now_iso
+                    logger.info("[FAQ REFRESH] Answer updated for: '%s'", question_text[:60])
+        faq_cache[question_text] = entry
+        save_faq_cache()
+    return True
+
+
+def invalidate_entry(question: str) -> bool:
+    """Remove an FAQ entry that failed refresh validation."""
+    question_text = _normalize_text(question)
+    with _LOCK:
+        if question_text in faq_cache:
+            del faq_cache[question_text]
+            save_faq_cache()
+            logger.info("[FAQ INVALIDATE] Removed stale entry: '%s'", question_text[:60])
+            return True
+    return False
+
+
+# ─── Admin API (backward-compatible) ──────────────────────────────
 
 def list_faq_entries(
     limit: int = 300,
@@ -487,48 +346,34 @@ def list_faq_entries(
                 continue
 
             answer_norm = _normalize_text(answer)
-            expired = _is_entry_expired(entry, now_utc, question_text=question)
-            time_sensitive = bool(entry.get("time_sensitive", _is_time_sensitive(question)))
-            ttl_seconds = _entry_ttl_seconds(entry, question_text=question)
+            expired = _is_entry_expired(entry, now_utc)
 
             if expired and not include_expired:
                 continue
             if query_text:
-                hay_q = question.lower()
-                hay_a = answer_norm.lower()
-                if query_text not in hay_q and query_text not in hay_a:
+                if query_text not in question.lower() and query_text not in answer_norm.lower():
                     continue
 
             preview = answer_norm if len(answer_norm) <= 220 else f"{answer_norm[:220]}...[{len(answer_norm)-220} more]"
-            rows.append(
-                {
-                    "question": question,
-                    "answer_preview": preview,
-                    "count": int(entry.get("count", 0)),
-                    "learned": bool(entry.get("learned", False)),
-                    "learned_count": int(entry.get("learned_count", 0)),
-                    "source": str(entry.get("source") or ""),
-                    "time_sensitive": time_sensitive,
-                    "ttl_seconds": int(ttl_seconds),
-                    "expired": bool(expired),
-                    "last_updated": str(entry.get("last_updated") or ""),
-                    "last_hit_at": str(entry.get("last_hit_at") or ""),
-                }
-            )
+            rows.append({
+                "question": question,
+                "answer_preview": preview,
+                "count": int(entry.get("count", 0)),
+                "learned": bool(entry.get("learned", False)),
+                "learned_count": int(entry.get("learned_count", 0)),
+                "source": str(entry.get("source") or ""),
+                "time_sensitive": False,
+                "ttl_seconds": _safe_int(entry.get("ttl_seconds"), DEFAULT_TTL_SECONDS, 60, 365 * 86400),
+                "expired": bool(expired),
+                "last_updated": str(entry.get("last_updated") or ""),
+                "last_validated": str(entry.get("last_validated") or ""),
+                "last_hit_at": str(entry.get("last_hit_at") or ""),
+            })
 
-    rows.sort(
-        key=lambda row: (
-            1 if row.get("expired") else 0,
-            -int(row.get("count", 0)),
-            str(row.get("last_updated") or ""),
-        )
-    )
-
-    total = len(rows)
-    result = rows[:capped]
+    rows.sort(key=lambda r: (1 if r.get("expired") else 0, -int(r.get("count", 0))))
     return {
-        "total": total,
-        "items": result,
+        "total": len(rows),
+        "items": rows[:capped],
         "query": query_text,
         "include_expired": bool(include_expired),
     }
@@ -540,48 +385,31 @@ def get_faq_entry(question: str) -> Optional[Dict[str, Any]]:
         return None
 
     with _LOCK:
-        key = target if target in faq_cache else None
-        if key is None:
-            for candidate in faq_cache.keys():
-                if _normalize_text(candidate) == target:
-                    key = candidate
-                    break
-        if key is None:
-            return None
-        entry = faq_cache.get(key)
+        entry = faq_cache.get(target)
         if not isinstance(entry, dict):
             return None
 
         now_utc = _now_utc()
-        time_sensitive = bool(entry.get("time_sensitive", _is_time_sensitive(key)))
-        ttl_seconds = _entry_ttl_seconds(entry, question_text=key)
-        expired = _is_entry_expired(entry, now_utc, question_text=key)
+        expired = _is_entry_expired(entry, now_utc)
         return {
-            "question": key,
+            "question": target,
             "answer": str(entry.get("answer") or ""),
             "count": int(entry.get("count", 0)),
             "learned": bool(entry.get("learned", False)),
             "learned_count": int(entry.get("learned_count", 0)),
             "source": str(entry.get("source") or ""),
-            "time_sensitive": time_sensitive,
-            "ttl_seconds": int(ttl_seconds),
+            "time_sensitive": False,
+            "ttl_seconds": _safe_int(entry.get("ttl_seconds"), DEFAULT_TTL_SECONDS, 60, 365 * 86400),
             "expired": bool(expired),
             "last_updated": str(entry.get("last_updated") or ""),
+            "last_validated": str(entry.get("last_validated") or ""),
             "last_hit_at": str(entry.get("last_hit_at") or ""),
             "metadata": {
-                k: v
-                for k, v in entry.items()
-                if k
-                not in {
-                    "answer",
-                    "count",
-                    "learned",
-                    "learned_count",
-                    "source",
-                    "time_sensitive",
-                    "ttl_seconds",
-                    "last_updated",
-                    "last_hit_at",
+                k: v for k, v in entry.items()
+                if k not in {
+                    "answer", "count", "learned", "learned_count", "source",
+                    "time_sensitive", "ttl_seconds", "last_updated",
+                    "last_validated", "last_hit_at",
                 }
             },
         }
@@ -616,37 +444,19 @@ def save_faq_entry(
 
         if original_text and original_text != question_text and original_text in faq_cache:
             del faq_cache[original_text]
-            _question_vec_cache.pop(original_text, None)
 
-        inferred_time_sensitive = _is_time_sensitive(question_text) or _is_time_sensitive(answer_text)
-        time_sensitive_value = (
-            bool(time_sensitive)
-            if time_sensitive is not None
-            else bool(existing.get("time_sensitive", inferred_time_sensitive))
-        )
-
-        if ttl_seconds is None:
-            ttl_value = _safe_int(
-                existing.get("ttl_seconds"),
-                _compute_ttl_seconds(time_sensitive=time_sensitive_value),
-                60,
-                365 * 86400,
-            )
-        else:
-            ttl_value = _safe_int(ttl_seconds, _compute_ttl_seconds(time_sensitive=time_sensitive_value), 60, 365 * 86400)
-
+        ttl_value = _safe_int(ttl_seconds, DEFAULT_TTL_SECONDS, 60, 365 * 86400)
         entry = dict(existing)
         entry["answer"] = answer_text
         entry["count"] = int(count_value if count_value is not None else int(existing.get("count", 1) or 1))
         entry["learned"] = bool(existing.get("learned", True))
         entry["learned_count"] = int(existing.get("learned_count", 0))
-        entry["time_sensitive"] = bool(time_sensitive_value)
         entry["ttl_seconds"] = int(ttl_value)
         entry["source"] = source_value
         entry["last_updated"] = now_iso
+        entry["last_validated"] = now_iso
 
         faq_cache[question_text] = entry
-        _question_vec_cache.pop(question_text, None)
         save_faq_cache()
 
     payload = get_faq_entry(question_text)
@@ -662,19 +472,11 @@ def delete_faq_entry(question: str) -> Dict[str, Any]:
         raise ValueError("Question is required.")
 
     with _LOCK:
-        key = target if target in faq_cache else None
-        if key is None:
-            for candidate in faq_cache.keys():
-                if _normalize_text(candidate) == target:
-                    key = candidate
-                    break
-        if key is None:
+        if target not in faq_cache:
             raise ValueError(f"FAQ entry not found: {target}")
-
-        del faq_cache[key]
-        _question_vec_cache.pop(key, None)
+        del faq_cache[target]
         save_faq_cache()
-        return {"deleted": True, "question": key}
+        return {"deleted": True, "question": target}
 
 
 def purge_expired_faq_entries() -> Dict[str, Any]:
@@ -690,18 +492,12 @@ def get_faq_analytics() -> Dict[str, Any]:
     with _LOCK:
         total = len(faq_cache)
         learned_count = sum(
-            1 for entry in faq_cache.values() if isinstance(entry, dict) and bool(entry.get("learned"))
+            1 for e in faq_cache.values() if isinstance(e, dict) and bool(e.get("learned"))
         )
         expired_count = sum(
-            1
-            for question, entry in faq_cache.items()
-            if isinstance(entry, dict) and _is_entry_expired(entry, now_utc, question_text=question)
+            1 for e in faq_cache.values() if isinstance(e, dict) and _is_entry_expired(e, now_utc)
         )
-        time_sensitive_count = sum(
-            1
-            for question, entry in faq_cache.items()
-            if isinstance(entry, dict) and bool(entry.get("time_sensitive", _is_time_sensitive(question)))
-        )
+        stale_count = len(get_entries_needing_refresh())
         top_questions = sorted(
             faq_cache.items(),
             key=lambda item: int(item[1].get("count", 0)) if isinstance(item[1], dict) else 0,
@@ -712,12 +508,10 @@ def get_faq_analytics() -> Dict[str, Any]:
         "total_knowledge_base": total,
         "auto_learned_count": learned_count,
         "expired_entries": expired_count,
-        "time_sensitive_entries": time_sensitive_count,
+        "stale_entries_needing_refresh": stale_count,
+        "time_sensitive_entries": 0,
         "top_faqs": [
-            {
-                "question": question,
-                "hits": int(payload.get("count", 0)) if isinstance(payload, dict) else 0,
-            }
-            for question, payload in top_questions
+            {"question": q, "hits": int(p.get("count", 0)) if isinstance(p, dict) else 0}
+            for q, p in top_questions
         ],
     }

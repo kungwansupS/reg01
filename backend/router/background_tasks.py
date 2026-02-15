@@ -196,6 +196,77 @@ async def run_startup_embedding_pipeline():
 
     logger.info(f"✅ [Startup RAG] Pipeline completed in {round(time.perf_counter() - started, 2)}s")
 
+async def refresh_faq_cache():
+    """
+    Daily FAQ refresh: re-validate all cached FAQ entries by re-running
+    the RAG pipeline and comparing answers. Updates stale entries,
+    removes entries that no longer produce valid answers.
+    """
+    from memory.faq_cache import (
+        get_entries_needing_refresh,
+        mark_validated,
+        invalidate_entry,
+    )
+    from retriever.context_selector import retrieve_top_k_chunks
+
+    stale_questions = get_entries_needing_refresh(max_age_hours=24)
+    if not stale_questions:
+        logger.info("✅ [FAQ Refresh] All entries are up-to-date")
+        return
+
+    logger.info(f"🔄 [FAQ Refresh] Validating {len(stale_questions)} stale entries...")
+    refreshed = 0
+    invalidated = 0
+
+    for question in stale_questions:
+        try:
+            # Re-run retrieval for this question
+            chunks = await asyncio.to_thread(
+                retrieve_top_k_chunks, question,
+                k=5,
+                folder=PDF_QUICK_USE_FOLDER,
+                use_hybrid=True,
+                use_rerank=True,
+                use_intent_analysis=True,
+            )
+            if not chunks:
+                invalidate_entry(question)
+                invalidated += 1
+                continue
+
+            # Build context and call LLM to regenerate answer
+            context = "\n\n".join([c["chunk"] for c, _ in chunks])
+            if not ask_llm_fn:
+                # No LLM function available, just mark as validated with current answer
+                mark_validated(question)
+                refreshed += 1
+                continue
+
+            # Use the LLM to regenerate the answer
+            result = await ask_llm_fn(question, f"faq_refresh_{hash(question) % 10000}")
+            new_answer = str(result.get("text", "")).strip()
+
+            if new_answer and len(new_answer) > 20:
+                mark_validated(question, new_answer=new_answer)
+                refreshed += 1
+            else:
+                invalidate_entry(question)
+                invalidated += 1
+
+            # Small delay between questions to avoid rate limits
+            await asyncio.sleep(5)
+
+        except Exception as e:
+            logger.warning(f"⚠️ [FAQ Refresh] Error refreshing '{question[:40]}': {e}")
+            # Don't invalidate on error — just skip
+            continue
+
+    logger.info(
+        f"✅ [FAQ Refresh] Done: {refreshed} refreshed, {invalidated} invalidated, "
+        f"{len(stale_questions) - refreshed - invalidated} skipped"
+    )
+
+
 async def maintenance_loop():
     """งานบำรุงรักษาระบบรายวัน"""
     while True:
@@ -217,6 +288,12 @@ async def maintenance_loop():
                 logger.info(f"🧹 Maintenance: Pruned {len(stale_keys)} idle session locks")
         except Exception as e:
             logger.error(f"❌ Session lock cleanup error: {e}")
+
+        # Daily FAQ cache refresh
+        try:
+            await refresh_faq_cache()
+        except Exception as e:
+            logger.error(f"❌ FAQ refresh error: {e}")
 
         await asyncio.sleep(86400)  # 24 hours
 

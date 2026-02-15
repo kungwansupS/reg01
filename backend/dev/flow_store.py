@@ -13,14 +13,15 @@ FLOW_HISTORY_MAX_ITEMS = 240
 
 DEFAULT_FLOW_CONFIG: Dict[str, Any] = {
     "rag": {
-        "mode": "keyword",  # keyword | always | never
+        "mode": "always",  # always | never (v3: keyword mode removed, rule-based gating used)
         "top_k": 5,
         "use_hybrid": True,
-        "use_llm_rerank": True,
+        "use_rerank": True,       # cross-encoder reranking (local, free)
+        "use_llm_rerank": True,   # legacy alias for use_rerank
         "use_intent_analysis": True,
     },
     "memory": {
-        "enable_summary": True,
+        "enable_summary": False,  # v3: sliding window replaces LLM summarization
         "recent_messages": 10,
     },
     "pose": {

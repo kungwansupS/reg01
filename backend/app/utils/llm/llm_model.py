@@ -131,6 +131,7 @@ class OpenAIFailoverClient:
         retry_rounds = 2
         last_retryable_error = None
 
+        hit_rate_limit = False
         for round_idx in range(retry_rounds):
             async with self._switch_lock:
                 preferred_index = self._active_index
@@ -162,16 +163,23 @@ class OpenAIFailoverClient:
                             type(exc).__name__,
                             status_part,
                         )
+                        if status_code == 429:
+                            hit_rate_limit = True
                         continue
                     raise
+
+            # On 429 rate limit, don't do extra rounds — raise immediately
+            # so the higher-level retry-with-wait logic can handle the cooldown
+            if hit_rate_limit:
+                break
 
             if round_idx < retry_rounds - 1:
                 await asyncio.sleep(0.35 * (round_idx + 1))
 
         if last_retryable_error is not None:
             logger.warning(
-                "OpenAI transient errors persisted across failover rounds (%d rounds).",
-                retry_rounds,
+                "OpenAI transient errors persisted across failover rounds (%d rounds, rate_limit=%s).",
+                round_idx + 1, hit_rate_limit,
             )
             raise last_retryable_error
         raise RuntimeError("OpenAI failover could not create completion.")

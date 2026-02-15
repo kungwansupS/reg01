@@ -196,9 +196,18 @@ TOKEN_COSTS = {
     "gpt-3.5-turbo": {"prompt": 0.0005 / 1000, "completion": 0.0015 / 1000},
     "gpt-4": {"prompt": 0.03 / 1000, "completion": 0.06 / 1000},
     "gpt-4-turbo": {"prompt": 0.01 / 1000, "completion": 0.03 / 1000},
+    "gpt-4o-mini": {"prompt": 0.00015 / 1000, "completion": 0.0006 / 1000},
+    "gpt-4o": {"prompt": 0.0025 / 1000, "completion": 0.01 / 1000},
+    "gpt-5-nano": {"prompt": 0.0001 / 1000, "completion": 0.0004 / 1000},
     "gemini-2.0-flash": {"prompt": 0, "completion": 0},  # Free tier
     "gemini-2.5-flash": {"prompt": 0, "completion": 0},  # Free tier
-    "local": {"prompt": 0, "completion": 0},  # Local model
+    "gemini-3-flash": {"prompt": 0, "completion": 0},    # Free tier
+    "gpt-oss": {"prompt": 0, "completion": 0},            # Groq free tier
+    "llama": {"prompt": 0, "completion": 0},               # Groq free tier
+    "qwen": {"prompt": 0, "completion": 0},                # Local model
+    "chinda": {"prompt": 0, "completion": 0},              # Local model
+    "local": {"prompt": 0, "completion": 0},               # Local model
+    "ollama": {"prompt": 0, "completion": 0},              # Local model
 }
 
 def calculate_cost(usage: Dict[str, int], model_name: str) -> float:

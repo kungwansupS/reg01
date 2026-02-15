@@ -1,47 +1,46 @@
+"""
+Pose Suggestion — Rule-Based (v3)
+
+แทนที่ LLM-based pose suggestion ด้วย keyword matching
+ไม่ต้องเรียก API — ประหยัด 1 LLM call ต่อ response
+"""
+import re
 import logging
-from app.utils.llm.llm_model import get_llm_model, log_llm_usage
-from app.prompt.motion_prompt import motion_prompt
-from app.config import (
-    LLM_PROVIDER, 
-    GEMINI_MODEL_NAME, 
-    OPENAI_MODEL_NAME, 
-    LOCAL_MODEL_NAME
-)
 
 logger = logging.getLogger(__name__)
 
+# Pattern → motion mapping (checked in order, first match wins)
+_POSE_RULES = [
+    # FlickDown → ไม่แน่ใจ, สงสัย, คิดหนัก
+    (re.compile(r"(ไม่แน่ใจ|ไม่มีข้อมูล|ไม่ทราบ|ยังไม่|ไม่มีระบุ|ไม่พบ|not sure|unknown)", re.IGNORECASE), "FlickDown"),
+    # Flick@Body → ปฏิเสธ, ไม่ชอบ, ไม่เห็นด้วย
+    (re.compile(r"(ไม่สามารถ|ไม่ได้|ขออภัย|ขัดข้อง|ผิดพลาด|sorry|cannot|error)", re.IGNORECASE), "Flick@Body"),
+    # Tap@Body → ไม่เข้าใจ, งง, ไม่ชัดเจน
+    (re.compile(r"(ไม่เข้าใจ|ช่วยอธิบาย|หมายถึง|ไม่ชัดเจน|unclear)", re.IGNORECASE), "Tap@Body"),
+    # Flick → เห็นด้วย, ตกลง, ยืนยัน
+    (re.compile(r"(ได้เลย|ถูกต้อง|ครับ|ค่ะ|ใช่|ยืนยัน|ok|yes|correct|sure)", re.IGNORECASE), "Flick"),
+    # Tap → เน้นคำ, เรียกความสนใจ (เช่น มีวันที่ หรือข้อมูลสำคัญ)
+    (re.compile(r"(\d{1,2}\s*(มกราคม|กุมภาพันธ์|มีนาคม|เมษายน|พฤษภาคม|มิถุนายน|กรกฎาคม|สิงหาคม|กันยายน|ตุลาคม|พฤศจิกายน|ธันวาคม))", re.IGNORECASE), "Tap"),
+    (re.compile(r"(สำคัญ|ต้อง|อย่าลืม|กำหนด|deadline|important)", re.IGNORECASE), "Tap"),
+]
+
+
 async def suggest_pose(text: str) -> str:
     """
-    วิเคราะห์คำพูดเพื่อแนะนำท่าทางแบบ Async
+    วิเคราะห์คำพูดเพื่อแนะนำท่าทาง — Rule-based (ไม่ต้องเรียก LLM)
     """
     try:
-        prompt = motion_prompt.format(text=text)
-        model = get_llm_model()
+        clean_text = str(text or "").strip()
+        if not clean_text:
+            return "Idle"
 
-        if LLM_PROVIDER == "gemini":
-            # เรียกใช้งานผ่าน Async interface (.aio)
-            response = await model.aio.models.generate_content(
-                model=GEMINI_MODEL_NAME, 
-                contents=prompt
-            )
-            reply = response.text.strip().replace('"', '')
+        for pattern, motion in _POSE_RULES:
+            if pattern.search(clean_text):
+                logger.debug(f"Pose: {motion} (matched: {pattern.pattern[:40]})")
+                return motion
 
-        elif LLM_PROVIDER in ["openai", "local"]:
-            m_name = OPENAI_MODEL_NAME if LLM_PROVIDER == "openai" else LOCAL_MODEL_NAME
-            # ต้อง await เนื่องจาก model คือ AsyncOpenAI
-            response = await model.chat.completions.create(
-                model=m_name,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            reply = response.choices[0].message.content.strip().replace('"', '')
-
-        else:
-            raise ValueError(f"❌ ไม่รู้จัก LLM_PROVIDER: {LLM_PROVIDER}")
-
-        log_llm_usage(response, context="suggest_pose")
-        print(f"DEBUG POSE: {reply}")
-        return reply
+        return "Idle"
 
     except Exception as e:
-        logger.error(f"❌ Error in suggest_pose: {e}")
-        return "none"
+        logger.error(f"Error in suggest_pose: {e}")
+        return "Idle"

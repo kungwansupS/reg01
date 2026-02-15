@@ -1,3 +1,10 @@
+"""
+Memory Module — v3 (Sliding Window + Extractive Summary)
+
+สถาปัตยกรรม v3 ใช้ sliding window แทน LLM summarization
+ฟังก์ชัน LLM-based summary ยังคงไว้สำหรับ backward compatibility
+แต่ ask_llm() ไม่เรียกใช้แล้ว
+"""
 import tiktoken
 import asyncio
 import logging
@@ -25,6 +32,42 @@ MAX_OUTPUT_TOKENS = 300
 
 def count_tokens(text):
     return len(ENCODING.encode(text))
+
+
+def extractive_summary(history, max_chars: int = 800) -> str:
+    """
+    Extractive summary — ไม่ต้องเรียก LLM เลย
+    แค่ดึงคู่ Q/A ล่าสุดที่สำคัญ (ไม่ใช่ทักทาย/ขอบคุณ)
+    ใช้เป็น fallback แทน LLM summarization
+    """
+    if not history:
+        return ""
+
+    import re
+    casual_pattern = re.compile(
+        r"^(สวัสดี|หวัดดี|ดี|ขอบคุณ|บาย|hi|hello|thanks|bye)\b",
+        re.IGNORECASE,
+    )
+
+    pairs = []
+    i = 0
+    while i < len(history) - 1:
+        if history[i].get("role") == "user" and history[i + 1].get("role") == "model":
+            q = history[i]["parts"][0]["text"].strip()
+            a = history[i + 1]["parts"][0]["text"].strip()
+            if not casual_pattern.match(q) and len(q) > 5:
+                pairs.append(f"ถาม: {q[:200]}\nตอบ: {a[:300]}")
+            i += 2
+        else:
+            i += 1
+
+    if not pairs:
+        return ""
+
+    result = "\n---\n".join(pairs[-3:])
+    if len(result) > max_chars:
+        result = result[:max_chars] + "..."
+    return result
 
 async def summarize_chat_history_async(history):
     """

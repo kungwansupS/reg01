@@ -335,10 +335,6 @@ async def ask_llm(
                     })
                 rag_debug["retrieved"] = retrieval_preview
                 context = "\n\n".join([chunk["chunk"] for chunk, _ in top_chunks])
-                # Diagnostic: log if key entities are in retrieved context
-                if "CMU-eGrad" in msg or "eGrad" in msg:
-                    has_egrad = "CMU-eGrad" in context
-                    logger.info(f"[DEBUG] CMU-eGrad in context: {has_egrad}, context_len={len(context)}")
                 step_finish(retrieve_step, "ok", {"count": len(top_chunks), "preview": retrieval_preview})
             except Exception as ret_err:
                 logger.warning("Retrieval error: %s", ret_err)

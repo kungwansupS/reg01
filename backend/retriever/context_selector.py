@@ -185,27 +185,32 @@ def retrieve_top_k_chunks(
         # Step 5: Keyword guarantee — ensure chunks with exact entity
         # matches from intent analysis are always included in results.
         # This prevents cross-encoder from dropping keyword-relevant chunks.
-        entities = intent_data.get("entities", [])
+        entities = intent_data.get("key_entities", [])
         if entities and scored_chunks:
-            included_texts = {c[0].get('chunk', '')[:100] for c in scored_chunks}
-            for result in fused_results:
-                chunk_text = result.get('chunk', '')
-                if chunk_text[:100] in included_texts:
-                    continue
-                # Check if this chunk contains any entity keyword
-                for entity in entities:
-                    if entity in chunk_text:
-                        entry = {
-                            'chunk': chunk_text,
-                            'source': result.get('source', ''),
-                            'index': result.get('metadata', {}).get('chunk_index', 0),
-                        }
-                        # Insert at position 1 (after best reranked) with a boosted score
-                        boost_score = scored_chunks[0][1] * 0.9 if scored_chunks else 1.0
-                        scored_chunks.insert(1, (entry, boost_score))
-                        scored_chunks = scored_chunks[:k + 1]  # Allow one extra
-                        logger.info(f"🔑 Keyword boost: inserted chunk containing '{entity}'")
+            # Check if entities are already in scored_chunks
+            scored_text = " ".join(c[0].get('chunk', '') for c in scored_chunks)
+            entities_missing = [e for e in entities if e not in scored_text]
+            if entities_missing:
+                logger.info(f"🔑 Entities missing from top-{k}: {entities_missing}, checking fused ({len(fused_results)} results)...")
+                for result in fused_results:
+                    chunk_text = result.get('chunk', '')
+                    for entity in entities_missing:
+                        if entity in chunk_text:
+                            entry = {
+                                'chunk': chunk_text,
+                                'source': result.get('source', ''),
+                                'index': result.get('metadata', {}).get('chunk_index', 0),
+                            }
+                            boost_score = scored_chunks[0][1] * 0.9 if scored_chunks else 1.0
+                            scored_chunks.insert(1, (entry, boost_score))
+                            scored_chunks = scored_chunks[:k + 1]
+                            entities_missing.remove(entity)
+                            logger.info(f"🔑 Keyword boost: inserted chunk containing '{entity}' (len={len(chunk_text)})")
+                            break
+                    if not entities_missing:
                         break
+                if entities_missing:
+                    logger.warning(f"⚠️ Entities still missing after boost: {entities_missing}")
         
         if not scored_chunks:
             logger.warning(f"⚠️ No results found for query: '{query}'")

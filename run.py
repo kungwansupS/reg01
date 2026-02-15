@@ -1,6 +1,7 @@
 import sys
 import os
 import logging
+import asyncio
 import uvicorn
 from dotenv import load_dotenv
 
@@ -20,10 +21,14 @@ logging.basicConfig(
 )
 
 if __name__ == "__main__":
-    logging.info("🚀 Starting REG-01 Backend...")
+    if sys.platform.startswith("win"):
+        # Avoid Proactor event loop shutdown issues on Windows.
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+    logging.info("Starting REG-01 Backend...")
 
     # Run ASGI Server ONLY
-    logging.info(f"📡 Server running at {HOST}:{PORT}")
+    logging.info(f"Server running at {HOST}:{PORT}")
     uvicorn.run(
         asgi_app,
         host=HOST,

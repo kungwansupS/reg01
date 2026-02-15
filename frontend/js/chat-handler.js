@@ -55,6 +55,9 @@ function syncSessionIdFromResponse(response, socket) {
 async function sendText(inputBox, socket) {
   const text = inputBox.value.trim();
   if (!text) return;
+  if (typeof window.setAIStatus === "function") {
+    window.setAIStatus("Sending request...", { timeoutMs: 15000 });
+  }
 
   if (!socket?.connected) {
     showPopup("Socket disconnected, using direct API mode.");
@@ -90,6 +93,7 @@ async function sendText(inputBox, socket) {
     syncSessionIdFromResponse(response, socket);
 
     if (!response.ok) {
+      if (typeof window.clearAIStatus === "function") window.clearAIStatus();
       showPopup(`Request failed (${response.status})`);
       return;
     }
@@ -99,6 +103,7 @@ async function sendText(inputBox, socket) {
       if (typeof window.handleAIResponse === "function") {
         await window.handleAIResponse({
           text: payload.text,
+          tts_text: payload.tts_text || payload.text,
           motion: payload.motion || "Idle",
         });
       } else {
@@ -110,8 +115,10 @@ async function sendText(inputBox, socket) {
         subtitles.scrollTop = subtitles?.scrollHeight || 0;
       }
     }
+    if (typeof window.clearAIStatus === "function") window.clearAIStatus();
   } catch (err) {
     console.error("Network Error:", err);
+    if (typeof window.clearAIStatus === "function") window.clearAIStatus();
     showPopup("Network error while sending message.");
   }
 }
@@ -120,8 +127,10 @@ function showPopup(message) {
   const popup = document.getElementById("popup-alert");
   if (!popup) return;
   popup.textContent = message;
+  popup.classList.remove("hidden");
   popup.classList.add("show");
   setTimeout(() => {
     popup.classList.remove("show");
+    popup.classList.add("hidden");
   }, 3000);
 }

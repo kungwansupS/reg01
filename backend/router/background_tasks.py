@@ -56,9 +56,7 @@ def init_background_tasks(
 
 async def get_session_lock(session_id: str):
     """Get or create session lock"""
-    if session_id not in session_locks:
-        session_locks[session_id] = asyncio.Lock()
-    return session_locks[session_id]
+    return session_locks.setdefault(session_id, asyncio.Lock())
 
 async def sync_vector_db():
     """
@@ -206,7 +204,20 @@ async def maintenance_loop():
             logger.info("🧹 Maintenance: Old sessions cleaned up")
         except Exception as e:
             logger.error(f"❌ Maintenance error: {e}")
-        
+
+        # Prune idle session locks to prevent unbounded memory growth
+        try:
+            stale_keys = [
+                sid for sid, lock in list(session_locks.items())
+                if not lock.locked()
+            ]
+            for sid in stale_keys:
+                session_locks.pop(sid, None)
+            if stale_keys:
+                logger.info(f"🧹 Maintenance: Pruned {len(stale_keys)} idle session locks")
+        except Exception as e:
+            logger.error(f"❌ Session lock cleanup error: {e}")
+
         await asyncio.sleep(86400)  # 24 hours
 
 async def fb_worker():

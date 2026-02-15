@@ -6,8 +6,6 @@ from starlette.middleware import Middleware
 import socketio
 import os
 import json
-import signal
-import atexit
 import httpx
 import asyncio
 import datetime
@@ -15,7 +13,6 @@ import hashlib
 import re
 import logging
 import time
-from concurrent.futures import ThreadPoolExecutor
 from threading import Lock
 from dotenv import load_dotenv
 
@@ -53,12 +50,12 @@ logger = logging.getLogger("MainBackend")
 # ----------------------------------------------------------------------------- #
 # GLOBAL STATE
 # ----------------------------------------------------------------------------- #
-executor = ThreadPoolExecutor(max_workers=10)
 fb_task_queue = asyncio.Queue()
 session_locks = {}
 AUDIT_LOG_PATH = os.path.join("logs", "user_audit.log")
 _audit_lock = Lock()
 _last_audit_trim_ts = 0.0
+_cleanup_started = False
 _SENSITIVE_KV_PATTERN = re.compile(
     r"(?i)\b(api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|password|secret)\b\s*[:=]\s*([^\s,;]+)"
 )
@@ -130,8 +127,9 @@ def _trim_audit_log_if_needed(force: bool = False) -> None:
             kept_lines.append(line if line.endswith("\n") else f"{line}\n")
 
         max_bytes = max(1, AUDIT_LOG_MAX_SIZE_MB) * 1024 * 1024
-        while kept_lines and sum(len(item.encode("utf-8")) for item in kept_lines) > max_bytes:
-            kept_lines.pop(0)
+        total_bytes = sum(len(item.encode("utf-8")) for item in kept_lines)
+        while kept_lines and total_bytes > max_bytes:
+            total_bytes -= len(kept_lines.pop(0).encode("utf-8"))
             changed = True
 
         if changed:
@@ -274,7 +272,7 @@ async def serve_dev(request: Request):
 @app.on_event("startup")
 async def startup_event():
     """Application startup"""
-    logger.info("🚀 Starting REG-01 Application...")
+    logger.info("Starting REG-01 Application...")
     
     _trim_audit_log_if_needed(force=True)
     await background_tasks.run_startup_embedding_pipeline()
@@ -283,30 +281,26 @@ async def startup_event():
     for _ in range(5):
         asyncio.create_task(background_tasks.fb_worker())
     
-    logger.info("✅ Application ready")
+    logger.info("Application ready")
 
 async def cleanup():
     """Cleanup before shutdown"""
-    logger.info("🧹 Starting cleanup...")
-    
-    await close_llm_clients()
-    
-    logger.info("✅ Cleanup complete")
+    global _cleanup_started
+    if _cleanup_started:
+        return
+    _cleanup_started = True
+
+    logger.info("Starting cleanup...")
+    try:
+        await close_llm_clients()
+    except Exception as exc:
+        logger.warning(f"Cleanup warning: {exc}")
+    logger.info("Cleanup complete")
 
 @app.on_event("shutdown")
 async def shutdown_event():
     """Application shutdown"""
     await cleanup()
-
-def signal_handler(signum, frame):
-    """Handle shutdown signals"""
-    logger.info(f"📡 Received signal {signum}")
-    asyncio.create_task(cleanup())
-
-signal.signal(signal.SIGTERM, signal_handler)
-signal.signal(signal.SIGINT, signal_handler)
-
-atexit.register(lambda: asyncio.run(cleanup()))
 
 # ----------------------------------------------------------------------------- #
 # ENTRY POINT

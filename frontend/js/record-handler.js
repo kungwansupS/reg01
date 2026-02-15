@@ -22,6 +22,9 @@ function syncSessionIdFromSpeechResponse(response) {
 }
 
 async function submitAudio(blob) {
+  if (typeof window.setAIStatus === "function") {
+    window.setAIStatus("Uploading voice...", { timeoutMs: 15000 });
+  }
   const form = new FormData();
   const sessionId = window.session_id || localStorage.getItem("session_id") || crypto.randomUUID();
   window.session_id = sessionId;
@@ -41,6 +44,7 @@ async function submitAudio(blob) {
 
   syncSessionIdFromSpeechResponse(response);
   if (!response.ok) {
+    if (typeof window.clearAIStatus === "function") window.clearAIStatus();
     throw new Error(`Speech request failed (${response.status})`);
   }
 
@@ -49,6 +53,7 @@ async function submitAudio(blob) {
     if (typeof window.handleAIResponse === "function") {
       await window.handleAIResponse({
         text: payload.text,
+        tts_text: payload.tts_text || payload.text,
         motion: payload.motion || "Idle",
       });
     } else {
@@ -60,6 +65,7 @@ async function submitAudio(blob) {
       subtitles.scrollTop = subtitles?.scrollHeight || 0;
     }
   }
+  if (typeof window.clearAIStatus === "function") window.clearAIStatus();
 }
 
 async function startRecording() {
@@ -74,6 +80,7 @@ async function startRecording() {
       await submitAudio(blob);
     } catch (err) {
       console.error("Failed to send speech:", err);
+      if (typeof window.clearAIStatus === "function") window.clearAIStatus();
     }
   };
 

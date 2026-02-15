@@ -101,9 +101,7 @@ def init_chat_router(socketio_instance, locks_dict, audit_log_fn):
 
 async def get_session_lock(session_id: str):
     """Get or create session lock"""
-    if session_id not in session_locks:
-        session_locks[session_id] = asyncio.Lock()
-    return session_locks[session_id]
+    return session_locks.setdefault(session_id, asyncio.Lock())
 
 @router.post("/speech")
 async def handle_speech(
@@ -251,10 +249,16 @@ async def handle_speech(
 
     await emit_to_web_session("ai_response", {
         "motion": motion,
-        "text": display_text
+        "text": display_text,
+        "tts_text": reply,
     }, final_session_id)
     
-    return {"text": display_text, "motion": motion, "session_id": final_session_id}
+    return {
+        "text": display_text,
+        "tts_text": reply,
+        "motion": motion,
+        "session_id": final_session_id,
+    }
 
 @router.post("/speak")
 async def text_to_speech(text: str = Form(...)):

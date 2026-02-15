@@ -143,10 +143,19 @@ async def get_stats():
     log_path = "logs/user_audit.log"
     if os.path.exists(log_path):
         try:
-            with open(log_path, "r", encoding="utf-8") as f:
-                lines = f.readlines()
-                logs = [json.loads(line) for line in lines][-100:]
-        except: logs = []
+            parsed_logs = []
+            with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        parsed_logs.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        continue
+            logs = parsed_logs[-100:]
+        except Exception:
+            logs = []
     
     token_analytics = calculate_token_analytics(logs)
     

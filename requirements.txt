@@ -11,6 +11,8 @@ jinja2
 ffmpeg-python
 pydub
 speechrecognition
+
+# TTS (edge-tts v7.x)
 edge-tts
 
 # PDF Processing

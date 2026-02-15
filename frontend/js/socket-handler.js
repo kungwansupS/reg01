@@ -5,8 +5,36 @@ let currentMediaSource = null;
 let stopped = false;
 let lastAIKey = "";
 let lastAIAt = 0;
+let statusTimer = null;
+let browserTtsVoice = null;
 
 const skipBtn = document.getElementById("skip-ai-response");
+const aiStatusBar = document.getElementById("ai-status-bar");
+
+function setAIStatus(text, { timeoutMs = 12000 } = {}) {
+  if (!aiStatusBar) return;
+  const value = String(text || "").trim();
+  if (!value) {
+    aiStatusBar.textContent = "";
+    aiStatusBar.classList.add("hidden");
+    if (statusTimer) {
+      clearTimeout(statusTimer);
+      statusTimer = null;
+    }
+    return;
+  }
+  aiStatusBar.textContent = value;
+  aiStatusBar.classList.remove("hidden");
+  if (statusTimer) clearTimeout(statusTimer);
+  statusTimer = setTimeout(() => {
+    aiStatusBar.textContent = "";
+    aiStatusBar.classList.add("hidden");
+    statusTimer = null;
+  }, Math.max(3000, timeoutMs));
+}
+
+window.setAIStatus = setAIStatus;
+window.clearAIStatus = () => setAIStatus("");
 
 function dedupeAIMessage(data) {
   const key = `${String(data?.motion || "")}|${String(data?.text || "")}`.trim();
@@ -72,9 +100,9 @@ async function streamTtsAudio(text) {
     clearTimeout(timeoutId);
   }
 
-  if (response.status === 204) return;
+  if (response.status === 204) return false;
   const contentType = String(response.headers.get("content-type") || "").toLowerCase();
-  if (!response.ok || !response.body || !contentType.includes("audio/")) return;
+  if (!response.ok || !response.body || !contentType.includes("audio/")) return false;
 
   const mediaSource = new MediaSource();
   currentMediaSource = mediaSource;
@@ -136,17 +164,63 @@ async function streamTtsAudio(text) {
   if (typeof setupAudioAnalyzer === "function") {
     setupAudioAnalyzer(audio);
   }
+  return true;
+}
+
+function detectSpeechLang(text) {
+  const value = String(text || "");
+  if (/[ก-๙]/.test(value)) return "th-TH";
+  if (/[\u3040-\u30ff\u31f0-\u31ff]/.test(value)) return "ja-JP";
+  if (/[\u4e00-\u9fff]/.test(value)) return "zh-CN";
+  return "en-US";
+}
+
+function getBrowserVoice(lang) {
+  const synth = window.speechSynthesis;
+  if (!synth) return null;
+  const voices = synth.getVoices();
+  if (!voices || voices.length === 0) return null;
+  if (browserTtsVoice && browserTtsVoice.lang === lang) return browserTtsVoice;
+  browserTtsVoice = voices.find((v) => String(v.lang || "").toLowerCase().startsWith(lang.toLowerCase().slice(0, 2))) || null;
+  return browserTtsVoice;
+}
+
+async function browserSpeakFallback(text) {
+  const synth = window.speechSynthesis;
+  if (!synth || typeof SpeechSynthesisUtterance === "undefined") return false;
+  const cleanText = String(text || "").replace(/^\[Bot[^\]]*\]\s*/i, "").replace(/\/\//g, " ").trim();
+  if (!cleanText) return false;
+
+  const lang = detectSpeechLang(cleanText);
+  return new Promise((resolve) => {
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    utterance.lang = lang;
+    utterance.rate = 1.0;
+    utterance.pitch = 1.0;
+    utterance.volume = 1.0;
+    const voice = getBrowserVoice(lang);
+    if (voice) utterance.voice = voice;
+    utterance.onend = () => resolve(true);
+    utterance.onerror = () => resolve(false);
+    try {
+      synth.cancel();
+      synth.speak(utterance);
+    } catch (_) {
+      resolve(false);
+    }
+  });
 }
 
 window.handleAIResponse = async function handleAIResponse(data) {
   if (!data || dedupeAIMessage(data)) return;
 
   const text = String(data.text || "").trim();
+  const ttsText = String(data.tts_text || data.text || "").trim();
   if (!text) {
-    const aiStatusBar = document.getElementById("ai-status-bar");
-    if (aiStatusBar) aiStatusBar.textContent = "No response text.";
+    setAIStatus("No response text.", { timeoutMs: 3500 });
     return;
   }
+  setAIStatus("");
 
   const aiMessage = document.createElement("div");
   aiMessage.className = "ai-message";
@@ -160,9 +234,23 @@ window.handleAIResponse = async function handleAIResponse(data) {
   }
 
   try {
-    await streamTtsAudio(text);
+    const ok = await streamTtsAudio(ttsText);
+    if (!ok) {
+      const usedBrowserTts = await browserSpeakFallback(ttsText);
+      if (usedBrowserTts) {
+        setAIStatus("Using local browser voice.", { timeoutMs: 2500 });
+      } else {
+        setAIStatus("TTS unavailable.", { timeoutMs: 3500 });
+      }
+    }
   } catch (err) {
     console.error("TTS stream error:", err);
+    const usedBrowserTts = await browserSpeakFallback(ttsText);
+    if (usedBrowserTts) {
+      setAIStatus("Using local browser voice.", { timeoutMs: 2500 });
+    } else {
+      setAIStatus("TTS stream unavailable.", { timeoutMs: 3500 });
+    }
   }
 };
 
@@ -230,8 +318,6 @@ if (!socket) {
   });
 
   socket.on("ai_status", (data) => {
-    const aiStatusBar = document.getElementById("ai-status-bar");
-    if (!aiStatusBar) return;
-    aiStatusBar.textContent = String(data?.status || "");
+    setAIStatus(String(data?.status || ""));
   });
 }

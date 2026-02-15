@@ -56,15 +56,10 @@ def transcribe(filepath):
         return f"✖️ ข้อผิดพลาดในการประมวลผลเสียง: {str(e)}"
         
     finally:
-        # ลบไฟล์ชั่วคราวอย่างระมัดระวัง
+        # ลบไฟล์ WAV ชั่วคราวที่สร้างขึ้นภายในฟังก์ชันนี้
         if os.path.exists(wav_path):
             try:
                 os.remove(wav_path)
             except:
                 pass
-        # ลบไฟล์ต้นฉบับที่ส่งเข้ามาหลังจากประมวลผลเสร็จ
-        if os.path.exists(filepath):
-            try:
-                os.remove(filepath)
-            except:
-                pass
+        # หมายเหตุ: ไม่ลบไฟล์ต้นฉบับ (filepath) — ให้ caller เป็นผู้จัดการ

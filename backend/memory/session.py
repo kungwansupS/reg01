@@ -96,7 +96,8 @@ def save_history(
             
             if summary_text:
                 session_db.add_message(
-                    session_id, 
+                    session_id,
+                    "system",
                     f"[INTERNAL SUMMARY] {summary_text}"
                 )
                 logger.info(f"📝 Saved summary for {session_id}: {len(summary_text)} chars")

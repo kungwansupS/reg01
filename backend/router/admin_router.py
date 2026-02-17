@@ -14,7 +14,14 @@ from concurrent.futures import ThreadPoolExecutor
 
 # Import Config จากระบบ
 from app.config import PDF_INPUT_FOLDER, PDF_QUICK_USE_FOLDER, BOT_SETTINGS_FILE, SESSION_DIR
-from memory.faq_cache import get_faq_analytics
+from memory.faq_cache import (
+    get_faq_analytics,
+    list_faq_entries,
+    get_faq_entry,
+    save_faq_entry,
+    delete_faq_entry,
+    purge_expired_faq_entries,
+)
 from memory.session import get_bot_enabled, set_bot_enabled
 from memory.session_db import session_db
 from pdf_to_txt import process_pdfs
@@ -29,6 +36,14 @@ FB_PAGE_ACCESS_TOKEN = os.getenv("FB_PAGE_ACCESS_TOKEN", "")
 
 # Executor สำหรับงาน Sync หนักๆ
 admin_executor = ThreadPoolExecutor(max_workers=5)
+
+# Queue reference — injected by main.py at startup
+_llm_queue = None
+
+def set_llm_queue(q):
+    """Called by main.py to inject the queue instance for monitor endpoint."""
+    global _llm_queue
+    _llm_queue = q
 
 # Logging
 import logging
@@ -463,3 +478,104 @@ async def admin_send_message(platform: str = Form(...), uid: str = Form(...), me
     """Admin ส่งข้อความตอบกลับด้วยตนเอง"""
     logger.info(f"📤 Admin sending message to {platform}/{uid}")
     return {"status": "success", "platform": platform, "uid": uid}
+
+# ----------------------------------------------------------------------------- #
+# FAQ MANAGEMENT ENDPOINTS
+# ----------------------------------------------------------------------------- #
+
+@router.get("/faq", dependencies=[Depends(verify_admin)])
+async def api_list_faq(limit: int = 300, query: str = "", include_expired: bool = False):
+    """ดึงรายการ FAQ ทั้งหมด"""
+    return list_faq_entries(limit=limit, query=query, include_expired=include_expired)
+
+@router.get("/faq/entry", dependencies=[Depends(verify_admin)])
+async def api_get_faq(question: str):
+    """ดึง FAQ entry เดี่ยว"""
+    entry = get_faq_entry(question)
+    if not entry:
+        raise HTTPException(status_code=404, detail="FAQ entry not found")
+    return entry
+
+@router.put("/faq", dependencies=[Depends(verify_admin)])
+async def api_save_faq(
+    question: str = Form(...),
+    answer: str = Form(...),
+    original_question: Optional[str] = Form(None),
+    ttl_seconds: Optional[int] = Form(None),
+    source: str = Form("admin"),
+):
+    """สร้างหรือแก้ไข FAQ entry"""
+    try:
+        result = save_faq_entry(
+            question=question,
+            answer=answer,
+            original_question=original_question,
+            ttl_seconds=ttl_seconds,
+            source=source,
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.delete("/faq", dependencies=[Depends(verify_admin)])
+async def api_delete_faq(question: str):
+    """ลบ FAQ entry"""
+    try:
+        return delete_faq_entry(question)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+@router.post("/faq/purge-expired", dependencies=[Depends(verify_admin)])
+async def api_purge_expired():
+    """ลบ FAQ entries ที่หมดอายุทั้งหมด"""
+    return purge_expired_faq_entries()
+
+# ----------------------------------------------------------------------------- #
+# REAL-TIME MONITOR ENDPOINT
+# ----------------------------------------------------------------------------- #
+
+@router.get("/monitor/stats", dependencies=[Depends(verify_admin)])
+async def api_monitor_stats():
+    """ดึงข้อมูล real-time สำหรับ monitor dashboard"""
+    # Queue stats
+    queue_stats = {}
+    try:
+        if _llm_queue:
+            queue_stats = _llm_queue.get_stats()
+    except Exception:
+        pass
+
+    # Recent logs (last 50)
+    logs = []
+    log_path = "logs/user_audit.log"
+    if os.path.exists(log_path):
+        try:
+            parsed = []
+            with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        parsed.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        continue
+            logs = parsed[-50:]
+        except Exception:
+            pass
+
+    # Active sessions count
+    session_count = 0
+    try:
+        sessions = await asyncio.to_thread(session_db.get_all_sessions)
+        session_count = len(sessions) if sessions else 0
+    except Exception:
+        pass
+
+    return {
+        "queue": queue_stats,
+        "recent_activity": logs,
+        "active_sessions": session_count,
+        "faq_analytics": get_faq_analytics(),
+        "system_time": datetime.datetime.now().isoformat(),
+    }

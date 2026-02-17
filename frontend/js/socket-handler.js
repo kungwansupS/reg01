@@ -320,4 +320,20 @@ if (!socket) {
   socket.on("ai_status", (data) => {
     setAIStatus(String(data?.status || ""));
   });
+
+  socket.on("queue_position", (data) => {
+    if (!data) return;
+    const pos = parseInt(data.position, 10);
+    const status = String(data.status || "").trim();
+
+    if (status === "processing" || pos === 0) {
+      setAIStatus("กำลังประมวลผล...", { timeoutMs: 30000 });
+    } else if (pos > 0) {
+      const wait = data.estimated_wait || pos * 5;
+      setAIStatus(
+        `กำลังรอคิว ลำดับที่ ${pos} (ประมาณ ${wait} วินาที)`,
+        { timeoutMs: 120000 }
+      );
+    }
+  });
 }

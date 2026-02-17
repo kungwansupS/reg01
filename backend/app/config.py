@@ -101,6 +101,20 @@ AUDIT_LOG_RETENTION_DAYS = max(1, _env_int("AUDIT_LOG_RETENTION_DAYS", "30"))
 AUDIT_LOG_MAX_SIZE_MB = max(1, _env_int("AUDIT_LOG_MAX_SIZE_MB", "20"))
 
 # ----------------------------------------------------------------------------- #
+# QUEUE SYSTEM CONFIGURATION (Multi-User Support)
+# ----------------------------------------------------------------------------- #
+# จำนวน worker สำหรับประมวลผล LLM request พร้อมกัน
+QUEUE_NUM_WORKERS = max(1, _env_int("QUEUE_NUM_WORKERS", "10"))
+# จำนวน request สูงสุดที่รอในคิว (pending + active)
+QUEUE_MAX_SIZE = max(10, _env_int("QUEUE_MAX_SIZE", "200"))
+# จำนวน request สูงสุดต่อผู้ใช้ (pending + active)
+QUEUE_PER_USER_LIMIT = max(1, _env_int("QUEUE_PER_USER_LIMIT", "3"))
+# เวลาสูงสุดที่ request จะรอในคิว (วินาที)
+QUEUE_REQUEST_TIMEOUT = max(10, _env_int("QUEUE_REQUEST_TIMEOUT", "120"))
+# ระยะเวลาระหว่าง health log (วินาที)
+QUEUE_HEALTH_LOG_INTERVAL = max(10, _env_int("QUEUE_HEALTH_LOG_INTERVAL", "60"))
+
+# ----------------------------------------------------------------------------- #
 # HELPER FUNCTIONS
 # ----------------------------------------------------------------------------- #
 def debug_list_files(folder_path: str, label: str = "Files"):

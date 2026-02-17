@@ -123,6 +123,26 @@
                     <i data-lucide="database" class="w-5 h-5"></i>
                     <span>Database</span>
                 </button>
+
+                <div class="my-2 border-t" style="border-color: var(--border-secondary);"></div>
+
+                <button 
+                    @click="switchTab('faq')" 
+                    :class="activeTab === 'faq' ? 'active' : ''"
+                    class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl font-semibold transition-all"
+                    :style="activeTab === 'faq' ? 'background-color: var(--bg-tertiary); color: var(--cmu-purple);' : 'color: var(--text-secondary);'">
+                    <i data-lucide="book-open" class="w-5 h-5"></i>
+                    <span>FAQ Manager</span>
+                </button>
+
+                <button 
+                    @click="switchTab('monitor')" 
+                    :class="activeTab === 'monitor' ? 'active' : ''"
+                    class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl font-semibold transition-all"
+                    :style="activeTab === 'monitor' ? 'background-color: var(--bg-tertiary); color: var(--cmu-purple);' : 'color: var(--text-secondary);'">
+                    <i data-lucide="activity" class="w-5 h-5"></i>
+                    <span>Live Monitor</span>
+                </button>
             </nav>
 
             <div class="p-4 border-t space-y-1" style="border-color: var(--border-secondary);">
@@ -540,6 +560,10 @@
                 <div x-show="activeTab === 'logs'" x-cloak id="logs-container"></div>
 
                 <div x-show="activeTab === 'database'" x-cloak id="database-container"></div>
+
+                <div x-show="activeTab === 'faq'" x-cloak id="faq-container"></div>
+
+                <div x-show="activeTab === 'monitor'" x-cloak id="monitor-container"></div>
             </div>
         </main>
     </div>
@@ -550,6 +574,8 @@
     <script src="/static/js/admin/app-files.js"></script>
     <script src="/static/js/admin/app-logs.js"></script>
     <script src="/static/js/admin/app-database.js"></script>
+    <script src="/static/js/admin/app-faq.js"></script>
+    <script src="/static/js/admin/app-monitor.js"></script>
     <script>
         lucide.createIcons();
         document.addEventListener('alpine:initialized', () => {

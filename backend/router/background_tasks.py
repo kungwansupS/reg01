@@ -36,6 +36,7 @@ session_locks = {}
 audit_logger = None
 ask_llm_fn = None
 send_fb_text_fn = None
+llm_queue = None
 
 def init_background_tasks(
     socketio_instance,
@@ -43,16 +44,18 @@ def init_background_tasks(
     locks_dict,
     audit_log_fn,
     llm_fn,
-    fb_sender_fn
+    fb_sender_fn,
+    queue_instance=None,
 ):
     """Initialize background tasks"""
-    global sio, fb_task_queue, session_locks, audit_logger, ask_llm_fn, send_fb_text_fn
+    global sio, fb_task_queue, session_locks, audit_logger, ask_llm_fn, send_fb_text_fn, llm_queue
     sio = socketio_instance
     fb_task_queue = task_queue
     session_locks = locks_dict
     audit_logger = audit_log_fn
     ask_llm_fn = llm_fn
     send_fb_text_fn = fb_sender_fn
+    llm_queue = queue_instance
 
 async def get_session_lock(session_id: str):
     """Get or create session lock"""
@@ -201,13 +204,15 @@ async def refresh_faq_cache():
     Daily FAQ refresh: re-validate all cached FAQ entries by re-running
     the RAG pipeline and comparing answers. Updates stale entries,
     removes entries that no longer produce valid answers.
+
+    หมายเหตุ: ask_llm_fn ทำ retrieval + reranking + LLM ภายในครบแล้ว
+    ไม่ต้องเรียก retrieve_top_k_chunks แยก (เคยทำให้ pipeline ทำงานซ้ำ 2 รอบ)
     """
     from memory.faq_cache import (
         get_entries_needing_refresh,
         mark_validated,
         invalidate_entry,
     )
-    from retriever.context_selector import retrieve_top_k_chunks
 
     stale_questions = get_entries_needing_refresh(max_age_hours=24)
     if not stale_questions:
@@ -220,29 +225,12 @@ async def refresh_faq_cache():
 
     for question in stale_questions:
         try:
-            # Re-run retrieval for this question
-            chunks = await asyncio.to_thread(
-                retrieve_top_k_chunks, question,
-                k=5,
-                folder=PDF_QUICK_USE_FOLDER,
-                use_hybrid=True,
-                use_rerank=True,
-                use_intent_analysis=True,
-            )
-            if not chunks:
-                invalidate_entry(question)
-                invalidated += 1
-                continue
-
-            # Build context and call LLM to regenerate answer
-            context = "\n\n".join([c["chunk"] for c, _ in chunks])
             if not ask_llm_fn:
-                # No LLM function available, just mark as validated with current answer
                 mark_validated(question)
                 refreshed += 1
                 continue
 
-            # Use the LLM to regenerate the answer
+            # ask_llm_fn ทำ retrieval + reranking + LLM call ครบในรอบเดียว
             result = await ask_llm_fn(question, f"faq_refresh_{hash(question) % 10000}")
             new_answer = str(result.get("text", "")).strip()
 
@@ -269,6 +257,7 @@ async def refresh_faq_cache():
 
 async def maintenance_loop():
     """งานบำรุงรักษาระบบรายวัน"""
+    first_run = True
     while True:
         try:
             cleanup_old_sessions(days=7)
@@ -290,6 +279,12 @@ async def maintenance_loop():
             logger.error(f"❌ Session lock cleanup error: {e}")
 
         # Daily FAQ cache refresh
+        # รอบแรก: เลื่อนออกไป 5 นาที เพื่อไม่ให้ชนกับ startup load / user requests
+        if first_run:
+            first_run = False
+            logger.info("⏳ [FAQ Refresh] Deferred — will run in 5 minutes")
+            await asyncio.sleep(300)  # 5 minutes
+
         try:
             await refresh_faq_cache()
         except Exception as e:
@@ -363,8 +358,15 @@ async def fb_worker():
                     platform="facebook"
                 )
                 
-                # FB worker does not need to broadcast ai_status to all sockets.
-                result = await ask_llm_fn(user_text, session_id)
+                # Submit to queue for fair ordering with web users
+                if llm_queue:
+                    result = await llm_queue.submit(
+                        user_id=f"fb_{psid}",
+                        session_id=session_id,
+                        msg=user_text,
+                    )
+                else:
+                    result = await ask_llm_fn(user_text, session_id)
                 reply = result["text"]
                 tokens = result.get("tokens", {})
                 trace_id = result.get("trace_id")

@@ -32,6 +32,7 @@ from app.config import (
 )
 from memory.session import get_or_create_history, save_history, get_bot_enabled
 from router.socketio_handlers import emit_to_web_session
+from queue_manager import QueueFullError, QueueTimeoutError
 
 router = APIRouter(prefix="/api", tags=["chat"])
 logger = logging.getLogger("ChatRouter")
@@ -41,6 +42,7 @@ executor = ThreadPoolExecutor(max_workers=10)
 sio = None
 session_locks = {}
 audit_logger = None
+llm_queue = None
 _rate_limit_lock = asyncio.Lock()
 _rate_windows = defaultdict(deque)
 _session_pattern = re.compile(r"^[A-Za-z0-9_-]{8,128}$")
@@ -92,12 +94,13 @@ def _resolve_session_id(request: Request, incoming_session_id: str) -> str:
         return cookie_sid
     return _issue_server_session_id()
 
-def init_chat_router(socketio_instance, locks_dict, audit_log_fn):
+def init_chat_router(socketio_instance, locks_dict, audit_log_fn, queue_instance=None):
     """Initialize router with dependencies"""
-    global sio, session_locks, audit_logger
+    global sio, session_locks, audit_logger, llm_queue
     sio = socketio_instance
     session_locks = locks_dict
     audit_logger = audit_log_fn
+    llm_queue = queue_instance
 
 async def get_session_lock(session_id: str):
     """Get or create session lock"""
@@ -212,7 +215,34 @@ async def handle_speech(
         async def _emit_to_session(event_name: str, payload: dict):
             await emit_to_web_session(event_name, payload, final_session_id)
 
-        result = await ask_llm(text, final_session_id, emit_fn=_emit_to_session)
+        # ── Submit to decoupled queue system ──
+        try:
+            if llm_queue:
+                result = await llm_queue.submit(
+                    user_id=user_id,
+                    session_id=final_session_id,
+                    msg=text,
+                    emit_fn=_emit_to_session,
+                )
+            else:
+                result = await ask_llm(text, final_session_id, emit_fn=_emit_to_session)
+        except QueueFullError as qfe:
+            logger.warning("Queue full for user=%s: %s", user_id[:16], qfe)
+            return {
+                "text": str(qfe),
+                "motion": "Idle",
+                "session_id": final_session_id,
+                "queue_error": "full",
+            }
+        except QueueTimeoutError as qte:
+            logger.warning("Queue timeout for user=%s: %s", user_id[:16], qte)
+            return {
+                "text": str(qte),
+                "motion": "Idle",
+                "session_id": final_session_id,
+                "queue_error": "timeout",
+            }
+
         reply = result["text"]
         trace_id = result.get("trace_id")
         flow_config = get_effective_flow_config()

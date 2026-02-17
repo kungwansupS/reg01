@@ -21,14 +21,20 @@ from app.config import (
     ALLOWED_ORIGINS,
     AUDIT_LOG_RETENTION_DAYS,
     AUDIT_LOG_MAX_SIZE_MB,
+    QUEUE_NUM_WORKERS,
+    QUEUE_MAX_SIZE,
+    QUEUE_PER_USER_LIMIT,
+    QUEUE_REQUEST_TIMEOUT,
+    QUEUE_HEALTH_LOG_INTERVAL,
 )
 from app.utils.llm.llm_model import close_llm_clients
 from app.utils.llm.llm import ask_llm
 from app.utils.token_counter import calculate_cost
 from dev.local_access import ensure_local_request
+from queue_manager import LLMRequestQueue, QueueConfig
 
 # Import routers
-from router.admin_router import router as admin_router
+from router.admin_router import router as admin_router, set_llm_queue
 from router.database_router import router as database_router
 from router.dev_router import router as dev_router
 from router import webhook_router, chat_router, socketio_handlers, background_tasks
@@ -52,6 +58,9 @@ logger = logging.getLogger("MainBackend")
 # ----------------------------------------------------------------------------- #
 fb_task_queue = asyncio.Queue()
 session_locks = {}
+
+# Queue system (decoupled from main pipeline)
+llm_queue: LLMRequestQueue = None
 AUDIT_LOG_PATH = os.path.join("logs", "user_audit.log")
 _audit_lock = Lock()
 _last_audit_trim_ts = 0.0
@@ -229,8 +238,21 @@ app.mount("/assets", StaticFiles(directory="frontend/assets"), name="assets")
 # ----------------------------------------------------------------------------- #
 # INITIALIZE ROUTERS
 # ----------------------------------------------------------------------------- #
+# Initialize queue system
+llm_queue = LLMRequestQueue(
+    handler_fn=ask_llm,
+    config=QueueConfig(
+        max_size=QUEUE_MAX_SIZE,
+        num_workers=QUEUE_NUM_WORKERS,
+        per_user_limit=QUEUE_PER_USER_LIMIT,
+        request_timeout=QUEUE_REQUEST_TIMEOUT,
+        health_log_interval=QUEUE_HEALTH_LOG_INTERVAL,
+    ),
+)
+
+set_llm_queue(llm_queue)
 webhook_router.init_webhook_router(fb_task_queue)
-chat_router.init_chat_router(sio, session_locks, write_audit_log)
+chat_router.init_chat_router(sio, session_locks, write_audit_log, llm_queue)
 socketio_handlers.init_socketio_handlers(sio, send_fb_text)
 background_tasks.init_background_tasks(
     sio,
@@ -238,7 +260,8 @@ background_tasks.init_background_tasks(
     session_locks,
     write_audit_log,
     ask_llm,
-    send_fb_text
+    send_fb_text,
+    llm_queue,
 )
 
 app.include_router(webhook_router.router)
@@ -277,11 +300,44 @@ async def startup_event():
     _trim_audit_log_if_needed(force=True)
     await background_tasks.run_startup_embedding_pipeline()
     
+    # Start LLM request queue
+    await llm_queue.start()
+    
+    # ── Queue Recovery: ประมวลผลคิวค้างจาก session ก่อนหน้า ──
+    recovery_action = os.environ.pop("_QUEUE_RECOVERY_ACTION", "none")
+    if recovery_action == "process":
+        pending_state = LLMRequestQueue.check_pending_on_disk()
+        if pending_state and pending_state.get("items"):
+            logger.info(
+                "📋 [Recovery] Processing %d pending items from previous session...",
+                len(pending_state["items"]),
+            )
+            asyncio.create_task(_run_queue_recovery(pending_state["items"]))
+        else:
+            logger.info("[Recovery] No valid pending items found on disk")
+    
     asyncio.create_task(background_tasks.maintenance_loop())
     for _ in range(5):
         asyncio.create_task(background_tasks.fb_worker())
     
-    logger.info("Application ready")
+    logger.info("Application ready (queue workers=%d, max_size=%d)", QUEUE_NUM_WORKERS, QUEUE_MAX_SIZE)
+
+
+async def _run_queue_recovery(items: list):
+    """Background task สำหรับประมวลผลคิวค้าง (ไม่ block startup)"""
+    try:
+        # รอให้ระบบพร้อม (LLM clients, vector DB, etc.)
+        await asyncio.sleep(3)
+        result = await llm_queue.recover_pending(
+            items,
+            send_fb_text_fn=send_fb_text,
+        )
+        logger.info(
+            "📋 [Recovery] Complete: processed=%d errors=%d",
+            result["processed"], result["errors"],
+        )
+    except Exception as exc:
+        logger.error("📋 [Recovery] Failed: %s", exc)
 
 async def cleanup():
     """Cleanup before shutdown"""
@@ -292,6 +348,11 @@ async def cleanup():
 
     logger.info("Starting cleanup...")
     try:
+        if llm_queue:
+            await llm_queue.shutdown()
+    except Exception as exc:
+        logger.warning(f"Queue shutdown warning: {exc}")
+    try:
         await close_llm_clients()
     except Exception as exc:
         logger.warning(f"Cleanup warning: {exc}")
@@ -301,6 +362,14 @@ async def cleanup():
 async def shutdown_event():
     """Application shutdown"""
     await cleanup()
+
+
+@app.get("/api/queue/status")
+async def queue_status():
+    """Queue system health & statistics endpoint"""
+    if not llm_queue:
+        return {"error": "Queue not initialized"}
+    return llm_queue.get_stats()
 
 # ----------------------------------------------------------------------------- #
 # ENTRY POINT

@@ -25,6 +25,8 @@ function adminApp() {
         files: null,
         logs: null,
         database: null,
+        faq: null,
+        monitor: null,
         
         // Data State
         stats: {
@@ -65,6 +67,12 @@ function adminApp() {
             }
             if (typeof initDatabaseModule === 'function') {
                 initDatabaseModule(this);
+            }
+            if (typeof initFaqModule === 'function') {
+                initFaqModule(this);
+            }
+            if (typeof initMonitorModule === 'function') {
+                initMonitorModule(this);
             }
         },
 
@@ -150,6 +158,15 @@ function adminApp() {
             } else if (tab === 'database' && this.database) {
                 this.database.render();
                 this.database.loadSessions();
+            } else if (tab === 'faq' && this.faq) {
+                this.faq.loadEntries();
+            } else if (tab === 'monitor' && this.monitor) {
+                this.monitor.start();
+            }
+
+            // Stop monitor auto-refresh when leaving
+            if (tab !== 'monitor' && this.monitor && this.monitor.stop) {
+                this.monitor.stop();
             }
         },
 

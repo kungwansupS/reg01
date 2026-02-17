@@ -99,6 +99,19 @@ async function sendText(inputBox, socket) {
     }
 
     const payload = await response.json().catch(() => null);
+    if (payload?.queue_error) {
+      if (typeof window.clearAIStatus === "function") window.clearAIStatus();
+      const errMsg = payload.text || "ระบบมีผู้ใช้จำนวนมาก กรุณาลองใหม่";
+      showPopup(errMsg);
+      const aiMessage = document.createElement("div");
+      aiMessage.className = "ai-message";
+      aiMessage.style.color = "#e67e22";
+      aiMessage.textContent = errMsg;
+      const subtitles = document.getElementById("subtitles");
+      subtitles?.appendChild(aiMessage);
+      subtitles.scrollTop = subtitles?.scrollHeight || 0;
+      return;
+    }
     if (payload?.text) {
       if (typeof window.handleAIResponse === "function") {
         await window.handleAIResponse({

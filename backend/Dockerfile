@@ -13,12 +13,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy backend code and legacy static assets
+# Copy backend code
 COPY backend/ ./
-COPY frontend ./frontend
 
 # Create required directories
-RUN mkdir -p logs frontend/assets
+RUN mkdir -p logs
 
 EXPOSE 5000
 

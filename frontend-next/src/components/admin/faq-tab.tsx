@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Plus, Pencil, Trash2, Search, Clock } from "lucide-react";
+import { Plus, Pencil, Trash2, Search, Clock, X } from "lucide-react";
 import { adminFetch } from "@/lib/api";
+import { cn } from "@/lib/utils";
 
 interface FaqItem {
   question: string;
@@ -78,61 +79,61 @@ export function FaqTab() {
   return (
     <div className="p-6 space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">FAQ Manager</h1>
+        <h1 className="text-xl font-bold">FAQ</h1>
         <div className="flex gap-2">
-          <button onClick={handlePurge} className="flex items-center gap-2 px-3 py-2 bg-zinc-800 rounded-lg hover:bg-zinc-700 text-sm">
-            <Clock className="w-4 h-4" /> Purge Expired
+          <button onClick={handlePurge} className="yt-btn yt-btn-secondary text-xs">
+            <Clock className="w-3.5 h-3.5" /> Purge Expired
           </button>
           <button
             onClick={() => setEditing({ question: "", answer: "", ttl: 86400, isNew: true })}
-            className="flex items-center gap-2 px-3 py-2 gradient-cmu text-white rounded-lg text-sm"
+            className="yt-btn yt-btn-primary text-xs"
           >
-            <Plus className="w-4 h-4" /> Add Entry
+            <Plus className="w-3.5 h-3.5" /> Add Entry
           </button>
         </div>
       </div>
 
       <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-yt-text-muted" />
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search FAQ..."
-          className="w-full bg-zinc-800 rounded-lg pl-10 pr-4 py-2 text-sm outline-none focus:ring-1 focus:ring-cmu-purple/50"
+          className="w-full yt-input pl-10 pr-4 py-2 text-sm"
         />
       </div>
 
       {loading ? (
-        <p className="text-zinc-500">Loading...</p>
+        <p className="text-yt-text-muted">Loading...</p>
       ) : (
-        <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="yt-card overflow-hidden">
+          <table className="yt-table">
             <thead>
-              <tr className="border-b border-zinc-800 text-zinc-500 text-left">
-                <th className="px-4 py-3">Question</th>
-                <th className="px-4 py-3">Answer</th>
-                <th className="px-4 py-3 w-24">Source</th>
-                <th className="px-4 py-3 w-28">Status</th>
-                <th className="px-4 py-3 w-24">Actions</th>
+              <tr>
+                <th>Question</th>
+                <th>Answer</th>
+                <th className="w-24">Source</th>
+                <th className="w-24">Status</th>
+                <th className="w-24">Actions</th>
               </tr>
             </thead>
             <tbody>
               {items.map((item) => (
-                <tr key={item.question} className="border-b border-zinc-800/50 hover:bg-zinc-800/30">
-                  <td className="px-4 py-3 font-medium max-w-48 truncate">{item.question}</td>
-                  <td className="px-4 py-3 text-zinc-400 max-w-64 truncate">{item.answer_preview}</td>
-                  <td className="px-4 py-3 text-xs text-zinc-500">{item.source}</td>
-                  <td className="px-4 py-3">
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${item.expired ? "bg-red-500/20 text-red-400" : "bg-green-500/20 text-green-400"}`}>
+                <tr key={item.question}>
+                  <td className="font-medium max-w-48 truncate">{item.question}</td>
+                  <td className="text-yt-text-secondary max-w-64 truncate">{item.answer_preview}</td>
+                  <td className="text-yt-text-muted">{item.source}</td>
+                  <td>
+                    <span className={cn("yt-badge", item.expired ? "yt-badge-red" : "yt-badge-green")}>
                       {item.expired ? "expired" : "active"}
                     </span>
                   </td>
-                  <td className="px-4 py-3">
+                  <td>
                     <div className="flex gap-1">
-                      <button onClick={() => handleEdit(item.question)} className="p-1.5 hover:bg-zinc-700 rounded">
+                      <button onClick={() => handleEdit(item.question)} className="yt-btn-icon">
                         <Pencil className="w-3.5 h-3.5" />
                       </button>
-                      <button onClick={() => handleDelete(item.question)} className="p-1.5 hover:bg-red-900/30 text-red-400 rounded">
+                      <button onClick={() => handleDelete(item.question)} className="yt-btn-icon text-danger">
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
@@ -140,47 +141,51 @@ export function FaqTab() {
                 </tr>
               ))}
               {items.length === 0 && (
-                <tr><td colSpan={5} className="px-4 py-8 text-center text-zinc-600">No FAQ entries</td></tr>
+                <tr><td colSpan={5} className="text-center text-yt-text-muted py-8">No FAQ entries</td></tr>
               )}
             </tbody>
           </table>
         </div>
       )}
 
+      {/* Edit Modal */}
       {editing && (
         <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-8" onClick={() => setEditing(null)}>
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl w-full max-w-lg p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-bold">{editing.isNew ? "Add FAQ" : "Edit FAQ"}</h3>
+          <div className="yt-card w-full max-w-lg p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-bold">{editing.isNew ? "Add FAQ" : "Edit FAQ"}</h3>
+              <button onClick={() => setEditing(null)} className="yt-btn-icon"><X className="w-4 h-4" /></button>
+            </div>
             <div>
-              <label className="block text-xs text-zinc-500 mb-1">Question</label>
+              <label className="block text-xs text-yt-text-muted mb-1">Question</label>
               <input
                 value={editing.question}
                 onChange={(e) => setEditing({ ...editing, question: e.target.value })}
-                className="w-full bg-zinc-800 rounded-lg px-3 py-2 text-sm outline-none"
+                className="w-full yt-input text-sm"
                 disabled={!editing.isNew}
               />
             </div>
             <div>
-              <label className="block text-xs text-zinc-500 mb-1">Answer</label>
+              <label className="block text-xs text-yt-text-muted mb-1">Answer</label>
               <textarea
                 value={editing.answer}
                 onChange={(e) => setEditing({ ...editing, answer: e.target.value })}
                 rows={4}
-                className="w-full bg-zinc-800 rounded-lg px-3 py-2 text-sm outline-none resize-none"
+                className="w-full yt-input text-sm resize-none"
               />
             </div>
             <div>
-              <label className="block text-xs text-zinc-500 mb-1">TTL (seconds)</label>
+              <label className="block text-xs text-yt-text-muted mb-1">TTL (seconds)</label>
               <input
                 type="number"
                 value={editing.ttl}
                 onChange={(e) => setEditing({ ...editing, ttl: parseInt(e.target.value) || 86400 })}
-                className="w-full bg-zinc-800 rounded-lg px-3 py-2 text-sm outline-none"
+                className="w-full yt-input text-sm"
               />
             </div>
             <div className="flex gap-2 justify-end">
-              <button onClick={() => setEditing(null)} className="px-4 py-2 bg-zinc-800 rounded-lg text-sm hover:bg-zinc-700">Cancel</button>
-              <button onClick={handleSave} className="px-4 py-2 gradient-cmu text-white rounded-lg text-sm">Save</button>
+              <button onClick={() => setEditing(null)} className="yt-btn yt-btn-secondary text-sm">Cancel</button>
+              <button onClick={handleSave} className="yt-btn yt-btn-primary text-sm">Save</button>
             </div>
           </div>
         </div>

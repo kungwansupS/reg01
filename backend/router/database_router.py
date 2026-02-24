@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from app.auth import require_admin
 from memory.session_db import session_db
 
-router = APIRouter(prefix="/admin/api/database", tags=["database"])
+router = APIRouter(prefix="/api/admin/database", tags=["database"])
 
 
 class SessionUpdate(BaseModel):

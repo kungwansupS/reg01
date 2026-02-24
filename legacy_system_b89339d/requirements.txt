@@ -1,0 +1,44 @@
+# Web Framework
+fastapi
+uvicorn
+python-socketio
+python-dotenv
+python-multipart
+httpx
+jinja2
+
+# Media Processing
+ffmpeg-python
+pydub
+speechrecognition
+
+# TTS (edge-tts v7.x)
+edge-tts
+
+# PDF Processing
+PyMuPDF
+pypdf
+pdfminer.six
+
+# LLM & AI
+openai
+google-genai
+sentence-transformers
+torch
+transformers
+langdetect
+tiktoken
+
+# Vector Database & Search
+chromadb
+scikit-learn
+rank-bm25
+
+# Thai Language Support
+pythainlp
+
+# Database (PostgreSQL)
+asyncpg
+
+# Utilities
+tqdm

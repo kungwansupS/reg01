@@ -19,6 +19,11 @@ def is_local_host(host: str | None) -> bool:
         return True
     if host_l.startswith("::ffff:127."):
         return True
+    # Allow Docker internal / private networks (dev is already token-protected)
+    if host_l.startswith("172.") or host_l.startswith("10.") or host_l.startswith("192.168."):
+        return True
+    if host_l.startswith("::ffff:172.") or host_l.startswith("::ffff:10.") or host_l.startswith("::ffff:192.168."):
+        return True
     return False
 
 

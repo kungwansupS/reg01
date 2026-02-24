@@ -573,7 +573,7 @@ async def get_connections():
         llm_status = "unknown_provider"
 
     nodes = [
-        {"id": "dev_ui", "title": "Dev Console UI", "kind": "frontend", "status": "ok", "path": "frontend/dev.html"},
+        {"id": "dev_ui", "title": "Dev Console UI", "kind": "frontend", "status": "ok", "path": "frontend-next/src/app/dev/page.tsx"},
         {"id": "backend_api", "title": "FastAPI Backend", "kind": "service", "status": "ok", "path": "backend/main.py"},
         {"id": "socketio", "title": "Socket.IO Gateway", "kind": "service", "status": "ok", "path": "backend/main.py"},
         {"id": "llm", "title": f"LLM Provider ({llm_provider})", "kind": "external", "status": llm_status},

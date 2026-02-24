@@ -1,7 +1,5 @@
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from starlette.middleware import Middleware
 import socketio
 import os
@@ -36,7 +34,7 @@ from memory.redis_client import init_redis, close_redis
 from app.utils.llm.llm_model import close_llm_clients
 from app.utils.llm.llm import ask_llm
 from app.utils.token_counter import calculate_cost
-from dev.local_access import ensure_local_request
+# ensure_local_request removed — dev page now served by Next.js frontend
 from queue_manager import LLMRequestQueue, QueueConfig
 
 # Import routers
@@ -240,8 +238,7 @@ app = FastAPI(
 
 asgi_app = socketio.ASGIApp(sio, app)
 
-app.mount("/static", StaticFiles(directory="frontend", html=False), name="static")
-app.mount("/assets", StaticFiles(directory="frontend/assets"), name="assets")
+# Static assets (docs, quick_use) are served from backend/app/static via admin file API
 
 # ----------------------------------------------------------------------------- #
 # INITIALIZE ROUTERS
@@ -280,23 +277,12 @@ app.include_router(database_router)
 app.include_router(dev_router)
 
 # ----------------------------------------------------------------------------- #
-# STATIC PAGES
+# HEALTH CHECK (frontend is served by Next.js on port 3000)
 # ----------------------------------------------------------------------------- #
 @app.get("/")
-async def serve_index():
-    """Serve main chat interface"""
-    return FileResponse("frontend/index.html")
-
-@app.get("/admin")
-async def serve_admin():
-    """Serve admin dashboard"""
-    return FileResponse("frontend/admin.html")
-
-@app.get("/dev")
-async def serve_dev(request: Request):
-    """Serve developer flow dashboard"""
-    ensure_local_request(request)
-    return FileResponse("frontend/dev.html")
+async def health_check():
+    """Health check endpoint — frontend is served by Next.js"""
+    return {"status": "ok", "service": "reg01-backend", "frontend": "http://localhost:3000"}
 
 # ----------------------------------------------------------------------------- #
 # LIFECYCLE EVENTS

@@ -1,14 +1,16 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
-import { Send, Mic, MicOff, SkipForward, MessageSquare } from "lucide-react";
+import { useState, useCallback, useRef, useEffect } from "react";
+import {
+  Send, Mic, MicOff, SkipForward, Keyboard, Radio,
+  Bot, Settings, Wifi, WifiOff, Volume2, VolumeX,
+} from "lucide-react";
 import { useSocket } from "@/providers/socket-provider";
-import { ConnectionStatus } from "@/components/chat/connection-status";
 import { ChatMessages, type ChatMessage } from "@/components/chat/chat-messages";
 import { useTts } from "@/hooks/use-tts";
 import { useRecorder } from "@/hooks/use-recorder";
-import { sendSpeech } from "@/lib/api";
-import { getSessionId } from "@/lib/utils";
+import { sendSpeech, sendSpeechAudio } from "@/lib/api";
+import { cn } from "@/lib/utils";
 import Link from "next/link";
 
 export default function ChatPage() {
@@ -16,8 +18,9 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [statusText, setStatusText] = useState("");
-  const [isTextMode, setIsTextMode] = useState(false);
+  const [inputMode, setInputMode] = useState<"text" | "voice">("text");
   const [isSending, setIsSending] = useState(false);
+  const [ttsEnabled, setTtsEnabled] = useState(true);
   const inputRef = useRef<HTMLInputElement>(null);
   const { speak, browserSpeak, stop: stopTts } = useTts();
 
@@ -32,25 +35,27 @@ export default function ChatPage() {
       setStatusText("");
       addMessage("ai", text);
 
+      if (!ttsEnabled) return;
       const ttsText = data.tts_text || text;
       try {
         const ok = await speak(ttsText);
         if (!ok) {
           const used = await browserSpeak(ttsText);
-          if (used) setStatusText("Using local browser voice.");
-          else setStatusText("TTS unavailable.");
-          setTimeout(() => setStatusText(""), 3000);
+          if (!used) {
+            setStatusText("TTS unavailable");
+            setTimeout(() => setStatusText(""), 3000);
+          }
         }
       } catch {
         await browserSpeak(ttsText);
       }
     },
-    [addMessage, speak, browserSpeak]
+    [addMessage, speak, browserSpeak, ttsEnabled]
   );
 
-  // Socket event listeners
   const registeredRef = useRef(false);
-  if (socket && !registeredRef.current) {
+  useEffect(() => {
+    if (!socket || registeredRef.current) return;
     registeredRef.current = true;
 
     socket.on("ai_response", (data) => handleAIResponse(data));
@@ -63,23 +68,29 @@ export default function ChatPage() {
         setStatusText("กำลังประมวลผล...");
       } else if (pos > 0) {
         const wait = data.estimated_wait || pos * 5;
-        setStatusText(`กำลังรอคิว ลำดับที่ ${pos} (ประมาณ ${wait} วินาที)`);
+        setStatusText(`คิวที่ ${pos} (≈${wait}s)`);
       }
     });
     socket.on("subtitle", (data) => {
       if (data?.speaker === "user") addMessage("user", data.text || "");
     });
-  }
+
+    return () => {
+      socket.off("ai_response");
+      socket.off("ai_status");
+      socket.off("queue_position");
+      socket.off("subtitle");
+      registeredRef.current = false;
+    };
+  }, [socket, handleAIResponse, addMessage]);
 
   const handleSend = useCallback(async () => {
     const text = input.trim();
     if (!text || isSending) return;
-
     addMessage("user", text);
     setInput("");
     setIsSending(true);
-    setStatusText("Sending request...");
-
+    setStatusText("กำลังส่ง...");
     try {
       const payload = await sendSpeech(text);
       if (payload?.queue_error) {
@@ -87,110 +98,158 @@ export default function ChatPage() {
         addMessage("ai", payload.text || "ระบบมีผู้ใช้จำนวนมาก กรุณาลองใหม่");
         return;
       }
-      if (payload?.text) {
-        await handleAIResponse(payload);
-      }
+      // Don't call handleAIResponse here — the backend emits ai_response via socket
+      // which is handled by the socket listener. Processing both causes duplicate messages.
       setStatusText("");
-    } catch (err) {
+    } catch {
       setStatusText("");
-      addMessage("ai", "Network error while sending message.");
+      addMessage("ai", "เกิดข้อผิดพลาดในการเชื่อมต่อ");
     } finally {
       setIsSending(false);
     }
-  }, [input, isSending, addMessage, handleAIResponse]);
+  }, [input, isSending, addMessage]);
 
   const handleRecordResult = useCallback(
     async (blob: Blob) => {
-      setStatusText("Processing audio...");
-      const form = new FormData();
-      form.append("audio", blob, "recording.webm");
-      form.append("session_id", getSessionId());
-
+      setStatusText("กำลังประมวลผลเสียง...");
       try {
-        const res = await fetch("/api/speech", { method: "POST", body: form });
-        if (!res.ok) throw new Error(`${res.status}`);
-        const payload = await res.json();
-        if (payload?.text) await handleAIResponse(payload);
+        await sendSpeechAudio(blob);
+        // Socket ai_response event will deliver the reply
         setStatusText("");
       } catch {
-        setStatusText("Audio processing failed.");
+        setStatusText("ไม่สามารถประมวลผลเสียงได้");
         setTimeout(() => setStatusText(""), 3000);
       }
     },
-    [handleAIResponse]
+    []
   );
 
   const { recording, start: startRec, stop: stopRec } = useRecorder(handleRecordResult);
 
   return (
-    <div className="flex flex-col h-screen bg-black text-white">
-      <ConnectionStatus />
+    <div className="flex flex-col h-screen bg-yt-bg text-yt-text">
+      {/* ─── Top Bar ─── */}
+      <header className="flex items-center justify-between px-4 h-14 border-b border-yt-border shrink-0">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-full gradient-cmu flex items-center justify-center">
+            <Bot className="w-4 h-4 text-white" />
+          </div>
+          <div>
+            <h1 className="text-sm font-bold gradient-text-cmu leading-tight">REG CMU AI</h1>
+            <p className="text-[10px] text-yt-text-muted">Assistant</p>
+          </div>
+        </div>
 
-      {/* Header */}
-      <header className="flex items-center justify-between px-4 py-3 border-b border-zinc-800">
-        <h1 className="text-lg font-bold gradient-text-cmu">REG CMU AI</h1>
-        <Link href="/admin" className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors">
-          Admin
-        </Link>
+        <div className="flex items-center gap-2">
+          <div className={cn(
+            "flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium",
+            connected ? "bg-success/10 text-success" : "bg-danger/10 text-danger"
+          )}>
+            {connected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
+            {connected ? "Online" : "Offline"}
+          </div>
+          <Link href="/live" className="yt-btn-icon" title="Live Mode">
+            <Radio className="w-5 h-5" />
+          </Link>
+          <Link href="/admin" className="yt-btn-icon" title="Admin">
+            <Settings className="w-5 h-5" />
+          </Link>
+        </div>
       </header>
 
-      {/* Messages */}
-      <ChatMessages messages={messages} statusText={statusText} />
+      {/* ─── Main Content: Avatar Area + Chat ─── */}
+      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
+        {/* Avatar / Visual Area (left on desktop, top on mobile) */}
+        <div className="hidden lg:flex lg:w-[420px] lg:shrink-0 items-center justify-center border-r border-yt-border bg-gradient-to-b from-yt-bg to-yt-surface">
+          <div className="text-center">
+            <div className="avatar-container mx-auto mb-6">
+              <div className={cn("avatar-ring", isSending && "active")} />
+              <Bot className="w-24 h-24 text-yt-text-muted" />
+            </div>
+            <h2 className="text-lg font-semibold gradient-text-cmu">REG CMU AI</h2>
+            <p className="text-sm text-yt-text-muted mt-1">ผู้ช่วยระบบลงทะเบียน</p>
+            <p className="text-xs text-yt-text-muted mt-3">
+              พร้อมรองรับ Live Avatar ในอนาคต
+            </p>
 
-      {/* Controls */}
-      <div className="border-t border-zinc-800 p-4">
-        <div className="flex items-center gap-2 max-w-2xl mx-auto">
-          <button
-            onClick={() => setIsTextMode(!isTextMode)}
-            className="p-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 transition-colors"
-            title="Toggle mode"
-          >
-            <MessageSquare className="w-5 h-5" />
-          </button>
-
-          {isTextMode ? (
-            <>
-              <input
-                ref={inputRef}
-                type="text"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleSend()}
-                placeholder="พิมพ์ข้อความที่นี่..."
-                className="flex-1 bg-zinc-800 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-cmu-purple/50 placeholder:text-zinc-500"
-                disabled={isSending}
-              />
-              <button
-                onClick={handleSend}
-                disabled={isSending || !input.trim()}
-                className="p-2.5 rounded-xl gradient-cmu text-white disabled:opacity-50 transition-opacity"
-              >
-                <Send className="w-5 h-5" />
-              </button>
-            </>
-          ) : (
-            <button
-              onClick={recording ? stopRec : startRec}
-              className={`flex-1 py-3 rounded-xl font-semibold transition-all ${
-                recording
-                  ? "bg-red-500/20 text-red-400 border border-red-500/50 animate-pulse"
-                  : "bg-zinc-800 hover:bg-zinc-700 text-white"
-              }`}
-            >
-              <div className="flex items-center justify-center gap-2">
-                {recording ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
-                {recording ? "หยุดบันทึก" : "กดเพื่อพูด"}
+            {/* Status indicator */}
+            {statusText && (
+              <div className="mt-4 px-4 py-2 rounded-lg bg-accent/10 text-accent text-xs animate-pulse">
+                {statusText}
               </div>
-            </button>
-          )}
+            )}
+          </div>
+        </div>
 
-          <button
-            onClick={stopTts}
-            className="p-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 transition-colors"
-            title="Skip/Stop TTS"
-          >
-            <SkipForward className="w-5 h-5" />
-          </button>
+        {/* Chat Area (right on desktop, full on mobile) */}
+        <div className="flex-1 flex flex-col min-w-0">
+          <ChatMessages messages={messages} statusText={statusText} />
+
+          {/* ─── Input Area ─── */}
+          <div className="border-t border-yt-border p-3 shrink-0">
+            <div className="flex items-center gap-2 max-w-3xl mx-auto">
+              {/* Mode toggle */}
+              <button
+                onClick={() => setInputMode(inputMode === "text" ? "voice" : "text")}
+                className={cn("yt-btn-icon shrink-0", inputMode === "voice" && "text-accent")}
+                title={inputMode === "text" ? "สลับเป็นโหมดเสียง" : "สลับเป็นโหมดพิมพ์"}
+              >
+                {inputMode === "text" ? <Mic className="w-5 h-5" /> : <Keyboard className="w-5 h-5" />}
+              </button>
+
+              {inputMode === "text" ? (
+                <>
+                  <input
+                    ref={inputRef}
+                    type="text"
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && handleSend()}
+                    placeholder="พิมพ์ข้อความ..."
+                    className="flex-1 yt-input rounded-full px-4 py-2.5 text-sm"
+                    disabled={isSending}
+                  />
+                  <button
+                    onClick={handleSend}
+                    disabled={isSending || !input.trim()}
+                    className={cn(
+                      "yt-btn yt-btn-primary rounded-full px-4",
+                      (isSending || !input.trim()) && "opacity-40 cursor-not-allowed"
+                    )}
+                  >
+                    <Send className="w-4 h-4" />
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={recording ? stopRec : startRec}
+                  className={cn(
+                    "flex-1 py-3 rounded-full font-medium text-sm transition-all flex items-center justify-center gap-2",
+                    recording
+                      ? "bg-danger/15 text-danger border border-danger/30 animate-pulse"
+                      : "bg-yt-surface-hover hover:bg-yt-surface-active text-yt-text"
+                  )}
+                >
+                  {recording ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+                  {recording ? "หยุดบันทึกเสียง" : "กดเพื่อพูด"}
+                </button>
+              )}
+
+              {/* TTS toggle */}
+              <button
+                onClick={() => { setTtsEnabled(!ttsEnabled); if (ttsEnabled) stopTts(); }}
+                className={cn("yt-btn-icon shrink-0", !ttsEnabled && "text-yt-text-muted")}
+                title={ttsEnabled ? "ปิดเสียงตอบ" : "เปิดเสียงตอบ"}
+              >
+                {ttsEnabled ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
+              </button>
+
+              {/* Skip TTS */}
+              <button onClick={stopTts} className="yt-btn-icon shrink-0" title="ข้ามเสียง">
+                <SkipForward className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>

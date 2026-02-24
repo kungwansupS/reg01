@@ -83,11 +83,24 @@ git clone https://github.com/your-repo/reg01-system.git
 cd reg01-system
 ```
 
-#### 2. ติดตั้ง Dependencies
+#### 2. ติดตั้งและเปิดระบบอัตโนมัติ (Windows แนะนำ)
+
+รันไฟล์:
+```bat
+install\setup_auto.bat
+```
+
+สคริปต์จะทำงานดังนี้:
+- ตรวจว่ามี `WSL`, `Python 3.11+`, `Docker Desktop` แล้วหรือยัง และติดตั้งให้อัตโนมัติเมื่อไม่พบ
+- แจ้งเฉพาะขั้นตอนที่ต้องทำเองจริงๆ (เช่น `docker login`, แก้ไข `backend/.env`)
+- ให้ผู้ใช้ยืนยันแล้วตรวจซ้ำก่อนผ่านแต่ละขั้นตอน
+- รัน `docker compose up -d --build` และเปิดระบบให้ทันที
+
+#### 3. ติดตั้ง Dependencies (กรณีไม่ใช้ install\setup_auto.bat)
 
 **แบบอัตโนมัติ (แนะนำ):**
 ```bash
-python install_requirements.py
+python install\install_requirements.py
 ```
 
 **แบบแมนนวล:**
@@ -95,7 +108,7 @@ python install_requirements.py
 pip install -r requirements.txt
 ```
 
-#### 3. ตั้งค่าสภาพแวดล้อม
+#### 4. ตั้งค่าสภาพแวดล้อม
 
 สร้างไฟล์ `.env` ในโฟลเดอร์ `backend/`:
 ```env
@@ -118,7 +131,7 @@ FB_PAGE_ACCESS_TOKEN=your_page_token
 FB_APP_SECRET=your_app_secret
 ```
 
-#### 4. เตรียมข้อมูล PDF
+#### 5. เตรียมข้อมูล PDF
 
 วางไฟล์ PDF ในโฟลเดอร์:
 ```
@@ -131,23 +144,29 @@ cd backend
 python pdf_to_txt.py
 ```
 
-#### 5. เริ่มต้นระบบ
+#### 6. เริ่มต้นระบบ
 
 **บน Windows:**
 ```bash
 start.bat
 ```
-เลือกตัวเลือกที่ 1 เพื่อเริ่ม Backend
+เมนูจะมี 3 ตัวเลือก:
+- `1` Start: ตรวจ Docker และเปิดทุก service
+- `2` Tunnel: เปิด Cloudflare Tunnel (`tunnel.py`)
+- `3` Install: ตรวจและติดตั้งทุกอย่างให้พร้อมใช้งาน
 
 **บน Linux/Mac:**
 ```bash
 python run.py
 ```
 
-#### 6. เข้าถึงระบบ
+#### 7. เข้าถึงระบบ
 
-- **หน้าแชท**: http://localhost:5000/
-- **Admin Dashboard**: http://localhost:5000/admin
+- **หน้าแชท**: http://localhost:3000/
+- **Admin Dashboard**: http://localhost:3000/admin
+- **Live Voice Chat**: http://localhost:3000/live
+- **Dev Console**: http://localhost:3000/dev
+- **Backend API**: http://localhost:5000/
 
 ## การใช้งาน Admin Dashboard
 
@@ -223,15 +242,17 @@ REG-01/
 │       ├── database_router.py
 │       ├── socketio_handlers.py
 │       └── background_tasks.py
-├── frontend/
-│   ├── index.html
-│   ├── admin.html
-│   ├── css/
-│   ├── js/
-│   ├── assets/               # Live2D Model
-│   └── static/
+├── frontend-next/             # Next.js Frontend (React 19 + Tailwind)
+│   ├── src/app/              # Pages (/, /live, /admin, /dev)
+│   ├── src/components/       # Reusable components
+│   ├── src/hooks/            # Custom hooks (TTS, recorder)
+│   ├── src/lib/              # Utilities (api, socket, utils)
+│   ├── src/providers/        # React context providers
+│   └── Dockerfile
 ├── run.py                     # เริ่มต้นระบบ
-├── install_requirements.py   # ติดตั้ง Dependencies
+├── install/
+│   ├── setup_auto.bat         # ติดตั้งอัตโนมัติ + เปิดระบบ
+│   └── install_requirements.py # ติดตั้ง Python Dependencies
 ├── tunnel.py                 # Cloudflare Tunnel
 ├── start.bat                 # Windows Launcher
 └── requirements.txt
@@ -354,8 +375,8 @@ request_prompt_xx.py  # xx = รหัสภาษา
 
 ### การเพิ่มฟีเจอร์ใน Admin Dashboard
 แก้ไขไฟล์:
-- `frontend/admin.html`
-- `frontend/js/admin/app-*.js`
+- `frontend-next/src/components/admin/*-tab.tsx`
+- `frontend-next/src/app/admin/layout.tsx`
 - `backend/router/admin_router.py`
 
 ## การปรับใช้งานจริง (Production)

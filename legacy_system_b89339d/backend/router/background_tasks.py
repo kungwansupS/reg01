@@ -1,0 +1,401 @@
+"""
+Background Tasks & Workers
+จัดการงานพื้นหลัง: FB worker, maintenance, vector sync
+"""
+import os
+import re
+import time
+import asyncio
+import httpx
+import logging
+from dotenv import load_dotenv
+
+from app.utils.vector_manager import vector_manager
+from app.config import (
+    PDF_QUICK_USE_FOLDER,
+    LLM_PROVIDER,
+    GEMINI_MODEL_NAME,
+    OPENAI_MODEL_NAME,
+    LOCAL_MODEL_NAME,
+    RAG_STARTUP_EMBEDDING,
+    RAG_STARTUP_PROCESS_PDF,
+    RAG_STARTUP_BUILD_HYBRID,
+)
+from memory.session import get_or_create_history, save_history, cleanup_old_sessions, get_bot_enabled
+
+load_dotenv()
+
+logger = logging.getLogger("BackgroundTasks")
+
+FB_PAGE_ACCESS_TOKEN = os.getenv("FB_PAGE_ACCESS_TOKEN", "")
+GRAPH_BASE = "https://graph.facebook.com/v19.0"
+
+sio = None
+fb_task_queue = None
+session_locks = {}
+audit_logger = None
+ask_llm_fn = None
+send_fb_text_fn = None
+llm_queue = None
+
+def init_background_tasks(
+    socketio_instance,
+    task_queue,
+    locks_dict,
+    audit_log_fn,
+    llm_fn,
+    fb_sender_fn,
+    queue_instance=None,
+):
+    """Initialize background tasks"""
+    global sio, fb_task_queue, session_locks, audit_logger, ask_llm_fn, send_fb_text_fn, llm_queue
+    sio = socketio_instance
+    fb_task_queue = task_queue
+    session_locks = locks_dict
+    audit_logger = audit_log_fn
+    ask_llm_fn = llm_fn
+    send_fb_text_fn = fb_sender_fn
+    llm_queue = queue_instance
+
+async def get_session_lock(session_id: str):
+    """Get or create session lock"""
+    return session_locks.setdefault(session_id, asyncio.Lock())
+
+async def sync_vector_db():
+    """
+    [PHASE 3] ตรวจสอบความเปลี่ยนแปลงของไฟล์ .txt และอัปเดตลง Vector DB อัตโนมัติ
+    """
+    def run_sync():
+        from app.utils.metadata_extractor import metadata_extractor
+        
+        logger.info("🔍 [Vector DB] Starting startup synchronization...")
+        if not os.path.exists(PDF_QUICK_USE_FOLDER):
+            logger.warning(f"⚠️ [Vector DB] Quick-use folder not found: {PDF_QUICK_USE_FOLDER}")
+            return
+
+        valid_txt_paths = set()
+        for scan_root, _, scan_files in os.walk(PDF_QUICK_USE_FOLDER):
+            for scan_filename in scan_files:
+                if scan_filename.endswith(".txt"):
+                    valid_txt_paths.add(os.path.abspath(os.path.join(scan_root, scan_filename)))
+
+        purge_stats = vector_manager.purge_out_of_scope(
+            valid_paths=valid_txt_paths,
+            allowed_root=PDF_QUICK_USE_FOLDER,
+        )
+        if purge_stats.get("removed_ids", 0) > 0:
+            logger.info(
+                "Purged stale chunks: ids=%s sources=%s",
+                purge_stats.get("removed_ids", 0),
+                purge_stats.get("removed_sources", 0),
+            )
+
+        sync_count = 0
+        for root, _, files in os.walk(PDF_QUICK_USE_FOLDER):
+            for filename in sorted(files):
+                if filename.endswith(".txt"):
+                    filepath = os.path.join(root, filename)
+                    needs_upd, file_hash = vector_manager.needs_update(filepath)
+                    
+                    if needs_upd:
+                        try:
+                            with open(filepath, "r", encoding="utf-8") as f:
+                                content = f.read()
+                            
+                            separator = "==================="
+                            raw_chunks = [c.strip() for c in content.split(separator) if c.strip()]
+                            chunks = []
+                            for chunk in raw_chunks:
+                                text = str(chunk or "").strip()
+                                text_chars = len(re.findall(r"[A-Za-z0-9\u0E00-\u0E7F]", text))
+                                if text_chars < 10:
+                                    continue
+                                chunks.append(text)
+                            if not chunks:
+                                logger.warning(f"⚠️ [Vector DB] No usable chunks for {filename}")
+                                continue
+                            
+                            metadata = metadata_extractor.extract(content, filepath)
+                            vector_manager.add_document(filepath, chunks, metadata)
+                            vector_manager.update_registry(filepath, file_hash)
+                            sync_count += 1
+                        except Exception as e:
+                            logger.error(f"❌ [Vector DB] Sync failed for {filename}: {e}")
+        
+        if sync_count > 0:
+            logger.info(f"✅ [Vector DB] Synchronization complete. Updated {sync_count} files.")
+        else:
+            logger.info("✅ [Vector DB] Database is already up-to-date.")
+
+    await asyncio.to_thread(run_sync)
+
+async def build_hybrid_index():
+    """
+    [PHASE 3] Build BM25 index for hybrid search
+    """
+    def run_build():
+        from retriever.hybrid_retriever import hybrid_retriever
+        
+        logger.info("🔨 [Hybrid] Building BM25 index...")
+        
+        chunks = vector_manager.get_all_chunks()
+        
+        if not chunks:
+            logger.warning("⚠️ [Hybrid] No chunks found in vector DB")
+            return
+        
+        hybrid_retriever.build_index(chunks)
+        logger.info(f"✅ [Hybrid] BM25 index ready with {len(chunks)} chunks")
+    
+    await asyncio.to_thread(run_build)
+
+
+async def process_pdfs_for_rag():
+    """
+    Run PDF -> TXT pipeline before embedding sync (startup use-case).
+    """
+    def run_process():
+        from pdf_to_txt import process_pdfs
+        process_pdfs()
+
+    logger.info("📄 [Startup RAG] Running PDF to TXT pipeline...")
+    started = time.perf_counter()
+    await asyncio.to_thread(run_process)
+    logger.info(f"✅ [Startup RAG] PDF to TXT completed in {round(time.perf_counter() - started, 2)}s")
+
+
+async def run_startup_embedding_pipeline():
+    """
+    Startup pipeline:
+    1) Optional PDF -> TXT
+    2) Embedding sync to vector DB
+    3) Optional hybrid index build
+    """
+    if not RAG_STARTUP_EMBEDDING:
+        logger.info("⏭️ [Startup RAG] Skipped (RAG_STARTUP_EMBEDDING=false)")
+        return
+
+    logger.info(
+        "🚀 [Startup RAG] Begin pipeline | process_pdf=%s build_hybrid=%s",
+        RAG_STARTUP_PROCESS_PDF,
+        RAG_STARTUP_BUILD_HYBRID,
+    )
+    started = time.perf_counter()
+
+    if RAG_STARTUP_PROCESS_PDF:
+        try:
+            await process_pdfs_for_rag()
+        except Exception as exc:
+            logger.error(f"❌ [Startup RAG] PDF to TXT failed: {exc}")
+    else:
+        logger.info("⏭️ [Startup RAG] Skip PDF to TXT (RAG_STARTUP_PROCESS_PDF=false)")
+
+    await sync_vector_db()
+
+    if RAG_STARTUP_BUILD_HYBRID:
+        await build_hybrid_index()
+    else:
+        logger.info("⏭️ [Startup RAG] Skip hybrid index (RAG_STARTUP_BUILD_HYBRID=false)")
+
+    logger.info(f"✅ [Startup RAG] Pipeline completed in {round(time.perf_counter() - started, 2)}s")
+
+async def refresh_faq_cache():
+    """
+    Daily FAQ refresh: re-validate all cached FAQ entries by re-running
+    the RAG pipeline and comparing answers. Updates stale entries,
+    removes entries that no longer produce valid answers.
+
+    หมายเหตุ: ask_llm_fn ทำ retrieval + reranking + LLM ภายในครบแล้ว
+    ไม่ต้องเรียก retrieve_top_k_chunks แยก (เคยทำให้ pipeline ทำงานซ้ำ 2 รอบ)
+    """
+    from memory.faq_cache import (
+        get_entries_needing_refresh,
+        mark_validated,
+        invalidate_entry,
+    )
+
+    stale_questions = get_entries_needing_refresh(max_age_hours=24)
+    if not stale_questions:
+        logger.info("✅ [FAQ Refresh] All entries are up-to-date")
+        return
+
+    logger.info(f"🔄 [FAQ Refresh] Validating {len(stale_questions)} stale entries...")
+    refreshed = 0
+    invalidated = 0
+
+    for question in stale_questions:
+        try:
+            if not ask_llm_fn:
+                mark_validated(question)
+                refreshed += 1
+                continue
+
+            # ask_llm_fn ทำ retrieval + reranking + LLM call ครบในรอบเดียว
+            result = await ask_llm_fn(question, f"faq_refresh_{hash(question) % 10000}")
+            new_answer = str(result.get("text", "")).strip()
+
+            if new_answer and len(new_answer) > 20:
+                mark_validated(question, new_answer=new_answer)
+                refreshed += 1
+            else:
+                invalidate_entry(question)
+                invalidated += 1
+
+            # Small delay between questions to avoid rate limits
+            await asyncio.sleep(5)
+
+        except Exception as e:
+            logger.warning(f"⚠️ [FAQ Refresh] Error refreshing '{question[:40]}': {e}")
+            # Don't invalidate on error — just skip
+            continue
+
+    logger.info(
+        f"✅ [FAQ Refresh] Done: {refreshed} refreshed, {invalidated} invalidated, "
+        f"{len(stale_questions) - refreshed - invalidated} skipped"
+    )
+
+
+async def maintenance_loop():
+    """งานบำรุงรักษาระบบรายวัน"""
+    first_run = True
+    while True:
+        try:
+            await cleanup_old_sessions(days=7)
+            logger.info("🧹 Maintenance: Old sessions cleaned up")
+        except Exception as e:
+            logger.error(f"❌ Maintenance error: {e}")
+
+        # Prune idle session locks to prevent unbounded memory growth
+        try:
+            stale_keys = [
+                sid for sid, lock in list(session_locks.items())
+                if not lock.locked()
+            ]
+            for sid in stale_keys:
+                session_locks.pop(sid, None)
+            if stale_keys:
+                logger.info(f"🧹 Maintenance: Pruned {len(stale_keys)} idle session locks")
+        except Exception as e:
+            logger.error(f"❌ Session lock cleanup error: {e}")
+
+        # Daily FAQ cache refresh
+        # รอบแรก: เลื่อนออกไป 5 นาที เพื่อไม่ให้ชนกับ startup load / user requests
+        if first_run:
+            first_run = False
+            logger.info("⏳ [FAQ Refresh] Deferred — will run in 5 minutes")
+            await asyncio.sleep(300)  # 5 minutes
+
+        try:
+            await refresh_faq_cache()
+        except Exception as e:
+            logger.error(f"❌ FAQ refresh error: {e}")
+
+        await asyncio.sleep(86400)  # 24 hours
+
+async def fb_worker():
+    """
+    Worker สำหรับจัดการข้อความจาก Facebook Messenger
+    """
+    while True:
+        task = await fb_task_queue.get()
+        psid = task["psid"]
+        user_text = task["text"]
+        start_time = time.time()
+        
+        session_id = f"fb_{psid}"
+        logger.info(f"📩 Processing FB message: {session_id}")
+        
+        user_name = f"FB User {psid[:5]}"
+        user_pic = "https://www.gravatar.com/avatar/?d=mp"
+        
+        if FB_PAGE_ACCESS_TOKEN:
+            try:
+                async with httpx.AsyncClient() as client:
+                    r = await client.get(
+                        f"https://graph.facebook.com/{psid}?fields=name,picture&access_token={FB_PAGE_ACCESS_TOKEN}",
+                        timeout=3
+                    )
+                    if r.status_code == 200:
+                        data = r.json()
+                        user_name = data.get("name", user_name)
+                        user_pic = data.get("picture", {}).get("data", {}).get("url", user_pic)
+            except Exception as e:
+                logger.error(f"❌ Fetch FB Profile Error: {e}")
+
+        await sio.emit("admin_new_message", {
+            "platform": "facebook",
+            "uid": session_id,
+            "text": user_text,
+            "user_name": user_name,
+            "user_pic": user_pic
+        })
+        
+        bot_enabled = await get_bot_enabled(session_id)
+        if not bot_enabled:
+            history = await get_or_create_history(
+                session_id,
+                user_name=user_name,
+                user_picture=user_pic,
+                platform="facebook"
+            )
+            history.append({"role": "user", "parts": [{"text": user_text}]})
+            await save_history(
+                session_id,
+                history,
+                user_name=user_name,
+                user_picture=user_pic,
+                platform="facebook"
+            )
+            fb_task_queue.task_done()
+            continue
+
+        async with await get_session_lock(session_id):
+            try:
+                await get_or_create_history(
+                    session_id,
+                    user_name=user_name,
+                    user_picture=user_pic,
+                    platform="facebook"
+                )
+                
+                # Submit to queue for fair ordering with web users
+                if llm_queue:
+                    result = await llm_queue.submit(
+                        user_id=f"fb_{psid}",
+                        session_id=session_id,
+                        msg=user_text,
+                    )
+                else:
+                    result = await ask_llm_fn(user_text, session_id)
+                reply = result["text"]
+                tokens = result.get("tokens", {})
+                trace_id = result.get("trace_id")
+                
+                fb_message = f"[Bot พี่เร็ก] {reply.replace('//', '')}"
+                await send_fb_text_fn(psid, fb_message)
+                
+                await sio.emit("admin_bot_reply", {
+                    "platform": "facebook",
+                    "uid": session_id,
+                    "text": fb_message
+                })
+                
+                model_name = GEMINI_MODEL_NAME if LLM_PROVIDER == "gemini" else (
+                    OPENAI_MODEL_NAME if LLM_PROVIDER == "openai" else LOCAL_MODEL_NAME
+                )
+                
+                audit_logger(
+                    psid,
+                    "facebook",
+                    user_text,
+                    reply,
+                    time.time() - start_time,
+                    tokens=tokens,
+                    model_name=model_name,
+                    session_id=session_id,
+                    trace_id=trace_id,
+                )
+            except Exception as e:
+                logger.error(f"❌ FB Worker Error: {e}")
+            finally:
+                fb_task_queue.task_done()

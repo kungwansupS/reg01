@@ -1,0 +1,35 @@
+{
+  "revision": 4,
+  "updated_at": "2026-02-15T13:10:00.000000+00:00",
+  "updated_by": "v3-architecture-upgrade",
+  "config": {
+    "rag": {
+      "mode": "always",
+      "top_k": 5,
+      "use_hybrid": true,
+      "use_rerank": true,
+      "use_llm_rerank": true,
+      "use_intent_analysis": true
+    },
+    "memory": {
+      "enable_summary": false,
+      "recent_messages": 10
+    },
+    "pose": {
+      "enabled": true
+    },
+    "faq": {
+      "auto_learn": true,
+      "lookup_enabled": true,
+      "block_time_sensitive": true,
+      "max_age_days": 45,
+      "time_sensitive_ttl_hours": 6,
+      "min_answer_chars": 30,
+      "min_retrieval_score": 0.35,
+      "similarity_threshold": 0.9
+    },
+    "prompt": {
+      "extra_context_instruction": ""
+    }
+  }
+}

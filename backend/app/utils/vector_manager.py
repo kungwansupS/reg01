@@ -5,14 +5,17 @@ import logging
 import os
 import re
 import threading
+from contextlib import asynccontextmanager
 from typing import Dict, List, Optional
 
 import chromadb
 import torch
 from sentence_transformers import SentenceTransformer
 from sqlalchemy import delete, select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 
-from memory.database import get_session
+from app.config import DATABASE_URL
 from memory.models import FileRegistry
 
 logger = logging.getLogger("VectorManager")
@@ -70,14 +73,37 @@ class VectorManager:
             raise result["error"]
         return result["value"]
 
+    @staticmethod
+    def _to_async_dsn(dsn: str) -> str:
+        if dsn.startswith("postgresql://"):
+            return dsn.replace("postgresql://", "postgresql+asyncpg://", 1)
+        return dsn
+
+    @asynccontextmanager
+    async def _session_scope(self):
+        """
+        Create a loop-local SQLAlchemy session.
+        This avoids reusing asyncpg resources across different event loops/threads.
+        """
+        engine = create_async_engine(
+            self._to_async_dsn(DATABASE_URL),
+            poolclass=NullPool,
+        )
+        session_factory = async_sessionmaker(engine, expire_on_commit=False)
+        try:
+            async with session_factory() as db:
+                yield db
+        finally:
+            await engine.dispose()
+
     async def _get_registry_hash(self, filepath: str) -> Optional[str]:
-        async with get_session() as db:
+        async with self._session_scope() as db:
             return await db.scalar(
                 select(FileRegistry.file_hash).where(FileRegistry.file_path == filepath)
             )
 
     async def _upsert_registry(self, filepath: str, file_hash: str) -> None:
-        async with get_session() as db:
+        async with self._session_scope() as db:
             row = await db.get(FileRegistry, filepath)
             now_utc = datetime.datetime.now(datetime.timezone.utc)
             if row:
@@ -94,7 +120,7 @@ class VectorManager:
             await db.commit()
 
     async def _delete_registry(self, filepath: str) -> None:
-        async with get_session() as db:
+        async with self._session_scope() as db:
             await db.execute(
                 delete(FileRegistry).where(FileRegistry.file_path == filepath)
             )

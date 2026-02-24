@@ -9,7 +9,7 @@ MAX_HISTORY_LENGTH = 30
 NUM_RECENT_TO_KEEP = 10
 
 
-def get_or_create_history(
+async def get_or_create_history(
     session_id: str, 
     context: str = "", 
     user_name: Optional[str] = None, 
@@ -30,7 +30,7 @@ def get_or_create_history(
         ประวัติการสนทนาในรูปแบบ list of dict
     """
     try:
-        session_data = session_db.get_or_create_session(
+        session_data = await session_db.get_or_create_session(
             session_id=session_id,
             user_name=user_name,
             user_picture=user_picture,
@@ -40,7 +40,7 @@ def get_or_create_history(
         history = session_data['history']
         
         if context and len(history) == 0:
-            session_db.add_message(session_id, "user", context)
+            await session_db.add_message(session_id, "user", context)
             history.append({
                 "role": "user",
                 "parts": [{"text": context}]
@@ -54,7 +54,7 @@ def get_or_create_history(
         return []
 
 
-def save_history(
+async def save_history(
     session_id: str, 
     history: List[Dict], 
     user_name: Optional[str] = None, 
@@ -74,7 +74,7 @@ def save_history(
     """
     try:
         if user_name or user_picture or platform:
-            session_db.get_or_create_session(
+            await session_db.get_or_create_session(
                 session_id=session_id,
                 user_name=user_name,
                 user_picture=user_picture,
@@ -92,10 +92,10 @@ def save_history(
             
             summary_text = summarize_chat_history(to_summarize)
             
-            session_db.clear_history(session_id)
+            await session_db.clear_history(session_id)
             
             if summary_text:
-                session_db.add_message(
+                await session_db.add_message(
                     session_id,
                     "system",
                     f"[INTERNAL SUMMARY] {summary_text}"
@@ -107,9 +107,9 @@ def save_history(
                 text = msg.get("parts", [{}])[0].get("text", "")
                 
                 if text and role in ["user", "model"]:
-                    session_db.add_message(session_id, role, text)
+                    await session_db.add_message(session_id, role, text)
         else:
-            current_messages = session_db.get_history(session_id)
+            current_messages = await session_db.get_history(session_id)
             current_count = len(current_messages)
             
             for msg in deduped_history[current_count:]:
@@ -117,7 +117,7 @@ def save_history(
                 text = msg.get("parts", [{}])[0].get("text", "")
                 
                 if text and role in ["user", "model"]:
-                    session_db.add_message(session_id, role, text)
+                    await session_db.add_message(session_id, role, text)
         
         logger.debug(f"✅ Saved history for {session_id}")
         
@@ -125,7 +125,7 @@ def save_history(
         logger.error(f"❌ Error saving session {session_id}: {e}")
 
 
-def get_bot_enabled(session_id: str) -> bool:
+async def get_bot_enabled(session_id: str) -> bool:
     """
     ดึงสถานะ Bot ของ Session นี้
     
@@ -136,13 +136,13 @@ def get_bot_enabled(session_id: str) -> bool:
         True ถ้าเปิด Bot, False ถ้าปิด
     """
     try:
-        return session_db.get_bot_enabled(session_id)
+        return await session_db.get_bot_enabled(session_id)
     except Exception as e:
         logger.error(f"❌ Error getting bot status for {session_id}: {e}")
         return True
 
 
-def set_bot_enabled(session_id: str, enabled: bool) -> bool:
+async def set_bot_enabled(session_id: str, enabled: bool) -> bool:
     """
     ตั้งค่าสถานะ Bot ของ Session นี้
     
@@ -154,7 +154,7 @@ def set_bot_enabled(session_id: str, enabled: bool) -> bool:
         True ถ้าสำเร็จ
     """
     try:
-        success = session_db.set_bot_enabled(session_id, enabled)
+        success = await session_db.set_bot_enabled(session_id, enabled)
         
         if success:
             logger.info(f"✅ Bot {'enabled' if enabled else 'disabled'} for {session_id}")
@@ -166,7 +166,7 @@ def set_bot_enabled(session_id: str, enabled: bool) -> bool:
         return False
 
 
-def cleanup_old_sessions(days: int = 7) -> int:
+async def cleanup_old_sessions(days: int = 7) -> int:
     """
     ลบ sessions ที่ไม่มีกิจกรรมเกินจำนวนวันที่กำหนด
     
@@ -177,7 +177,7 @@ def cleanup_old_sessions(days: int = 7) -> int:
         จำนวน sessions ที่ถูกลบ
     """
     try:
-        count = session_db.cleanup_old_sessions(days)
+        count = await session_db.cleanup_old_sessions(days)
         logger.info(f"🧹 Cleaned up {count} old sessions")
         return count
         
@@ -186,7 +186,7 @@ def cleanup_old_sessions(days: int = 7) -> int:
         return 0
 
 
-def clear_history(session_id: str):
+async def clear_history(session_id: str):
     """
     ลบประวัติการสนทนาทั้งหมดของ session
     
@@ -194,14 +194,14 @@ def clear_history(session_id: str):
         session_id: Session ID
     """
     try:
-        session_db.clear_history(session_id)
+        await session_db.clear_history(session_id)
         logger.info(f"🗑️ Cleared history for {session_id}")
         
     except Exception as e:
         logger.error(f"❌ Error clearing history for {session_id}: {e}")
 
 
-def get_visible_history(session_id: str) -> List[Dict]:
+async def get_visible_history(session_id: str) -> List[Dict]:
     """
     ✅ ดึงประวัติที่แสดงให้ user เห็น (เฉพาะ user และ model)
     ไม่รวม system messages
@@ -213,7 +213,7 @@ def get_visible_history(session_id: str) -> List[Dict]:
         List of visible messages
     """
     try:
-        all_history = session_db.get_history(session_id)
+        all_history = await session_db.get_history(session_id)
         
         visible = [
             msg for msg in all_history

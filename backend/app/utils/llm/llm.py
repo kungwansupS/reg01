@@ -218,10 +218,10 @@ async def ask_llm(
 
         # ── Step 2: Session + Sliding Window History (no LLM call) ───
         session_step = step_start("session", "Session + Sliding Window")
-        history = get_or_create_history(session_id)
+        history = await get_or_create_history(session_id)
         if not (history and history[-1]["parts"][0]["text"] == msg):
             history.append({"role": "user", "parts": [{"text": msg}]})
-            await asyncio.to_thread(save_history, session_id, history)
+            await save_history(session_id, history)
 
         recent_messages = int(memory_cfg.get("recent_messages", 10))
         history_text = _build_sliding_window_history(history, max_messages=recent_messages)
@@ -257,7 +257,7 @@ async def ask_llm(
             logger.info("[GREETING HIT] '%s' → instant response (0 tokens)", msg[:40])
 
             history.append({"role": "model", "parts": [{"text": reply}]})
-            await asyncio.to_thread(save_history, session_id, history)
+            await save_history(session_id, history)
 
             trace_meta["status"] = "ok"
             trace_meta["ended_at"] = _now_iso()
@@ -302,7 +302,7 @@ async def ask_llm(
 
             logger.info("[FAQ HIT] exact match='%s' (0 tokens)", faq_hit.get("question", "")[:60])
             history.append({"role": "model", "parts": [{"text": reply}]})
-            await asyncio.to_thread(save_history, session_id, history)
+            await save_history(session_id, history)
 
             trace_meta["status"] = "ok"
             trace_meta["ended_at"] = _now_iso()
@@ -495,7 +495,7 @@ async def ask_llm(
             # ── Step 10: Finalize ────────────────────────────────────
             logger.info(f"[Total Token Usage] {format_token_usage(total_token_usage)}")
             history.append({"role": "model", "parts": [{"text": reply}]})
-            await asyncio.to_thread(save_history, session_id, history)
+            await save_history(session_id, history)
 
             trace_meta["status"] = "ok"
             trace_meta["ended_at"] = _now_iso()

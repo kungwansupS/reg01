@@ -29,15 +29,15 @@
 ### การจัดการผู้ใช้งาน
 - ระบบบริหารจัดการผ่าน Admin Dashboard
 - รองรับหลายแพลตฟอร์ม: Web, Facebook Messenger, LINE
-- จัดเก็บประวัติการสนทนาใน SQLite Database
+- จัดเก็บประวัติการสนทนาใน PostgreSQL Database
 - ระบบควบคุมการเปิด-ปิดบอทแบบเฉพาะผู้ใช้
 
 ## สถาปัตยกรรมระบบ
 
 ### Backend
-- **Web Framework**: Quart (ASGI Framework)
+- **Web Framework**: FastAPI (ASGI Framework)
 - **Real-time Communication**: SocketIO
-- **Database**: SQLite (Session Management)
+- **Database**: PostgreSQL (Session Management)
 - **Vector Store**: ChromaDB
 
 ### การประมวลผลภาษา
@@ -210,7 +210,7 @@ REG-01/
 │   │       └── metadata_extractor.py
 │   ├── memory/
 │   │   ├── session.py        # จัดการ Session
-│   │   ├── session_db.py     # SQLite Database
+│   │   ├── session_db.py     # PostgreSQL Database
 │   │   ├── memory.py         # สรุปบทสนทนา
 │   │   └── faq_cache.py      # คำถามที่ถูกถามบ่อย
 │   ├── retriever/
@@ -324,12 +324,13 @@ brew install ffmpeg
 - ใช้ CPU-based Embedding Model
 - ปิดโปรแกรมอื่นที่ใช้ GPU
 
-### ปัญหา: Database Locked
+### ปัญหา: PostgreSQL เชื่อมต่อไม่ได้
 **วิธีแก้:**
 ```bash
-# ปิดทุก Process ที่เชื่อมต่อกับ Database
-# ลบไฟล์ Lock
-rm backend/memory/sessions.db-journal
+# ตรวจสอบว่า PostgreSQL service ทำงานอยู่
+# และ DATABASE_URL ใน backend/.env ถูกต้อง
+# ตัวอย่าง:
+# DATABASE_URL=postgresql://postgres:postgres@localhost:5432/reg01
 ```
 
 ### ปัญหา: TTS ไม่มีเสียง
@@ -384,7 +385,7 @@ request_prompt_xx.py  # xx = รหัสภาษา
 
 ### เอกสารอ้างอิง
 - [FastAPI Documentation](https://fastapi.tiangolo.com/)
-- [Quart Documentation](https://pgjones.gitlab.io/quart/)
+- [PostgreSQL Documentation](https://www.postgresql.org/docs/)
 - [ChromaDB Documentation](https://docs.trychroma.com/)
 - [Sentence Transformers](https://www.sbert.net/)
 

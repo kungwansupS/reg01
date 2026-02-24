@@ -37,5 +37,8 @@ rank-bm25
 # Thai Language Support
 pythainlp
 
+# Database (PostgreSQL)
+asyncpg
+
 # Utilities
 tqdm

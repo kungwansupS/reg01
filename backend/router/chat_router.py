@@ -182,16 +182,16 @@ async def handle_speech(
             "user_pic": final_user_pic
         })
 
-    bot_enabled = get_bot_enabled(final_session_id)
+    bot_enabled = await get_bot_enabled(final_session_id)
     if not bot_enabled:
-        history = get_or_create_history(
+        history = await get_or_create_history(
             final_session_id,
             user_name=final_user_name,
             user_picture=final_user_pic,
             platform="web"
         )
         history.append({"role": "user", "parts": [{"text": text}]})
-        save_history(
+        await save_history(
             final_session_id,
             history,
             user_name=final_user_name,
@@ -205,7 +205,7 @@ async def handle_speech(
         }
 
     async with await get_session_lock(final_session_id):
-        get_or_create_history(
+        await get_or_create_history(
             final_session_id,
             user_name=final_user_name,
             user_picture=final_user_pic,

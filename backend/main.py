@@ -26,7 +26,11 @@ from app.config import (
     QUEUE_PER_USER_LIMIT,
     QUEUE_REQUEST_TIMEOUT,
     QUEUE_HEALTH_LOG_INTERVAL,
+    DATABASE_URL,
+    DB_POOL_MIN_SIZE,
+    DB_POOL_MAX_SIZE,
 )
+from memory.session_db import init_db, close_db
 from app.utils.llm.llm_model import close_llm_clients
 from app.utils.llm.llm import ask_llm
 from app.utils.token_counter import calculate_cost
@@ -297,6 +301,9 @@ async def startup_event():
     """Application startup"""
     logger.info("Starting REG-01 Application...")
     
+    # Initialize PostgreSQL connection pool
+    await init_db(DATABASE_URL, min_size=DB_POOL_MIN_SIZE, max_size=DB_POOL_MAX_SIZE)
+    
     _trim_audit_log_if_needed(force=True)
     await background_tasks.run_startup_embedding_pipeline()
     
@@ -356,6 +363,10 @@ async def cleanup():
         await close_llm_clients()
     except Exception as exc:
         logger.warning(f"Cleanup warning: {exc}")
+    try:
+        await close_db()
+    except Exception as exc:
+        logger.warning(f"DB pool close warning: {exc}")
     logger.info("Cleanup complete")
 
 @app.on_event("shutdown")

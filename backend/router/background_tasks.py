@@ -260,7 +260,7 @@ async def maintenance_loop():
     first_run = True
     while True:
         try:
-            cleanup_old_sessions(days=7)
+            await cleanup_old_sessions(days=7)
             logger.info("🧹 Maintenance: Old sessions cleaned up")
         except Exception as e:
             logger.error(f"❌ Maintenance error: {e}")
@@ -330,16 +330,16 @@ async def fb_worker():
             "user_pic": user_pic
         })
         
-        bot_enabled = get_bot_enabled(session_id)
+        bot_enabled = await get_bot_enabled(session_id)
         if not bot_enabled:
-            history = get_or_create_history(
+            history = await get_or_create_history(
                 session_id,
                 user_name=user_name,
                 user_picture=user_pic,
                 platform="facebook"
             )
             history.append({"role": "user", "parts": [{"text": user_text}]})
-            save_history(
+            await save_history(
                 session_id,
                 history,
                 user_name=user_name,
@@ -351,7 +351,7 @@ async def fb_worker():
 
         async with await get_session_lock(session_id):
             try:
-                get_or_create_history(
+                await get_or_create_history(
                     session_id,
                     user_name=user_name,
                     user_picture=user_pic,

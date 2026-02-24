@@ -84,7 +84,7 @@ async def handle_admin_manual_reply(sid, data):
         await sio.emit("admin_error", {"message": "Unauthorized admin socket action"}, room=sid)
         return
     
-    if get_bot_enabled(uid):
+    if await get_bot_enabled(uid):
         await sio.emit("admin_error", {
             "message": "กรุณาปิด Auto Bot ก่อนส่งข้อความ"
         }, room=sid)
@@ -103,12 +103,12 @@ async def handle_admin_manual_reply(sid, data):
         }, uid)
         logger.info(f"📤 Admin replied to web user {uid}")
     
-    history = get_or_create_history(uid)
+    history = await get_or_create_history(uid)
     history.append({
         "role": "model",
         "parts": [{"text": formatted_msg}]
     })
-    save_history(uid, history)
+    await save_history(uid, history)
     
     await sio.emit("admin_bot_reply", {
         "platform": platform,

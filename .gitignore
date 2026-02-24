@@ -1,33 +1,52 @@
-/backend/.env
-__pycache__/stt.cpython-310.pyc
-__pycache__/stt.cpython-310.pyc
-__pycache__/tts.cpython-310.pyc
-prompt/__pycache__/motion_prompt.cpython-310.pyc
-prompt/__pycache__/prompt.cpython-310.pyc
-prompt/__pycache__/motion_prompt.cpython-310.pyc
-/__pycache__
-/app/__pycache__
-/app/prompt/__pycache__
-/app/utils/__pycache__
-/backend/__pycache__
-/backend/app/__pycache__
-/backend/app/prompt/__pycache__
-/backend/app/prompt/multi_language/__pycache__
-/backend/app/utils/__pycache__
-/backend/app/utils/llm/__pycache__
-/backend/memory/__pycache__
-/backend/retriever/__pycache__
-/backend/router/__pycache__
+﻿# Environment / secrets
+.env
+.env.*
+backend/.env
+backend/.env.*
+!backend/.env.example
 
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual env
+.venv/
+venv/
+env/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Runtime logs and temp files
+logs/
+backend/logs/
+*.log
+*.tmp
+*.bak
+*.corrupted
+
+# Runtime DB/cache artifacts
+backend/memory/sessions.db
+backend/memory/sessions.db-*
+backend/memory/cache/*.json
+data/db/
+backend/data/db/
+logs/queue_state.json
+
+# Dev runtime artifacts
+backend/dev/__pycache__/
+backend/queue_manager/__pycache__/
+backend/dev/env_history.json
+backend/dev/*_history.json
+backend/dev/*report*.json
+backend/dev/test_results*.json
+
+# Misc local files
 installed.txt
-/backend/memory/session_storage
-/backend/app/ffmpeg/
-/.idea
-/backend/app/static/
-/frontend/assets/
-/frontend/sound/
-/frontend/images/
-link_generate.py
-
-/backup
-/เอกสารโครงงาน
+backup/

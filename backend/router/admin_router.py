@@ -402,7 +402,7 @@ async def toggle_bot(session_id: str = Form(...), status: bool = Form(...)):
     """สลับสถานะเปิด/ปิด Bot สำหรับ Session นี้"""
     logger.info(f"🔄 Toggling bot for session {session_id}: {status}")
     
-    success = set_bot_enabled(session_id, status)
+    success = await set_bot_enabled(session_id, status)
     
     if success:
         logger.info(f"✅ Bot status updated for {session_id}: {status}")
@@ -417,11 +417,11 @@ async def toggle_all_bots(status: bool = Form(...)):
     logger.info(f"🔄 Toggling ALL bots: {status}")
     
     try:
-        sessions = await asyncio.to_thread(session_db.get_all_sessions)
+        sessions = await session_db.get_all_sessions()
         
         updated_count = 0
         for session in sessions:
-            if set_bot_enabled(session['session_id'], status):
+            if await set_bot_enabled(session['session_id'], status):
                 updated_count += 1
         
         logger.info(f"✅ Updated {updated_count} sessions")
@@ -436,7 +436,7 @@ async def get_chat_sessions():
     logger.info("📋 Loading chat sessions from database")
     
     try:
-        sessions = await asyncio.to_thread(session_db.get_all_sessions)
+        sessions = await session_db.get_all_sessions()
         
         formatted_sessions = []
         for session in sessions:
@@ -464,7 +464,7 @@ async def get_chat_history(platform: str, uid: str):
     logger.info(f"📖 Loading history for {platform}/{uid}")
     
     try:
-        history = await asyncio.to_thread(session_db.get_history, uid)
+        history = await session_db.get_history(uid)
         
         logger.info(f"   ✅ Returning {len(history)} valid messages")
         return history
@@ -567,8 +567,7 @@ async def api_monitor_stats():
     # Active sessions count
     session_count = 0
     try:
-        sessions = await asyncio.to_thread(session_db.get_all_sessions)
-        session_count = len(sessions) if sessions else 0
+        session_count = await session_db.get_session_count()
     except Exception:
         pass
 

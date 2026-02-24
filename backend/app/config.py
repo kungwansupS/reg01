@@ -115,6 +115,13 @@ QUEUE_REQUEST_TIMEOUT = max(10, _env_int("QUEUE_REQUEST_TIMEOUT", "120"))
 QUEUE_HEALTH_LOG_INTERVAL = max(10, _env_int("QUEUE_HEALTH_LOG_INTERVAL", "60"))
 
 # ----------------------------------------------------------------------------- #
+# DATABASE (PostgreSQL)
+# ----------------------------------------------------------------------------- #
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/reg01")
+DB_POOL_MIN_SIZE = max(1, _env_int("DB_POOL_MIN_SIZE", "2"))
+DB_POOL_MAX_SIZE = max(1, _env_int("DB_POOL_MAX_SIZE", "10"))
+
+# ----------------------------------------------------------------------------- #
 # HELPER FUNCTIONS
 # ----------------------------------------------------------------------------- #
 def debug_list_files(folder_path: str, label: str = "Files"):

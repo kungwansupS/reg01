@@ -564,7 +564,7 @@ async def get_connections():
     fb_token = bool(os.getenv("FB_PAGE_ACCESS_TOKEN"))
 
     vector_db_path = os.path.join(WORKSPACE_ROOT, "data", "db", "chroma_data", "chroma.sqlite3")
-    session_db_path = os.path.join(BACKEND_DIR, "memory", "sessions.db")
+    database_url = os.getenv("DATABASE_URL", "")
     flow_file = os.path.join(BACKEND_DIR, "dev", "flow_config.json")
     graph_file = os.path.join(BACKEND_DIR, "dev", "flow_graph_model.json")
 
@@ -586,7 +586,7 @@ async def get_connections():
         {"id": "socketio", "title": "Socket.IO Gateway", "kind": "service", "status": "ok", "path": "backend/main.py"},
         {"id": "llm", "title": f"LLM Provider ({llm_provider})", "kind": "external", "status": llm_status},
         {"id": "vector_db", "title": "Vector DB (Chroma)", "kind": "storage", "status": status_for_file(vector_db_path), "path": _to_rel_path(vector_db_path)},
-        {"id": "session_db", "title": "Session DB", "kind": "storage", "status": status_for_file(session_db_path), "path": _to_rel_path(session_db_path)},
+        {"id": "session_db", "title": "Session DB (PostgreSQL)", "kind": "storage", "status": "configured" if database_url else "missing"},
         {"id": "flow_store", "title": "Flow Config Store", "kind": "storage", "status": status_for_file(flow_file), "path": _to_rel_path(flow_file)},
         {"id": "graph_store", "title": "Graph Model Store", "kind": "storage", "status": status_for_file(graph_file), "path": _to_rel_path(graph_file)},
         {"id": "audit_log", "title": "Audit Log", "kind": "storage", "status": status_for_file(DEFAULT_LOG_PATH), "path": _to_rel_path(DEFAULT_LOG_PATH)},

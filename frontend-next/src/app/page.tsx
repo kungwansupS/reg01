@@ -12,6 +12,10 @@ import { useRecorder } from "@/hooks/use-recorder";
 import { sendSpeech, sendSpeechAudio } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
+import dynamic from "next/dynamic";
+import type { Live2DHandle } from "@/components/live2d/Live2DCanvas";
+
+const Live2DCanvas = dynamic(() => import("@/components/live2d/Live2DCanvas"), { ssr: false });
 
 export default function ChatPage() {
   const { socket, connected } = useSocket();
@@ -160,21 +164,19 @@ export default function ChatPage() {
       {/* ─── Main Content: Avatar Area + Chat ─── */}
       <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
         {/* Avatar / Visual Area (left on desktop, top on mobile) */}
-        <div className="hidden lg:flex lg:w-[420px] lg:shrink-0 items-center justify-center border-r border-yt-border bg-gradient-to-b from-yt-bg to-yt-surface">
-          <div className="text-center">
-            <div className="avatar-container mx-auto mb-6">
-              <div className={cn("avatar-ring", isSending && "active")} />
-              <Bot className="w-24 h-24 text-yt-text-muted" />
-            </div>
-            <h2 className="text-lg font-semibold gradient-text-cmu">REG CMU AI</h2>
-            <p className="text-sm text-yt-text-muted mt-1">ผู้ช่วยระบบลงทะเบียน</p>
-            <p className="text-xs text-yt-text-muted mt-3">
-              พร้อมรองรับ Live Avatar ในอนาคต
-            </p>
+        <div className="hidden lg:flex lg:w-[420px] lg:shrink-0 flex-col items-center justify-end border-r border-yt-border bg-black relative overflow-hidden">
+          {/* Live2D Model */}
+          <div className="absolute inset-0">
+            <Live2DCanvas className="w-full h-full" />
+          </div>
 
-            {/* Status indicator */}
+          {/* Overlay info at bottom */}
+          <div className="relative z-10 text-center pb-6">
+            <h2 className="text-lg font-semibold text-white drop-shadow-lg">REG CMU AI</h2>
+            <p className="text-sm text-white/60 mt-1">ผู้ช่วยระบบลงทะเบียน</p>
+
             {statusText && (
-              <div className="mt-4 px-4 py-2 rounded-lg bg-accent/10 text-accent text-xs animate-pulse">
+              <div className="mt-3 px-4 py-2 rounded-lg bg-accent/20 backdrop-blur-sm text-accent text-xs animate-pulse">
                 {statusText}
               </div>
             )}

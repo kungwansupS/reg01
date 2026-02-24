@@ -15,7 +15,7 @@ import asyncio
 import logging
 from concurrent.futures import ThreadPoolExecutor
 
-from app.tts import speak, is_tts_available
+from app.tts_multi import speak, is_tts_available
 from app.stt import transcribe
 from app.utils.llm.llm import ask_llm
 from app.utils.pose import suggest_pose

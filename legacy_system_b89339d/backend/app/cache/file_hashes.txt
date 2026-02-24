@@ -1,2 +1,0 @@
-REG_payment.pdf||93dcb58efa75d069833f21372eb7bc4f
-calendar/CMU-Academic-Calendar-2568.pdf||3f98a23f2fd87397cd14de4ff970908b

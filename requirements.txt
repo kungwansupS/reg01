@@ -12,8 +12,9 @@ ffmpeg-python
 pydub
 speechrecognition
 
-# TTS (edge-tts v7.x)
+# TTS Multi-Provider (edge-tts v7.x + OpenAI TTS + Google Cloud TTS via REST)
 edge-tts
+aiohttp
 
 # PDF Processing
 PyMuPDF

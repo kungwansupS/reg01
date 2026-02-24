@@ -35,13 +35,8 @@ backend/logs/
 backend/memory/sessions.db
 backend/memory/sessions.db-*
 backend/memory/cache/*.json
-data/db/
-backend/data/db/
-logs/queue_state.json
 
 # Dev runtime artifacts
-backend/dev/__pycache__/
-backend/queue_manager/__pycache__/
 backend/dev/env_history.json
 backend/dev/*_history.json
 backend/dev/*report*.json

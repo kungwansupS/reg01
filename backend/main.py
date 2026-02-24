@@ -29,8 +29,10 @@ from app.config import (
     DATABASE_URL,
     DB_POOL_MIN_SIZE,
     DB_POOL_MAX_SIZE,
+    REDIS_URL,
 )
-from memory.session_db import init_db, close_db
+from memory.database import init_db, close_db
+from memory.redis_client import init_redis, close_redis
 from app.utils.llm.llm_model import close_llm_clients
 from app.utils.llm.llm import ask_llm
 from app.utils.token_counter import calculate_cost
@@ -38,6 +40,8 @@ from dev.local_access import ensure_local_request
 from queue_manager import LLMRequestQueue, QueueConfig
 
 # Import routers
+from app.auth import auth_router
+from app.telemetry import init_telemetry
 from router.admin_router import router as admin_router, set_llm_queue
 from router.database_router import router as database_router
 from router.dev_router import router as dev_router
@@ -268,6 +272,7 @@ background_tasks.init_background_tasks(
     llm_queue,
 )
 
+app.include_router(auth_router)
 app.include_router(webhook_router.router)
 app.include_router(chat_router.router)
 app.include_router(admin_router)
@@ -301,8 +306,14 @@ async def startup_event():
     """Application startup"""
     logger.info("Starting REG-01 Application...")
     
-    # Initialize PostgreSQL connection pool
-    await init_db(DATABASE_URL, min_size=DB_POOL_MIN_SIZE, max_size=DB_POOL_MAX_SIZE)
+    # Initialize OpenTelemetry (if OTEL_ENABLED=true)
+    init_telemetry(app)
+    
+    # Initialize Redis
+    await init_redis(REDIS_URL)
+    
+    # Initialize SQLAlchemy async engine + create tables
+    await init_db(DATABASE_URL, pool_size=DB_POOL_MIN_SIZE, max_overflow=DB_POOL_MAX_SIZE)
     
     _trim_audit_log_if_needed(force=True)
     await background_tasks.run_startup_embedding_pipeline()
@@ -313,7 +324,7 @@ async def startup_event():
     # ── Queue Recovery: ประมวลผลคิวค้างจาก session ก่อนหน้า ──
     recovery_action = os.environ.pop("_QUEUE_RECOVERY_ACTION", "none")
     if recovery_action == "process":
-        pending_state = LLMRequestQueue.check_pending_on_disk()
+        pending_state = await LLMRequestQueue.check_pending_on_disk()
         if pending_state and pending_state.get("items"):
             logger.info(
                 "📋 [Recovery] Processing %d pending items from previous session...",
@@ -321,7 +332,7 @@ async def startup_event():
             )
             asyncio.create_task(_run_queue_recovery(pending_state["items"]))
         else:
-            logger.info("[Recovery] No valid pending items found on disk")
+            logger.info("[Recovery] No valid pending items found in Redis")
     
     asyncio.create_task(background_tasks.maintenance_loop())
     for _ in range(5):
@@ -367,6 +378,10 @@ async def cleanup():
         await close_db()
     except Exception as exc:
         logger.warning(f"DB pool close warning: {exc}")
+    try:
+        await close_redis()
+    except Exception as exc:
+        logger.warning(f"Redis close warning: {exc}")
     logger.info("Cleanup complete")
 
 @app.on_event("shutdown")

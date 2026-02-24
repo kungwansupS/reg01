@@ -1,12 +1,12 @@
 """
-Queue Persistence & Recovery Test
+Queue Persistence & Recovery Test (Redis backend)
 
 ทดสอบ:
-1.  Save pending items to JSON
-2.  Load pending items from JSON
+1.  Save pending items to Redis
+2.  Load pending items from Redis
 3.  Clear persisted state
-4.  Corrupted file handling
-5.  Empty file handling
+4.  Corrupted data handling
+5.  Empty data handling
 6.  Invalid items filtering
 7.  Format summary display
 8.  Format detailed display
@@ -14,14 +14,21 @@ Queue Persistence & Recovery Test
 10. Recovery processes items correctly
 11. Recovery sends FB replies
 12. Recovery handles handler errors gracefully
-13. Recovery clears file after completion
+13. Recovery clears key after completion
 14. Persistence survives rapid save/load cycles
 15. Edge case: very long messages
-16. Edge case: concurrent shutdown + persist
+16. Edge case: save empty clears key
+17. Loading nonexistent key returns None
+18. Recovery skips empty messages
+19. Format summary age strings
+20. LLMRequestQueue static async methods
 
 Usage:
     cd backend
     python dev/test_queue_persistence.py
+
+Requires:
+    - Redis server running (REDIS_URL env or redis://localhost:6379/0)
 """
 
 import asyncio
@@ -29,14 +36,17 @@ import json
 import logging
 import os
 import platform
-import shutil
 import sys
-import tempfile
 import time
 import traceback
 
 sys.path.insert(0, ".")
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
+from memory.redis_client import init_redis, close_redis, get_redis
 from queue_manager import LLMRequestQueue, QueueConfig
 from queue_manager.persistence import (
     save_pending_items,
@@ -44,6 +54,7 @@ from queue_manager.persistence import (
     clear_persisted,
     format_pending_summary,
     format_detailed_list,
+    REDIS_QUEUE_KEY,
 )
 
 logging.basicConfig(
@@ -52,13 +63,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger("PersistenceTest")
 
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+
 # ─────────────────────────────────────────────────────────────────────────── #
 # TEST INFRASTRUCTURE
 # ─────────────────────────────────────────────────────────────────────────── #
 passed = 0
 failed = 0
 test_results = []
-TEST_DIR = None
 
 
 def record(name, success, detail=""):
@@ -71,19 +83,10 @@ def record(name, success, detail=""):
         test_results.append(("❌", name, detail))
 
 
-def setup():
-    global TEST_DIR
-    TEST_DIR = tempfile.mkdtemp(prefix="queue_test_")
-    return TEST_DIR
-
-
-def teardown():
-    if TEST_DIR and os.path.exists(TEST_DIR):
-        shutil.rmtree(TEST_DIR, ignore_errors=True)
-
-
-def test_path(name="queue_state.json"):
-    return os.path.join(TEST_DIR, name)
+async def clear_test_key():
+    """Clear the Redis queue key before each test."""
+    r = get_redis()
+    await r.delete(REDIS_QUEUE_KEY)
 
 
 def sample_items(n=5):
@@ -125,71 +128,70 @@ async def mock_send_fb(psid, text):
 
 
 # ─────────────────────────────────────────────────────────────────────────── #
-# TESTS
+# TESTS (all async)
 # ─────────────────────────────────────────────────────────────────────────── #
-def test_01_save():
-    """Test 1: Save pending items to JSON"""
-    path = test_path("t01.json")
+async def test_01_save():
+    """Test 1: Save pending items to Redis"""
+    await clear_test_key()
     items = sample_items(3)
-    ok = save_pending_items(items, path)
-    exists = os.path.exists(path)
-    record("Save to JSON", ok and exists, f"saved={ok} exists={exists}")
+    ok = await save_pending_items(items)
+    r = get_redis()
+    exists = await r.exists(REDIS_QUEUE_KEY)
+    record("Save to Redis", ok and exists, f"saved={ok} exists={exists}")
 
 
-def test_02_load():
-    """Test 2: Load pending items from JSON"""
-    path = test_path("t02.json")
+async def test_02_load():
+    """Test 2: Load pending items from Redis"""
+    await clear_test_key()
     items = sample_items(5)
-    save_pending_items(items, path)
-    state = load_pending_items(path)
+    await save_pending_items(items)
+    state = await load_pending_items()
     ok = state is not None and state["count"] == 5
-    record("Load from JSON", ok, f"count={state['count'] if state else 0}")
+    record("Load from Redis", ok, f"count={state['count'] if state else 0}")
 
 
-def test_03_clear():
+async def test_03_clear():
     """Test 3: Clear persisted state"""
-    path = test_path("t03.json")
-    save_pending_items(sample_items(2), path)
-    clear_persisted(path)
-    ok = not os.path.exists(path)
+    await clear_test_key()
+    await save_pending_items(sample_items(2))
+    await clear_persisted()
+    r = get_redis()
+    exists = await r.exists(REDIS_QUEUE_KEY)
+    ok = not exists
     record("Clear persisted", ok)
 
 
-def test_04_corrupted_file():
-    """Test 4: Corrupted file handling"""
-    path = test_path("t04.json")
-    with open(path, "w", encoding="utf-8") as f:
-        f.write("{invalid json!!!")
-    state = load_pending_items(path)
+async def test_04_corrupted_data():
+    """Test 4: Corrupted data handling"""
+    r = get_redis()
+    await r.set(REDIS_QUEUE_KEY, "{invalid json!!!")
+    state = await load_pending_items()
     ok = state is None
-    # Should create a .corrupted backup
-    backup = path + ".corrupted"
-    backup_exists = os.path.exists(backup)
-    record("Corrupted file handling", ok and backup_exists, f"state=None backup={backup_exists}")
+    # Should have cleared the corrupted key
+    exists = await r.exists(REDIS_QUEUE_KEY)
+    record("Corrupted data handling", ok and not exists, f"state=None cleared={not exists}")
 
 
-def test_05_empty_file():
-    """Test 5: Empty file handling"""
-    path = test_path("t05.json")
-    with open(path, "w") as f:
-        json.dump({"items": [], "count": 0, "saved_at": "test"}, f)
-    state = load_pending_items(path)
+async def test_05_empty_data():
+    """Test 5: Empty data handling"""
+    r = get_redis()
+    await r.set(REDIS_QUEUE_KEY, json.dumps({"items": [], "count": 0, "saved_at": "test"}))
+    state = await load_pending_items()
     ok = state is None  # Empty items should return None
-    record("Empty file handling", ok)
+    record("Empty data handling", ok)
 
 
-def test_06_invalid_items():
+async def test_06_invalid_items():
     """Test 6: Invalid items filtering"""
-    path = test_path("t06.json")
+    r = get_redis()
     items = [
         {"user_id": "u1", "session_id": "s1", "msg": "valid"},
         {"user_id": "u2"},  # missing session_id and msg
         "not a dict",
         {"user_id": "u3", "session_id": "s3", "msg": "also valid"},
     ]
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump({"items": items, "count": 4, "saved_at": "test"}, f)
-    state = load_pending_items(path)
+    await r.set(REDIS_QUEUE_KEY, json.dumps({"items": items, "count": 4, "saved_at": "test"}))
+    state = await load_pending_items()
     ok = state is not None and state["count"] == 2
     record("Invalid items filtering", ok, f"valid_count={state['count'] if state else 0}")
 
@@ -214,7 +216,7 @@ def test_08_format_detailed():
 
 async def test_09_shutdown_persists():
     """Test 9: Shutdown persists pending + active items"""
-    path = test_path("t09.json")
+    await clear_test_key()
 
     async def slow_handler(msg, session_id, emit_fn=None, **kwargs):
         await asyncio.sleep(5.0)
@@ -222,7 +224,7 @@ async def test_09_shutdown_persists():
 
     q = LLMRequestQueue(
         handler_fn=slow_handler,
-        config=QueueConfig(num_workers=1, persist_path=path, request_timeout=30),
+        config=QueueConfig(num_workers=1, request_timeout=30),
     )
     await q.start()
 
@@ -237,8 +239,8 @@ async def test_09_shutdown_persists():
 
     await q.shutdown()
 
-    # Check persisted file
-    state = load_pending_items(path)
+    # Check persisted key
+    state = await load_pending_items()
     ok = state is not None and state["count"] >= 1
     record(
         "Shutdown persists state",
@@ -251,18 +253,18 @@ async def test_09_shutdown_persists():
         t.cancel()
     await asyncio.gather(*tasks, return_exceptions=True)
 
-    clear_persisted(path)
+    await clear_persisted()
 
 
 async def test_10_recovery_processes():
     """Test 10: Recovery processes items correctly"""
     global handler_calls
     handler_calls = []
+    await clear_test_key()
 
-    path = test_path("t10.json")
     q = LLMRequestQueue(
         handler_fn=mock_handler,
-        config=QueueConfig(num_workers=3, persist_path=path),
+        config=QueueConfig(num_workers=3),
     )
     await q.start()
 
@@ -283,11 +285,11 @@ async def test_11_recovery_sends_fb():
     """Test 11: Recovery sends FB replies"""
     global fb_sent
     fb_sent = []
+    await clear_test_key()
 
-    path = test_path("t11.json")
     q = LLMRequestQueue(
         handler_fn=mock_handler,
-        config=QueueConfig(num_workers=2, persist_path=path),
+        config=QueueConfig(num_workers=2),
     )
     await q.start()
 
@@ -313,10 +315,11 @@ async def test_11_recovery_sends_fb():
 
 async def test_12_recovery_error_handling():
     """Test 12: Recovery handles handler errors gracefully"""
-    path = test_path("t12.json")
+    await clear_test_key()
+
     q = LLMRequestQueue(
         handler_fn=failing_handler,
-        config=QueueConfig(num_workers=2, persist_path=path),
+        config=QueueConfig(num_workers=2),
     )
     await q.start()
 
@@ -338,50 +341,51 @@ async def test_12_recovery_error_handling():
     await q.shutdown()
 
 
-async def test_13_recovery_clears_file():
-    """Test 13: Recovery clears file after completion"""
-    path = test_path("t13.json")
+async def test_13_recovery_clears_key():
+    """Test 13: Recovery clears Redis key after completion"""
+    await clear_test_key()
 
-    # Pre-save items to disk
-    save_pending_items(sample_items(3), path)
-    assert os.path.exists(path), "File should exist before recovery"
+    # Pre-save items
+    await save_pending_items(sample_items(3))
+    r = get_redis()
+    assert await r.exists(REDIS_QUEUE_KEY), "Key should exist before recovery"
 
     q = LLMRequestQueue(
         handler_fn=mock_handler,
-        config=QueueConfig(num_workers=2, persist_path=path),
+        config=QueueConfig(num_workers=2),
     )
     await q.start()
 
     items = sample_items(3)
     await q.recover_pending(items)
 
-    ok = not os.path.exists(path)
-    record("Recovery clears file", ok)
+    exists = await r.exists(REDIS_QUEUE_KEY)
+    ok = not exists
+    record("Recovery clears Redis key", ok)
 
     await q.shutdown()
 
 
-def test_14_rapid_save_load():
+async def test_14_rapid_save_load():
     """Test 14: Persistence survives rapid save/load cycles"""
-    path = test_path("t14.json")
     errors = 0
 
     for i in range(50):
         items = sample_items(i % 10 + 1)
-        if not save_pending_items(items, path):
+        if not await save_pending_items(items):
             errors += 1
-        state = load_pending_items(path)
+        state = await load_pending_items()
         if state is None or state["count"] != len(items):
             errors += 1
 
     ok = errors == 0
     record("Rapid save/load (50 cycles)", ok, f"errors={errors}")
-    clear_persisted(path)
+    await clear_persisted()
 
 
-def test_15_long_messages():
+async def test_15_long_messages():
     """Test 15: Very long messages"""
-    path = test_path("t15.json")
+    await clear_test_key()
     items = [
         {
             "user_id": "u1",
@@ -396,46 +400,48 @@ def test_15_long_messages():
             "submitted_at": time.time(),
         },
     ]
-    save_pending_items(items, path)
-    state = load_pending_items(path)
+    await save_pending_items(items)
+    state = await load_pending_items()
     ok = state is not None and state["count"] == 2
     # Verify message integrity
     ok2 = len(state["items"][0]["msg"]) == 10000 and len(state["items"][1]["msg"]) == 50000
     record("Long messages persist", ok and ok2, f"msg_lens={[len(i['msg']) for i in state['items']]}")
-    clear_persisted(path)
+    await clear_persisted()
 
 
 async def test_16_save_no_items_clears():
-    """Test 16: Saving empty list clears existing file"""
-    path = test_path("t16.json")
+    """Test 16: Saving empty list clears existing key"""
+    await clear_test_key()
 
-    # Create file first
-    save_pending_items(sample_items(3), path)
-    assert os.path.exists(path)
+    # Create key first
+    await save_pending_items(sample_items(3))
+    r = get_redis()
+    assert await r.exists(REDIS_QUEUE_KEY)
 
-    # Save empty → should delete file
-    save_pending_items([], path)
-    ok = not os.path.exists(path)
-    record("Empty save clears file", ok)
+    # Save empty → should delete key
+    await save_pending_items([])
+    exists = await r.exists(REDIS_QUEUE_KEY)
+    ok = not exists
+    record("Empty save clears key", ok)
 
 
-def test_17_nonexistent_load():
-    """Test 17: Loading from nonexistent file returns None"""
-    path = test_path("nonexistent_file.json")
-    state = load_pending_items(path)
+async def test_17_nonexistent_load():
+    """Test 17: Loading nonexistent key returns None"""
+    await clear_test_key()
+    state = await load_pending_items()
     ok = state is None
-    record("Nonexistent file returns None", ok)
+    record("Nonexistent key returns None", ok)
 
 
 async def test_18_recovery_skips_empty_msg():
     """Test 18: Recovery skips items with empty messages"""
     global handler_calls
     handler_calls = []
+    await clear_test_key()
 
-    path = test_path("t18.json")
     q = LLMRequestQueue(
         handler_fn=mock_handler,
-        config=QueueConfig(num_workers=2, persist_path=path),
+        config=QueueConfig(num_workers=2),
     )
     await q.start()
 
@@ -474,14 +480,14 @@ def test_19_format_summary_age():
 
 
 async def test_20_static_methods():
-    """Test 20: LLMRequestQueue static methods work correctly"""
-    path = test_path("t20.json")
+    """Test 20: LLMRequestQueue static async methods work correctly"""
+    await clear_test_key()
 
     # Save via persistence directly
-    save_pending_items(sample_items(3), path)
+    await save_pending_items(sample_items(3))
 
-    # Use static methods
-    state = LLMRequestQueue.check_pending_on_disk(path)
+    # Use static methods (now async)
+    state = await LLMRequestQueue.check_pending_on_disk()
     ok1 = state is not None and state["count"] == 3
 
     summary = LLMRequestQueue.format_pending_for_display(state)
@@ -490,8 +496,10 @@ async def test_20_static_methods():
     detailed = LLMRequestQueue.format_pending_detailed(state)
     ok3 = "รายการที่ 1" in detailed
 
-    LLMRequestQueue.clear_pending_on_disk(path)
-    ok4 = not os.path.exists(path)
+    await LLMRequestQueue.clear_pending_on_disk()
+    r = get_redis()
+    exists = await r.exists(REDIS_QUEUE_KEY)
+    ok4 = not exists
 
     record("Static methods", ok1 and ok2 and ok3 and ok4, f"check={ok1} summary={ok2} detail={ok3} clear={ok4}")
 
@@ -500,36 +508,40 @@ async def test_20_static_methods():
 # RUNNER
 # ─────────────────────────────────────────────────────────────────────────── #
 async def run_all_tests():
-    setup()
+    # Initialize Redis
+    await init_redis(REDIS_URL)
+    logger.info("✅ Redis connected for testing")
 
+    # Pure display tests (sync — no Redis needed)
     sync_tests = [
-        test_01_save,
-        test_02_load,
-        test_03_clear,
-        test_04_corrupted_file,
-        test_05_empty_file,
-        test_06_invalid_items,
         test_07_format_summary,
         test_08_format_detailed,
-        test_14_rapid_save_load,
-        test_15_long_messages,
-        test_17_nonexistent_load,
         test_19_format_summary_age,
     ]
 
+    # All persistence & recovery tests (async — need Redis)
     async_tests = [
+        test_01_save,
+        test_02_load,
+        test_03_clear,
+        test_04_corrupted_data,
+        test_05_empty_data,
+        test_06_invalid_items,
         test_09_shutdown_persists,
         test_10_recovery_processes,
         test_11_recovery_sends_fb,
         test_12_recovery_error_handling,
-        test_13_recovery_clears_file,
+        test_13_recovery_clears_key,
+        test_14_rapid_save_load,
+        test_15_long_messages,
         test_16_save_no_items_clears,
+        test_17_nonexistent_load,
         test_18_recovery_skips_empty_msg,
         test_20_static_methods,
     ]
 
     logger.info("=" * 60)
-    logger.info("  Queue Persistence & Recovery Test — 20 tests")
+    logger.info("  Queue Persistence & Recovery Test (Redis) — 20 tests")
     logger.info("=" * 60)
 
     for test_fn in sync_tests:
@@ -550,7 +562,9 @@ async def run_all_tests():
             record(name, False, f"CRASH: {e}")
             traceback.print_exc()
 
-    teardown()
+    # Cleanup
+    await clear_test_key()
+    await close_redis()
 
     logger.info("\n" + "=" * 60)
     logger.info("  RESULTS")

@@ -1,73 +1,67 @@
 """
-Queue Persistence — บันทึก/โหลด pending items ลง disk
+Queue Persistence — บันทึก/โหลด pending items ผ่าน Redis
 
-เมื่อ server ถูกปิด (graceful หรือ crash) คำขอที่ค้างอยู่ในคิวจะถูกบันทึก
-เมื่อเปิด server ใหม่ ระบบจะตรวจสอบไฟล์นี้และถามผู้ดูแลว่า:
+เมื่อ server ถูกปิด (graceful หรือ crash) คำขอที่ค้างอยู่ในคิวจะถูกบันทึกลง Redis
+เมื่อเปิด server ใหม่ ระบบจะตรวจสอบ key นี้และถามผู้ดูแลว่า:
   - ต้องการประมวลผลคำขอค้าง → re-submit เข้าคิว
-  - ล้างคิวทิ้ง → ลบไฟล์
+  - ล้างคิวทิ้ง → ลบ key
 
-ไฟล์: queue_state.json เก็บใน logs/
+Redis key: reg01:queue_state
 """
 
 import json
 import logging
-import os
 import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger("QueuePersistence")
 
-DEFAULT_PERSIST_PATH = os.path.join("logs", "queue_state.json")
+REDIS_QUEUE_KEY = "reg01:queue_state"
+# TTL สำหรับ queue state (7 วัน — คิวค้างเก่ากว่านี้ไม่มีประโยชน์)
+QUEUE_STATE_TTL = 7 * 86400
+
+# Legacy — kept as a constant for callers that still pass a path arg (ignored)
+DEFAULT_PERSIST_PATH = REDIS_QUEUE_KEY
 
 
-def _ensure_dir(path: str) -> None:
-    """สร้าง directory ถ้ายังไม่มี"""
-    d = os.path.dirname(path)
-    if d and not os.path.exists(d):
-        os.makedirs(d, exist_ok=True)
+def _get_redis():
+    """Get Redis client (lazy import to avoid circular deps at module load time)."""
+    from memory.redis_client import get_redis
+    return get_redis()
 
 
 # ─────────────────────────────────────────────────────────────────────────── #
-# SAVE
+# SAVE (async)
 # ─────────────────────────────────────────────────────────────────────────── #
-def save_pending_items(
+async def save_pending_items(
     items: List[Dict[str, Any]],
-    path: str = DEFAULT_PERSIST_PATH,
+    path: str = REDIS_QUEUE_KEY,
 ) -> bool:
     """
-    บันทึก pending items ลงไฟล์ JSON
+    บันทึก pending items ลง Redis
 
     Args:
         items: list ของ dict ที่มี key: request_id, user_id, session_id, msg, submitted_at, priority
-        path: path สำหรับบันทึกไฟล์
+        path: ignored (kept for API compat)
 
     Returns:
         True ถ้าบันทึกสำเร็จ
     """
     if not items:
-        # ไม่มีอะไรต้องบันทึก — ลบไฟล์ถ้ามี
-        clear_persisted(path)
+        await clear_persisted()
         return True
 
     try:
-        _ensure_dir(path)
+        r = _get_redis()
         state = {
             "saved_at": datetime.now().isoformat(),
             "saved_at_ts": time.time(),
             "count": len(items),
             "items": items,
         }
-        # Write atomically via temp file
-        tmp_path = path + ".tmp"
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            json.dump(state, f, ensure_ascii=False, indent=2)
-        # Atomic rename (Windows: replace if exists)
-        if os.path.exists(path):
-            os.replace(tmp_path, path)
-        else:
-            os.rename(tmp_path, path)
-        logger.info("[Persistence] Saved %d pending items to %s", len(items), path)
+        await r.set(REDIS_QUEUE_KEY, json.dumps(state, ensure_ascii=False), ex=QUEUE_STATE_TTL)
+        logger.info("[Persistence] Saved %d pending items to Redis", len(items))
         return True
     except Exception as exc:
         logger.error("[Persistence] Failed to save: %s", exc)
@@ -75,34 +69,34 @@ def save_pending_items(
 
 
 # ─────────────────────────────────────────────────────────────────────────── #
-# LOAD
+# LOAD (async)
 # ─────────────────────────────────────────────────────────────────────────── #
-def load_pending_items(
-    path: str = DEFAULT_PERSIST_PATH,
+async def load_pending_items(
+    path: str = REDIS_QUEUE_KEY,
 ) -> Optional[Dict[str, Any]]:
     """
-    โหลด pending items จากไฟล์ JSON
+    โหลด pending items จาก Redis
 
     Returns:
         dict ที่มี keys: saved_at, count, items
-        หรือ None ถ้าไม่มีไฟล์หรือไฟล์เสีย
+        หรือ None ถ้าไม่มี key หรือข้อมูลเสีย
     """
-    if not os.path.exists(path):
-        return None
-
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            state = json.load(f)
+        r = _get_redis()
+        raw = await r.get(REDIS_QUEUE_KEY)
+        if not raw:
+            return None
 
-        # Validate structure
+        state = json.loads(raw)
+
         if not isinstance(state, dict) or "items" not in state:
-            logger.warning("[Persistence] Invalid state file format")
+            logger.warning("[Persistence] Invalid state format in Redis")
             return None
 
         items = state.get("items", [])
         if not isinstance(items, list) or len(items) == 0:
-            logger.info("[Persistence] State file empty, removing")
-            clear_persisted(path)
+            logger.info("[Persistence] State empty in Redis, removing")
+            await clear_persisted()
             return None
 
         # Validate each item has required fields
@@ -115,8 +109,8 @@ def load_pending_items(
                 logger.warning("[Persistence] Skipping invalid item: %s", item)
 
         if not valid_items:
-            logger.info("[Persistence] No valid items found, removing file")
-            clear_persisted(path)
+            logger.info("[Persistence] No valid items found, removing key")
+            await clear_persisted()
             return None
 
         state["items"] = valid_items
@@ -130,15 +124,8 @@ def load_pending_items(
         return state
 
     except json.JSONDecodeError as exc:
-        logger.error("[Persistence] Corrupted state file: %s", exc)
-        # Backup corrupted file for debugging
-        try:
-            backup = path + ".corrupted"
-            if os.path.exists(path):
-                os.replace(path, backup)
-                logger.info("[Persistence] Corrupted file backed up to %s", backup)
-        except Exception:
-            pass
+        logger.error("[Persistence] Corrupted state in Redis: %s", exc)
+        await clear_persisted()
         return None
     except Exception as exc:
         logger.error("[Persistence] Failed to load: %s", exc)
@@ -146,14 +133,14 @@ def load_pending_items(
 
 
 # ─────────────────────────────────────────────────────────────────────────── #
-# CLEAR
+# CLEAR (async)
 # ─────────────────────────────────────────────────────────────────────────── #
-def clear_persisted(path: str = DEFAULT_PERSIST_PATH) -> bool:
-    """ลบไฟล์ persisted state"""
+async def clear_persisted(path: str = REDIS_QUEUE_KEY) -> bool:
+    """ลบ persisted state จาก Redis"""
     try:
-        if os.path.exists(path):
-            os.remove(path)
-            logger.info("[Persistence] Cleared persisted state: %s", path)
+        r = _get_redis()
+        await r.delete(REDIS_QUEUE_KEY)
+        logger.info("[Persistence] Cleared persisted state from Redis")
         return True
     except Exception as exc:
         logger.error("[Persistence] Failed to clear: %s", exc)
@@ -161,7 +148,7 @@ def clear_persisted(path: str = DEFAULT_PERSIST_PATH) -> bool:
 
 
 # ─────────────────────────────────────────────────────────────────────────── #
-# DISPLAY (for console prompt)
+# DISPLAY (for console prompt) — pure functions, no I/O
 # ─────────────────────────────────────────────────────────────────────────── #
 def format_pending_summary(state: Dict[str, Any], max_display: int = 20) -> str:
     """

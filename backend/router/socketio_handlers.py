@@ -5,6 +5,8 @@ SocketIO Event Handlers
 import logging
 import os
 import hmac
+
+from app.auth import Role, decode_jwt
 from memory.session import get_or_create_history, save_history, get_bot_enabled
 
 logger = logging.getLogger("SocketIOHandlers")
@@ -31,8 +33,23 @@ def _is_valid_admin_socket_token(raw_token: str) -> bool:
     token = str(raw_token or "").strip()
     if not token:
         return False
+
+    if token.lower().startswith("bearer "):
+        token = token[7:].strip()
+        if not token:
+            return False
+
+    # Backward-compatible static token
     expected = os.getenv("ADMIN_TOKEN", "super-secret-key")
-    return hmac.compare_digest(token, expected)
+    if hmac.compare_digest(token, expected):
+        return True
+
+    # JWT mode support
+    try:
+        claims = decode_jwt(token)
+    except Exception:
+        return False
+    return claims.get("role") == Role.admin.value
 
 def init_socketio_handlers(socketio_instance, fb_sender_fn):
     """Initialize SocketIO handlers"""

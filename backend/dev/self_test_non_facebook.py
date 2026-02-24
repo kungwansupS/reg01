@@ -225,8 +225,8 @@ def main_self_test() -> int:
             str(fake.emit_calls),
         )
 
-        get_or_create_history("web_unit_12345678")
-        set_bot_enabled("web_unit_12345678", False)
+        await get_or_create_history("web_unit_12345678")
+        await set_bot_enabled("web_unit_12345678", False)
 
         called = []
 

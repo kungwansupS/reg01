@@ -1,0 +1,41 @@
+===== PAGE 1 =====
+Result
+Conclusion
+In a different subnet, the hybrid model uses less
+computational time than the client-server model but takes
+more time to obtain results.
+In the same subnet, the hybrid model not only reduces
+computational time compared to the client-server model but
+also achieves faster results. However, when the number of
+nodes is four, the differences are minimal.
+Technology
+Routing Simulation for Network 
+Load Balancing Author:  Natthakrit Kittiprapanan
+Advisor: Asst. Prof. Dr. Suphakit Awiphan
+Design
+Abstract
+Introduction
+    The Client-Server Model often faces limitations in communication efficiency when supporting many users. This independent study aims to
+analyze the performance differences between the traditional client-server model and a hybrid model that utilizes a client agent to distribute
+information to group members. 
+    The simulation system is developed using the NS-3 network simulator, and it is devided to  sections:  creating a network simulation with
+servers and clients in the same and different local networks, simulating network communication using TCP and UDP, selecting efficient
+members for data transmission, and distributing tasks through client agents. 
+    The test results indicate performance differences between the models, showing that the average delay from data generation to
+transmission is less than 0.11 ms, the average delay from data generation to result reception exceeds 0.62 ms, the number of results received
+within 1 second is below 420, and the average job size sent by the server is reduced by 24.34 bytes.
+    Many users access online services, requiring fast, secure, and
+scalable server performance. However, high user traffic increases
+the server's workload beyond its capacity, leading to delays and
+potential service failures.
+Aims: Studying network communication and using the NS-3
+Network Simulator to optimize server connection paths.
+Proposed Solution: Redirecting communication through a user
+representative in a group to reduce server workload.
+Reference
+Cisco Systems, Inc. “Interconnecting Cisco Networking
+Devices, Part 1: Student Guide. Version 2.0,” Cisco
+Systems, Inc., 2013.
+https://www.nsnam.org
+204499 Independent Study Academy Year 2024
+Department of Computer Science, Faculty of Science, Chiang Mai University

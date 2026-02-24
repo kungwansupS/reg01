@@ -12,9 +12,9 @@ from typing import Any, Dict, Optional
 import httpx
 from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.security.api_key import APIKeyHeader
 from pydantic import BaseModel, Field
 
+from app.auth import require_dev
 from app.utils.llm.llm import ask_llm
 from dev.env_store import get_env_snapshot, list_env_history, save_env_snapshot
 from dev.flow_graph import (
@@ -52,7 +52,6 @@ from memory.faq_cache import (
 
 router = APIRouter(prefix="/api/dev", tags=["dev"])
 
-DEV_API_KEY_HEADER = APIKeyHeader(name="X-Dev-Token", auto_error=False)
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WORKSPACE_ROOT = os.path.dirname(BACKEND_DIR)
 ENV_FILE_PATH = os.path.join(BACKEND_DIR, ".env")
@@ -98,10 +97,6 @@ IGNORED_TREE_NAMES = {
     ".venv",
     "venv",
 }
-
-
-def _get_dev_token() -> str:
-    return os.getenv("DEV_TOKEN", "dev-secret-key")
 
 
 def _now_iso() -> str:
@@ -324,13 +319,10 @@ def _is_definition_line_for_symbol(
 
 async def verify_dev_access(
     request: Request,
-    token: str = Depends(DEV_API_KEY_HEADER),
-) -> str:
+    claims: dict = Depends(require_dev),
+) -> dict:
     ensure_local_request(request)
-    expected = _get_dev_token()
-    if token != expected:
-        raise HTTPException(status_code=403, detail="Forbidden: Invalid Dev Token")
-    return token
+    return claims
 
 
 class FlowConfigUpdateRequest(BaseModel):
@@ -586,7 +578,8 @@ async def get_connections():
         {"id": "socketio", "title": "Socket.IO Gateway", "kind": "service", "status": "ok", "path": "backend/main.py"},
         {"id": "llm", "title": f"LLM Provider ({llm_provider})", "kind": "external", "status": llm_status},
         {"id": "vector_db", "title": "Vector DB (Chroma)", "kind": "storage", "status": status_for_file(vector_db_path), "path": _to_rel_path(vector_db_path)},
-        {"id": "session_db", "title": "Session DB (PostgreSQL)", "kind": "storage", "status": "configured" if database_url else "missing"},
+        {"id": "session_db", "title": "Session DB (PostgreSQL + SQLAlchemy)", "kind": "storage", "status": "configured" if database_url else "missing"},
+        {"id": "redis", "title": "Redis (FAQ Cache + Queue)", "kind": "storage", "status": "configured" if os.getenv("REDIS_URL") else "default"},
         {"id": "flow_store", "title": "Flow Config Store", "kind": "storage", "status": status_for_file(flow_file), "path": _to_rel_path(flow_file)},
         {"id": "graph_store", "title": "Graph Model Store", "kind": "storage", "status": status_for_file(graph_file), "path": _to_rel_path(graph_file)},
         {"id": "audit_log", "title": "Audit Log", "kind": "storage", "status": status_for_file(DEFAULT_LOG_PATH), "path": _to_rel_path(DEFAULT_LOG_PATH)},
@@ -602,6 +595,7 @@ async def get_connections():
         {"id": "e6", "source": "backend_api", "target": "flow_store", "label": "flow config"},
         {"id": "e7", "source": "backend_api", "target": "graph_store", "label": "graph model"},
         {"id": "e8", "source": "backend_api", "target": "audit_log", "label": "write_audit_log"},
+        {"id": "e8b", "source": "backend_api", "target": "redis", "label": "FAQ cache + queue persist"},
         {"id": "e9", "source": "backend_api", "target": "facebook_api", "label": "send messenger", "enabled": fb_token},
     ]
 
@@ -1132,12 +1126,12 @@ async def list_faq_items(
     query: str = "",
     include_expired: bool = False,
 ):
-    return list_faq_entries(limit=limit, query=query, include_expired=bool(include_expired))
+    return await list_faq_entries(limit=limit, query=query, include_expired=bool(include_expired))
 
 
 @router.get("/faq/entry", dependencies=[Depends(verify_dev_access)])
 async def get_faq_item(question: str):
-    item = get_faq_entry(question)
+    item = await get_faq_entry(question)
     if not item:
         raise HTTPException(status_code=404, detail=f"FAQ entry not found: {question}")
     return item
@@ -1146,7 +1140,7 @@ async def get_faq_item(question: str):
 @router.put("/faq/entry", dependencies=[Depends(verify_dev_access)])
 async def upsert_faq_item(payload: FaqEntryUpsertRequest):
     try:
-        item = save_faq_entry(
+        item = await save_faq_entry(
             question=payload.question,
             answer=payload.answer,
             original_question=payload.original_question,
@@ -1163,7 +1157,7 @@ async def upsert_faq_item(payload: FaqEntryUpsertRequest):
 @router.delete("/faq/entry", dependencies=[Depends(verify_dev_access)])
 async def remove_faq_item(question: str):
     try:
-        result = delete_faq_entry(question)
+        result = await delete_faq_entry(question)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return result
@@ -1171,7 +1165,7 @@ async def remove_faq_item(question: str):
 
 @router.post("/faq/purge-expired", dependencies=[Depends(verify_dev_access)])
 async def purge_faq_expired():
-    return purge_expired_faq_entries()
+    return await purge_expired_faq_entries()
 
 
 @router.get("/fs/tree", dependencies=[Depends(verify_dev_access)])

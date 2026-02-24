@@ -62,7 +62,7 @@ class QueueConfig:
     per_user_limit: int = 3         # Max pending+active requests per user
     request_timeout: float = 120.0  # Seconds before request times out
     health_log_interval: float = 60.0  # Seconds between health log outputs
-    persist_path: str = DEFAULT_PERSIST_PATH  # Path for queue state file
+    persist_path: str = DEFAULT_PERSIST_PATH  # Redis key for queue state
 
 
 # ─────────────────────────────────────────────────────────────────────────── #
@@ -182,7 +182,7 @@ class LLMRequestQueue:
         self._running = False
 
         # Persist pending + active items before cancelling
-        self._persist_state()
+        await self._persist_state()
 
         # Cancel all pending futures
         async with self._lock:
@@ -529,8 +529,8 @@ class LLMRequestQueue:
     # ───────────────────────────────────────────────────────────────────── #
     # PERSISTENCE
     # ───────────────────────────────────────────────────────────────────── #
-    def _persist_state(self) -> None:
-        """บันทึก pending + active items ลง disk (sync, เรียกตอน shutdown)"""
+    async def _persist_state(self) -> None:
+        """บันทึก pending + active items ลง Redis (async, เรียกตอน shutdown)"""
         items_to_save = []
 
         # รวม pending items
@@ -555,10 +555,10 @@ class LLMRequestQueue:
                 "priority": item.priority,
             })
 
-        save_pending_items(items_to_save, self._persist_path)
+        await save_pending_items(items_to_save, self._persist_path)
 
     @staticmethod
-    def check_pending_on_disk(persist_path: str = DEFAULT_PERSIST_PATH):
+    async def check_pending_on_disk(persist_path: str = DEFAULT_PERSIST_PATH):
         """
         ตรวจสอบว่ามีคิวค้างจาก session ก่อนหน้าหรือไม่
         เรียกก่อน start() ตอน server boot
@@ -566,7 +566,7 @@ class LLMRequestQueue:
         Returns:
             dict ที่มี keys: saved_at, count, items หรือ None
         """
-        return load_pending_items(persist_path)
+        return await load_pending_items(persist_path)
 
     @staticmethod
     def format_pending_for_display(
@@ -582,9 +582,9 @@ class LLMRequestQueue:
         return format_detailed_list(state)
 
     @staticmethod
-    def clear_pending_on_disk(persist_path: str = DEFAULT_PERSIST_PATH) -> bool:
-        """ล้างไฟล์คิวค้าง"""
-        return clear_persisted(persist_path)
+    async def clear_pending_on_disk(persist_path: str = DEFAULT_PERSIST_PATH) -> bool:
+        """ล้าง persisted state จาก Redis"""
+        return await clear_persisted(persist_path)
 
     async def recover_pending(
         self,
@@ -663,8 +663,8 @@ class LLMRequestQueue:
                     user_id[:16], session_id[:16], exc,
                 )
 
-        # ล้างไฟล์หลังประมวลผลเสร็จ
-        clear_persisted(self._persist_path)
+        # ล้าง persisted state หลังประมวลผลเสร็จ
+        await clear_persisted(self._persist_path)
 
         logger.info(
             "[Queue Recovery] Complete: processed=%d errors=%d",
@@ -763,7 +763,7 @@ class LLMRequestQueue:
                 if _persist_counter >= 5 and (current["pending"] > 0 or current["active"] > 0):
                     _persist_counter = 0
                     try:
-                        self._persist_state()
+                        await self._persist_state()
                         logger.debug("[Queue Health] Periodic persist: %d items saved",
                                      current["pending"] + current["active"])
                     except Exception as pe:
@@ -802,14 +802,18 @@ class LLMRequestQueue:
     def _emergency_persist(self):
         """
         atexit handler — บันทึก state เมื่อ process ถูก kill/crash
-        เรียกแบบ synchronous (ไม่ใช้ async) เพราะ event loop อาจปิดแล้ว
+        พยายาม run async persist ผ่าน event loop ที่ยังเปิดอยู่
+        ถ้า loop ปิดแล้ว → ข้ามไป (graceful shutdown ทำ persist ไว้แล้ว)
         """
         if not self._pending and not self._active:
             return
         try:
-            self._persist_state()
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                loop.create_task(self._persist_state())
+            else:
+                loop.run_until_complete(self._persist_state())
             count = len(self._pending) + len(self._active)
-            # atexit: print instead of logger (logger may be closed)
-            print(f"[Queue] Emergency persist: {count} items saved to {self._persist_path}")
+            print(f"[Queue] Emergency persist: {count} items saved to Redis")
         except Exception:
             pass

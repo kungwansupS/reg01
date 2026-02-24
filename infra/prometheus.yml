@@ -1,0 +1,15 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: "reg01-backend"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["backend:9464"]
+        labels:
+          service: "reg01-backend"
+
+  - job_name: "otel-collector"
+    static_configs:
+      - targets: ["otel-collector:8888"]

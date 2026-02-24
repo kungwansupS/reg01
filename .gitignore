@@ -47,6 +47,15 @@ backend/dev/*_history.json
 backend/dev/*report*.json
 backend/dev/test_results*.json
 
+# Node.js / Next.js
+frontend-next/node_modules/
+frontend-next/.next/
+frontend-next/out/
+*.tsbuildinfo
+
+# Docker
+docker-compose.override.yml
+
 # Misc local files
 installed.txt
 backup/

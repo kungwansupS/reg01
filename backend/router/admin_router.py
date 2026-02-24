@@ -1,6 +1,5 @@
-from fastapi import APIRouter, UploadFile, Form, HTTPException, Depends, Request
+from fastapi import APIRouter, UploadFile, Form, HTTPException, Depends
 from fastapi.responses import FileResponse, JSONResponse
-from fastapi.security.api_key import APIKeyHeader
 import os
 import json
 import shutil
@@ -9,11 +8,12 @@ import datetime
 import math
 import httpx
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 from concurrent.futures import ThreadPoolExecutor
 
-# Import Config จากระบบ
-from app.config import PDF_INPUT_FOLDER, PDF_QUICK_USE_FOLDER, BOT_SETTINGS_FILE, SESSION_DIR
+# Import Config เธเธฒเธเธฃเธฐเธเธ
+from app.auth import require_admin
+from app.config import PDF_INPUT_FOLDER, PDF_QUICK_USE_FOLDER, BOT_SETTINGS_FILE
 from memory.faq_cache import (
     get_faq_analytics,
     list_faq_entries,
@@ -26,18 +26,15 @@ from memory.session import get_bot_enabled, set_bot_enabled
 from memory.session_db import session_db
 from pdf_to_txt import process_pdfs
 
-# สร้าง Router สำหรับ Admin
+# เธชเธฃเนเธฒเธ Router เธชเธณเธซเธฃเธฑเธ Admin
 router = APIRouter(prefix="/api/admin")
 
 # Security Configuration
-ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "super-secret-key")
-ADMIN_API_KEY_HEADER = APIKeyHeader(name="X-Admin-Token", auto_error=False)
-FB_PAGE_ACCESS_TOKEN = os.getenv("FB_PAGE_ACCESS_TOKEN", "")
 
-# Executor สำหรับงาน Sync หนักๆ
+# Executor เธชเธณเธซเธฃเธฑเธเธเธฒเธ Sync เธซเธเธฑเธเน
 admin_executor = ThreadPoolExecutor(max_workers=5)
 
-# Queue reference — injected by main.py at startup
+# Queue reference โ€” injected by main.py at startup
 _llm_queue = None
 
 def set_llm_queue(q):
@@ -49,11 +46,9 @@ def set_llm_queue(q):
 import logging
 logger = logging.getLogger("AdminRouter")
 
-async def verify_admin(auth: str = Depends(ADMIN_API_KEY_HEADER)):
-    """ตรวจสอบสิทธิ์ Admin"""
-    if auth != ADMIN_TOKEN:
-        raise HTTPException(status_code=403, detail="Forbidden: Invalid Admin Token")
-    return auth
+async def verify_admin(claims: dict = Depends(require_admin)):
+    """Require admin access (JWT RBAC or legacy token mode)."""
+    return claims
 
 def get_bot_settings():
     """Backward compatibility"""
@@ -72,7 +67,7 @@ def save_bot_settings(settings):
 
 def get_secure_path(root: str, path: str):
     """
-    แมป Root และตรวจสอบความปลอดภัยของ Path
+    เนเธกเธ Root เนเธฅเธฐเธ•เธฃเธงเธเธชเธญเธเธเธงเธฒเธกเธเธฅเธญเธ”เธ เธฑเธขเธเธญเธ Path
     """
     if root in ["data", "docs"]:
         base_path = PDF_INPUT_FOLDER
@@ -83,14 +78,14 @@ def get_secure_path(root: str, path: str):
     
     if not path or path.strip() == "":
         target = os.path.abspath(base_path)
-        logger.info(f"📁 Resolved empty path to root: {target}")
+        logger.info(f"๐“ Resolved empty path to root: {target}")
     else:
         clean_path = path.lstrip("/").replace("..", "")
         target = os.path.abspath(os.path.join(base_path, clean_path))
-        logger.info(f"📁 Resolved path '{path}' to: {target}")
+        logger.info(f"๐“ Resolved path '{path}' to: {target}")
     
     if not target.startswith(os.path.abspath(base_path)):
-        logger.error(f"🚨 Security violation: {target} not in {base_path}")
+        logger.error(f"๐จ Security violation: {target} not in {base_path}")
         raise HTTPException(status_code=403, detail="Access Denied: Path escape detected")
     
     return target
@@ -153,7 +148,7 @@ def calculate_token_analytics(logs: list) -> dict:
 
 @router.get("/stats", dependencies=[Depends(verify_admin)])
 async def get_stats():
-    """ดึงข้อมูล Dashboard Stats พร้อม Token Analytics"""
+    """เธ”เธถเธเธเนเธญเธกเธนเธฅ Dashboard Stats เธเธฃเนเธญเธก Token Analytics"""
     logs = []
     log_path = "logs/user_audit.log"
     if os.path.exists(log_path):
@@ -176,7 +171,7 @@ async def get_stats():
     
     return {
         "recent_logs": logs,
-        "faq_analytics": get_faq_analytics(),
+        "faq_analytics": await get_faq_analytics(),
         "bot_settings": get_bot_settings(),
         "token_analytics": token_analytics,
         "system_time": datetime.datetime.now().isoformat()
@@ -212,10 +207,10 @@ async def create_directory(root: str = Form(...), path: str = Form(""), name: st
     try:
         target = os.path.join(get_secure_path(root, path), name)
         os.makedirs(target, exist_ok=True)
-        logger.info(f"✅ Created directory: {target}")
+        logger.info(f"โ… Created directory: {target}")
         return {"status": "success"}
     except Exception as e:
-        logger.error(f"❌ Failed to create directory: {e}")
+        logger.error(f"โ Failed to create directory: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/rename", dependencies=[Depends(verify_admin)])
@@ -228,12 +223,12 @@ async def rename_item(root: str = Form(...), old_path: str = Form(...), new_name
             raise HTTPException(status_code=400, detail=f"'{new_name}' already exists")
         
         os.rename(old_target, new_target)
-        logger.info(f"✅ Renamed: {old_target} → {new_target}")
+        logger.info(f"โ… Renamed: {old_target} โ’ {new_target}")
         return {"status": "success"}
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ Rename failed: {e}")
+        logger.error(f"โ Rename failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/move", dependencies=[Depends(verify_admin)])
@@ -242,10 +237,10 @@ async def move_items(
     source_paths: str = Form(...),
     target_path: str = Form("")
 ):
-    """ย้ายไฟล์/โฟลเดอร์"""
+    """เธขเนเธฒเธขเนเธเธฅเน/เนเธเธฅเน€เธ”เธญเธฃเน"""
     try:
         paths = json.loads(source_paths)
-        logger.info(f"📥 API Move Request: root={root}, target={target_path}")
+        logger.info(f"๐“ฅ API Move Request: root={root}, target={target_path}")
         
         base_dest = get_secure_path(root, target_path)
         
@@ -256,11 +251,11 @@ async def move_items(
             dest = os.path.join(base_dest, os.path.basename(src))
             
             if not os.path.exists(src):
-                logger.warning(f"⚠️ Source not found: {src}")
+                logger.warning(f"โ ๏ธ Source not found: {src}")
                 continue
             
             if src == dest:
-                logger.warning(f"⚠️ Source and destination are the same: {src}")
+                logger.warning(f"โ ๏ธ Source and destination are the same: {src}")
                 continue
             
             if os.path.exists(dest):
@@ -270,34 +265,34 @@ async def move_items(
                 )
             
             shutil.move(src, dest)
-            logger.info(f"  ✅ Moved: {os.path.basename(src)}")
+            logger.info(f"  โ… Moved: {os.path.basename(src)}")
         
         return {"status": "success"}
         
     except json.JSONDecodeError as e:
-        logger.error(f"❌ Invalid JSON in src_paths: {e}")
+        logger.error(f"โ Invalid JSON in src_paths: {e}")
         raise HTTPException(status_code=400, detail="Invalid source paths format")
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ Move failed: {e}")
+        logger.error(f"โ Move failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/copy", dependencies=[Depends(verify_admin)])
 async def copy_items(root: str = Form(...), source_paths: str = Form(...), target_path: str = Form(...)):
-    """คัดลอกไฟล์/โฟลเดอร์"""
+    """เธเธฑเธ”เธฅเธญเธเนเธเธฅเน/เนเธเธฅเน€เธ”เธญเธฃเน"""
     try:
         paths = json.loads(source_paths)
         
         base_dest = get_secure_path(root, target_path)
-        logger.info(f"📋 Copying {len(paths)} items to: {base_dest}")
+        logger.info(f"๐“ Copying {len(paths)} items to: {base_dest}")
         
         os.makedirs(base_dest, exist_ok=True)
         
         for p in paths:
             src = get_secure_path(root, p)
             if not os.path.exists(src):
-                logger.warning(f"⚠️ Source not found: {src}")
+                logger.warning(f"โ ๏ธ Source not found: {src}")
                 continue
             
             dest = os.path.join(base_dest, os.path.basename(src))
@@ -314,18 +309,18 @@ async def copy_items(root: str = Form(...), source_paths: str = Form(...), targe
             
             if os.path.isdir(src):
                 shutil.copytree(src, dest)
-                logger.info(f"  ✅ Copied folder: {os.path.basename(src)}")
+                logger.info(f"  โ… Copied folder: {os.path.basename(src)}")
             else:
                 shutil.copy2(src, dest)
-                logger.info(f"  ✅ Copied file: {os.path.basename(src)}")
+                logger.info(f"  โ… Copied file: {os.path.basename(src)}")
         
         return {"status": "success"}
         
     except json.JSONDecodeError as e:
-        logger.error(f"❌ Invalid JSON in source_paths: {e}")
+        logger.error(f"โ Invalid JSON in source_paths: {e}")
         raise HTTPException(status_code=400, detail="Invalid source paths format")
     except Exception as e:
-        logger.error(f"❌ Copy error: {e}")
+        logger.error(f"โ Copy error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/view", dependencies=[Depends(verify_admin)])
@@ -340,7 +335,7 @@ async def preview_file(root: str, path: str):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ View file error: {e}")
+        logger.error(f"โ View file error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/edit", dependencies=[Depends(verify_admin)])
@@ -348,10 +343,10 @@ async def edit_file(root: str = Form(...), path: str = Form(...), content: str =
     try:
         target = get_secure_path(root, path)
         with open(target, "w", encoding="utf-8") as f: f.write(content)
-        logger.info(f"✅ Edited file: {target}")
+        logger.info(f"โ… Edited file: {target}")
         return {"status": "success"}
     except Exception as e:
-        logger.error(f"❌ Edit file error: {e}")
+        logger.error(f"โ Edit file error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/upload", dependencies=[Depends(verify_admin)])
@@ -361,10 +356,10 @@ async def upload_document(file: UploadFile, target_dir: str = Form(""), root: st
         os.makedirs(dest_folder, exist_ok=True)
         file_path = os.path.join(dest_folder, file.filename)
         with open(file_path, "wb") as buffer: shutil.copyfileobj(file.file, buffer)
-        logger.info(f"✅ Uploaded: {file.filename}")
+        logger.info(f"โ… Uploaded: {file.filename}")
         return {"status": "success"}
     except Exception as e:
-        logger.error(f"❌ Upload error: {e}")
+        logger.error(f"โ Upload error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/process-rag", dependencies=[Depends(verify_admin)])
@@ -372,10 +367,10 @@ async def trigger_rag_process():
     try:
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(admin_executor, process_pdfs)
-        logger.info("✅ RAG processing completed")
+        logger.info("โ… RAG processing completed")
         return {"status": "completed"}
     except Exception as e:
-        logger.error(f"❌ RAG processing error: {e}")
+        logger.error(f"โ RAG processing error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/files", dependencies=[Depends(verify_admin)])
@@ -387,34 +382,34 @@ async def delete_items(root: str, paths: str):
             if os.path.exists(target):
                 if os.path.isdir(target): shutil.rmtree(target)
                 else: os.remove(target)
-                logger.info(f"✅ Deleted: {target}")
+                logger.info(f"โ… Deleted: {target}")
         return {"status": "deleted"}
     except Exception as e:
-        logger.error(f"❌ Delete error: {e}")
+        logger.error(f"โ Delete error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # ----------------------------------------------------------------------------- #
-# CHAT & BOT CONTROL ENDPOINTS (ใช้ Database)
+# CHAT & BOT CONTROL ENDPOINTS (เนเธเน Database)
 # ----------------------------------------------------------------------------- #
 
 @router.post("/bot-toggle", dependencies=[Depends(verify_admin)])
 async def toggle_bot(session_id: str = Form(...), status: bool = Form(...)):
-    """สลับสถานะเปิด/ปิด Bot สำหรับ Session นี้"""
-    logger.info(f"🔄 Toggling bot for session {session_id}: {status}")
+    """เธชเธฅเธฑเธเธชเธ–เธฒเธเธฐเน€เธเธดเธ”/เธเธดเธ” Bot เธชเธณเธซเธฃเธฑเธ Session เธเธตเน"""
+    logger.info(f"๐” Toggling bot for session {session_id}: {status}")
     
     success = await set_bot_enabled(session_id, status)
     
     if success:
-        logger.info(f"✅ Bot status updated for {session_id}: {status}")
+        logger.info(f"โ… Bot status updated for {session_id}: {status}")
         return {"status": "success", "session_id": session_id, "bot_enabled": status}
     else:
-        logger.error(f"❌ Failed to update bot status for {session_id}")
+        logger.error(f"โ Failed to update bot status for {session_id}")
         raise HTTPException(status_code=500, detail="Failed to update bot status")
 
 @router.post("/bot-toggle-all", dependencies=[Depends(verify_admin)])
 async def toggle_all_bots(status: bool = Form(...)):
-    """เปิด/ปิด Bot ทั้งหมดทุก Session"""
-    logger.info(f"🔄 Toggling ALL bots: {status}")
+    """เน€เธเธดเธ”/เธเธดเธ” Bot เธ—เธฑเนเธเธซเธกเธ”เธ—เธธเธ Session"""
+    logger.info(f"๐” Toggling ALL bots: {status}")
     
     try:
         sessions = await session_db.get_all_sessions()
@@ -424,16 +419,16 @@ async def toggle_all_bots(status: bool = Form(...)):
             if await set_bot_enabled(session['session_id'], status):
                 updated_count += 1
         
-        logger.info(f"✅ Updated {updated_count} sessions")
+        logger.info(f"โ… Updated {updated_count} sessions")
         return {"status": "success", "updated_count": updated_count, "bot_enabled": status}
     except Exception as e:
-        logger.error(f"❌ Failed to toggle all bots: {e}")
+        logger.error(f"โ Failed to toggle all bots: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/chat/sessions", dependencies=[Depends(verify_admin)])
 async def get_chat_sessions():
-    """ดึงรายชื่อ Session การแชทล่าสุด (จาก Database)"""
-    logger.info("📋 Loading chat sessions from database")
+    """เธ”เธถเธเธฃเธฒเธขเธเธทเนเธญ Session เธเธฒเธฃเนเธเธ—เธฅเนเธฒเธชเธธเธ” (เธเธฒเธ Database)"""
+    logger.info("๐“ Loading chat sessions from database")
     
     try:
         sessions = await session_db.get_all_sessions()
@@ -451,32 +446,32 @@ async def get_chat_sessions():
                 "last_active": session['last_active']
             })
         
-        logger.info(f"✅ Successfully loaded {len(formatted_sessions)} sessions")
+        logger.info(f"โ… Successfully loaded {len(formatted_sessions)} sessions")
         return formatted_sessions
         
     except Exception as e:
-        logger.error(f"❌ Failed to load sessions: {e}")
+        logger.error(f"โ Failed to load sessions: {e}")
         return []
 
 @router.get("/chat/history/{platform}/{uid}", dependencies=[Depends(verify_admin)])
 async def get_chat_history(platform: str, uid: str):
-    """ดึงประวัติการแชทรายคน (จาก Database)"""
-    logger.info(f"📖 Loading history for {platform}/{uid}")
+    """เธ”เธถเธเธเธฃเธฐเธงเธฑเธ•เธดเธเธฒเธฃเนเธเธ—เธฃเธฒเธขเธเธ (เธเธฒเธ Database)"""
+    logger.info(f"๐“– Loading history for {platform}/{uid}")
     
     try:
         history = await session_db.get_history(uid)
         
-        logger.info(f"   ✅ Returning {len(history)} valid messages")
+        logger.info(f"   โ… Returning {len(history)} valid messages")
         return history
         
     except Exception as e:
-        logger.error(f"   ❌ Error reading history: {e}")
+        logger.error(f"   โ Error reading history: {e}")
         return []
 
 @router.post("/chat/send", dependencies=[Depends(verify_admin)])
 async def admin_send_message(platform: str = Form(...), uid: str = Form(...), message: str = Form(...)):
-    """Admin ส่งข้อความตอบกลับด้วยตนเอง"""
-    logger.info(f"📤 Admin sending message to {platform}/{uid}")
+    """Admin เธชเนเธเธเนเธญเธเธงเธฒเธกเธ•เธญเธเธเธฅเธฑเธเธ”เนเธงเธขเธ•เธเน€เธญเธ"""
+    logger.info(f"๐“ค Admin sending message to {platform}/{uid}")
     return {"status": "success", "platform": platform, "uid": uid}
 
 # ----------------------------------------------------------------------------- #
@@ -485,13 +480,13 @@ async def admin_send_message(platform: str = Form(...), uid: str = Form(...), me
 
 @router.get("/faq", dependencies=[Depends(verify_admin)])
 async def api_list_faq(limit: int = 300, query: str = "", include_expired: bool = False):
-    """ดึงรายการ FAQ ทั้งหมด"""
-    return list_faq_entries(limit=limit, query=query, include_expired=include_expired)
+    """เธ”เธถเธเธฃเธฒเธขเธเธฒเธฃ FAQ เธ—เธฑเนเธเธซเธกเธ”"""
+    return await list_faq_entries(limit=limit, query=query, include_expired=include_expired)
 
 @router.get("/faq/entry", dependencies=[Depends(verify_admin)])
 async def api_get_faq(question: str):
-    """ดึง FAQ entry เดี่ยว"""
-    entry = get_faq_entry(question)
+    """เธ”เธถเธ FAQ entry เน€เธ”เธตเนเธขเธง"""
+    entry = await get_faq_entry(question)
     if not entry:
         raise HTTPException(status_code=404, detail="FAQ entry not found")
     return entry
@@ -504,9 +499,9 @@ async def api_save_faq(
     ttl_seconds: Optional[int] = Form(None),
     source: str = Form("admin"),
 ):
-    """สร้างหรือแก้ไข FAQ entry"""
+    """เธชเธฃเนเธฒเธเธซเธฃเธทเธญเนเธเนเนเธ FAQ entry"""
     try:
-        result = save_faq_entry(
+        result = await save_faq_entry(
             question=question,
             answer=answer,
             original_question=original_question,
@@ -519,16 +514,16 @@ async def api_save_faq(
 
 @router.delete("/faq", dependencies=[Depends(verify_admin)])
 async def api_delete_faq(question: str):
-    """ลบ FAQ entry"""
+    """เธฅเธ FAQ entry"""
     try:
-        return delete_faq_entry(question)
+        return await delete_faq_entry(question)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
 @router.post("/faq/purge-expired", dependencies=[Depends(verify_admin)])
 async def api_purge_expired():
-    """ลบ FAQ entries ที่หมดอายุทั้งหมด"""
-    return purge_expired_faq_entries()
+    """เธฅเธ FAQ entries เธ—เธตเนเธซเธกเธ”เธญเธฒเธขเธธเธ—เธฑเนเธเธซเธกเธ”"""
+    return await purge_expired_faq_entries()
 
 # ----------------------------------------------------------------------------- #
 # REAL-TIME MONITOR ENDPOINT
@@ -536,7 +531,7 @@ async def api_purge_expired():
 
 @router.get("/monitor/stats", dependencies=[Depends(verify_admin)])
 async def api_monitor_stats():
-    """ดึงข้อมูล real-time สำหรับ monitor dashboard"""
+    """เธ”เธถเธเธเนเธญเธกเธนเธฅ real-time เธชเธณเธซเธฃเธฑเธ monitor dashboard"""
     # Queue stats
     queue_stats = {}
     try:
@@ -575,6 +570,7 @@ async def api_monitor_stats():
         "queue": queue_stats,
         "recent_activity": logs,
         "active_sessions": session_count,
-        "faq_analytics": get_faq_analytics(),
+        "faq_analytics": await get_faq_analytics(),
         "system_time": datetime.datetime.now().isoformat(),
     }
+

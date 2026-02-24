@@ -214,7 +214,7 @@ async def refresh_faq_cache():
         invalidate_entry,
     )
 
-    stale_questions = get_entries_needing_refresh(max_age_hours=24)
+    stale_questions = await get_entries_needing_refresh(max_age_hours=24)
     if not stale_questions:
         logger.info("✅ [FAQ Refresh] All entries are up-to-date")
         return
@@ -226,7 +226,7 @@ async def refresh_faq_cache():
     for question in stale_questions:
         try:
             if not ask_llm_fn:
-                mark_validated(question)
+                await mark_validated(question)
                 refreshed += 1
                 continue
 
@@ -235,10 +235,10 @@ async def refresh_faq_cache():
             new_answer = str(result.get("text", "")).strip()
 
             if new_answer and len(new_answer) > 20:
-                mark_validated(question, new_answer=new_answer)
+                await mark_validated(question, new_answer=new_answer)
                 refreshed += 1
             else:
-                invalidate_entry(question)
+                await invalidate_entry(question)
                 invalidated += 1
 
             # Small delay between questions to avoid rate limits

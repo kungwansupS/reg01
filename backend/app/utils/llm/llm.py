@@ -249,7 +249,7 @@ async def ask_llm(
 
         # ── Step 4a: Tier 1 — Greeting Cache (exact match, 0 tokens) ──
         greeting_step = step_start("greeting_lookup", "Tier 1: Greeting Cache")
-        greeting_reply = get_greeting_response(msg)
+        greeting_reply = await get_greeting_response(msg)
         if greeting_reply:
             reply = greeting_reply
             total_token_usage["cached"] = True
@@ -284,8 +284,8 @@ async def ask_llm(
 
         faq_hit = None
         if faq_lookup_enabled:
-            faq_hit = await asyncio.to_thread(
-                get_faq_answer, msg,
+            faq_hit = await get_faq_answer(
+                msg,
                 include_meta=True,
             )
 
@@ -485,7 +485,7 @@ async def ask_llm(
                     "min_answer_chars": faq_cfg.get("min_answer_chars", 30),
                     "ttl_seconds": 86400,  # 24h TTL, refreshed daily
                 }
-                faq_update_result = await asyncio.to_thread(update_faq, msg, reply, learn_meta)
+                faq_update_result = await update_faq(msg, reply, learn_meta)
                 step_finish(
                     faq_step,
                     "ok" if bool(faq_update_result.get("updated")) else "skipped",
@@ -576,4 +576,3 @@ async def ask_llm(
                     "error": str(exc), "fallback": fallback_debug,
                 }
             return output
-

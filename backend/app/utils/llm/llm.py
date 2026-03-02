@@ -51,6 +51,20 @@ from retriever.intent_analyzer import needs_retrieval
 
 logger = logging.getLogger(__name__)
 llm_semaphore = asyncio.Semaphore(MAX_CONCURRENT_LLM_CALLS)
+_llm_prewarmed = False
+
+
+async def prewarm_llm_clients() -> None:
+    """Initialize LLM client objects early to reduce first-turn cold start."""
+    global _llm_prewarmed
+    if _llm_prewarmed:
+        return
+    try:
+        await asyncio.to_thread(get_llm_model)
+        _llm_prewarmed = True
+        logger.info("[LLM] prewarm complete")
+    except Exception as exc:
+        logger.warning("[LLM] prewarm failed: %s", exc)
 
 
 def _now_iso() -> str:
@@ -96,6 +110,29 @@ def _format_retrieval_fallback(
     )
 
 
+def _format_context_with_citations(chunks: list[tuple[dict, float]]) -> str:
+    lines: list[str] = []
+    for chunk_data, score in chunks:
+        source = os.path.basename(str(chunk_data.get("source", "")).strip() or "unknown")
+        index = chunk_data.get("index", 0)
+        text = str(chunk_data.get("chunk", "")).strip()
+        if not text:
+            continue
+        lines.append(f"[source:{source}#chunk-{index}] {text}")
+    return "\n\n".join(lines)
+
+
+def _ensure_citation_suffix(reply: str, chunks: list[tuple[dict, float]]) -> str:
+    if "[source:" in reply:
+        return reply
+    if not chunks:
+        return reply
+    top_chunk = chunks[0][0]
+    source = os.path.basename(str(top_chunk.get("source", "")).strip() or "unknown")
+    index = top_chunk.get("index", 0)
+    return f"{reply} [source:{source}#chunk-{index}]"
+
+
 def _build_sliding_window_history(history: list, max_messages: int = 10) -> str:
     """
     Sliding window memory — ไม่ต้องเรียก LLM summarize
@@ -131,6 +168,7 @@ async def ask_llm(
     flow_config: Optional[Dict[str, Any]] = None,
     include_debug: bool = False,
     trace_source: str = "runtime",
+    runtime_profile: str = "default",
 ):
     """
     Single-Pass Always-RAG Architecture (v3)
@@ -146,6 +184,26 @@ async def ask_llm(
     Returns: {"text", "from_faq", "tokens", "trace_id", "debug"?}
     """
     active_flow = get_effective_flow_config(flow_config)
+    if str(runtime_profile).strip().lower() == "realtime":
+        # Fast profile for low-latency voice turns.
+        active_flow = get_effective_flow_config({
+            **active_flow,
+            "rag": {
+                **active_flow.get("rag", {}),
+                "top_k": min(2, int(active_flow.get("rag", {}).get("top_k", 5))),
+                "use_rerank": False,
+                "use_llm_rerank": False,
+                "use_intent_analysis": False,
+            },
+            "memory": {
+                **active_flow.get("memory", {}),
+                "recent_messages": min(4, int(active_flow.get("memory", {}).get("recent_messages", 10))),
+            },
+            "faq": {
+                **active_flow.get("faq", {}),
+                "auto_learn": False,
+            },
+        })
     rag_cfg = active_flow.get("rag", {})
     memory_cfg = active_flow.get("memory", {})
     prompt_cfg = active_flow.get("prompt", {})
@@ -206,12 +264,16 @@ async def ask_llm(
 
     # ── Step 1: Language Detection ────────────────────────────────────
     detect_step = step_start("lang_detect", "Language Detect", {"detector": "langdetect"})
-    try:
-        detected_lang = await asyncio.to_thread(detect, msg)
-        step_finish(detect_step, "ok", {"language": detected_lang})
-    except Exception as lang_error:
+    if str(runtime_profile).strip().lower() == "realtime":
         detected_lang = "th"
-        step_finish(detect_step, "warn", {"language": detected_lang, "error": str(lang_error)})
+        step_finish(detect_step, "skipped", {"language": detected_lang, "reason": "realtime_profile"})
+    else:
+        try:
+            detected_lang = await asyncio.to_thread(detect, msg)
+            step_finish(detect_step, "ok", {"language": detected_lang})
+        except Exception as lang_error:
+            detected_lang = "th"
+            step_finish(detect_step, "warn", {"language": detected_lang, "error": str(lang_error)})
 
     async with llm_semaphore:
         await _emit_status(emit_fn, "Processing request...")
@@ -343,8 +405,8 @@ async def ask_llm(
                     k=int(rag_cfg.get("top_k", 5)),
                     folder=PDF_QUICK_USE_FOLDER,
                     use_hybrid=bool(rag_cfg.get("use_hybrid", True)),
-                    use_rerank=True,
-                    use_intent_analysis=True,
+                    use_rerank=bool(rag_cfg.get("use_rerank", rag_cfg.get("use_llm_rerank", True))),
+                    use_intent_analysis=bool(rag_cfg.get("use_intent_analysis", True)),
                 )
                 retrieval_preview = []
                 for idx, (chunk_data, score) in enumerate(top_chunks[:8]):
@@ -356,11 +418,29 @@ async def ask_llm(
                         "chunk_preview": _preview_text(chunk_data.get("chunk", ""), 240),
                     })
                 rag_debug["retrieved"] = retrieval_preview
-                context = "\n\n".join([chunk["chunk"] for chunk, _ in top_chunks])
+                context = _format_context_with_citations(top_chunks)
                 step_finish(retrieve_step, "ok", {"count": len(top_chunks), "preview": retrieval_preview})
             except Exception as ret_err:
                 logger.warning("Retrieval error: %s", ret_err)
                 step_finish(retrieve_step, "warn", {"error": str(ret_err)})
+
+        if should_retrieve and top_chunks:
+            top_score = float(top_chunks[0][1])
+            abstain_threshold = float(faq_cfg.get("min_retrieval_score", 0.35))
+            if top_score < abstain_threshold:
+                abstain_reply = "พี่ไม่มีข้อมูลที่เชื่อถือได้พอสำหรับคำถามนี้นะครับ"
+                abstain_reply = _ensure_citation_suffix(abstain_reply, top_chunks)
+                history.append({"role": "model", "parts": [{"text": abstain_reply}]})
+                await save_history(session_id, history)
+                trace_meta["status"] = "ok"
+                trace_meta["ended_at"] = _now_iso()
+                trace_meta["latency_ms"] = round((time.perf_counter() - trace_started_perf) * 1000, 2)
+                trace_meta["tokens"] = total_token_usage
+                trace_meta["detected_language"] = detected_lang
+                trace_meta["rag"] = rag_debug
+                trace_meta["abstained"] = True
+                record_trace(trace_meta)
+                return {"text": abstain_reply, "from_faq": False, "tokens": total_token_usage, "trace_id": trace_id}
 
         # ── Step 7: Build Unified Prompt (single prompt for everything) ──
         prompt_step = step_start("prompt", "Unified Prompt Builder")
@@ -470,6 +550,8 @@ async def ask_llm(
             total_token_usage["total_tokens"] += int(usage.get("total_tokens", 0))
 
             logger.info(f"[LLM Single Pass] {format_token_usage(usage)}")
+            if should_retrieve and top_chunks:
+                reply = _ensure_citation_suffix(reply, top_chunks)
             step_finish(llm_step, "ok", {"usage": usage, "reply_preview": _preview_text(reply)})
 
             # ── Step 9: FAQ Auto Learn ───────────────────────────────

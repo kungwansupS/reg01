@@ -32,9 +32,9 @@ from app.config import (
 from memory.database import init_db, close_db
 from memory.redis_client import init_redis, close_redis
 from app.utils.llm.llm_model import close_llm_clients
-from app.utils.llm.llm import ask_llm
+from app.utils.llm.llm import ask_llm, prewarm_llm_clients
 from app.utils.token_counter import calculate_cost
-# ensure_local_request removed — dev page now served by Next.js frontend
+# ensure_local_request removed - dev page now served by Next.js frontend
 from queue_manager import LLMRequestQueue, QueueConfig
 
 # Import routers
@@ -281,7 +281,7 @@ app.include_router(dev_router)
 # ----------------------------------------------------------------------------- #
 @app.get("/")
 async def health_check():
-    """Health check endpoint — frontend is served by Next.js"""
+    """Health check endpoint - frontend is served by Next.js"""
     return {"status": "ok", "service": "reg01-backend", "frontend": "http://localhost:3000"}
 
 # ----------------------------------------------------------------------------- #
@@ -303,17 +303,18 @@ async def startup_event():
     
     _trim_audit_log_if_needed(force=True)
     await background_tasks.run_startup_embedding_pipeline()
+    asyncio.create_task(prewarm_llm_clients())
     
     # Start LLM request queue
     await llm_queue.start()
     
-    # ── Queue Recovery: ประมวลผลคิวค้างจาก session ก่อนหน้า ──
+    # Queue Recovery: ประมวลผลคิวค้างจาก session ก่อนหน้า
     recovery_action = os.environ.pop("_QUEUE_RECOVERY_ACTION", "none")
     if recovery_action == "process":
         pending_state = await LLMRequestQueue.check_pending_on_disk()
         if pending_state and pending_state.get("items"):
             logger.info(
-                "📋 [Recovery] Processing %d pending items from previous session...",
+                "[Recovery] Processing %d pending items from previous session...",
                 len(pending_state["items"]),
             )
             asyncio.create_task(_run_queue_recovery(pending_state["items"]))
@@ -323,7 +324,8 @@ async def startup_event():
     asyncio.create_task(background_tasks.maintenance_loop())
     for _ in range(5):
         asyncio.create_task(background_tasks.fb_worker())
-    
+    asyncio.create_task(_warmup_realtime_pipeline())
+
     logger.info("Application ready (queue workers=%d, max_size=%d)", QUEUE_NUM_WORKERS, QUEUE_MAX_SIZE)
 
 
@@ -337,11 +339,26 @@ async def _run_queue_recovery(items: list):
             send_fb_text_fn=send_fb_text,
         )
         logger.info(
-            "📋 [Recovery] Complete: processed=%d errors=%d",
+            "[Recovery] Complete: processed=%d errors=%d",
             result["processed"], result["errors"],
         )
     except Exception as exc:
-        logger.error("📋 [Recovery] Failed: %s", exc)
+        logger.error("[Recovery] Failed: %s", exc)
+
+
+async def _warmup_realtime_pipeline():
+    try:
+        await asyncio.sleep(1.0)
+        await ask_llm(
+            "สวัสดี",
+            "warmup_realtime",
+            runtime_profile="realtime",
+            trace_source="startup_warmup",
+        )
+        logger.info("[Warmup] realtime pipeline warmup complete")
+    except Exception as exc:
+        logger.warning("[Warmup] realtime pipeline warmup failed: %s", exc)
+
 
 async def cleanup():
     """Cleanup before shutdown"""
@@ -394,3 +411,5 @@ if __name__ == "__main__":
         port=5000,
         reload=False
     )
+
+

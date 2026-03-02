@@ -25,12 +25,28 @@ export default function LivePage() {
   const scheduledTimeRef = useRef(0);
   const live2dRef = useRef<Live2DHandle>(null);
   const mouthOpenRef = useRef(0);
+  const currentTurnIdRef = useRef<string>("");
+  const eosSentAtMsRef = useRef<number>(0);
+  const firstAudioOutAtMsRef = useRef<number>(0);
+  const interruptionSentAtMsRef = useRef<number>(0);
 
-  // ─── Socket.IO event handlers ───
+  // Socket.IO event handlers
   useEffect(() => {
     if (!socket) return;
 
     socket.on("live_audio_out", (data: { audio: string }) => {
+      if (!firstAudioOutAtMsRef.current) {
+        firstAudioOutAtMsRef.current = performance.now();
+        if (eosSentAtMsRef.current > 0) {
+          const latencyMs = firstAudioOutAtMsRef.current - eosSentAtMsRef.current;
+          socket.emit("live_client_metric", {
+            turn_id: currentTurnIdRef.current,
+            metric: "eos_to_first_audio_ms",
+            value: Math.round(latencyMs * 100) / 100,
+            client_ts_ms: Date.now(),
+          });
+        }
+      }
       playAudioChunk(data.audio);
     });
     socket.on("live_speaking", (data: { speaking: boolean }) => {
@@ -40,14 +56,28 @@ export default function LivePage() {
     socket.on("live_text", (data: { text: string }) => {
       setSubtitle(data.text || "");
     });
-    socket.on("live_turn_complete", () => {
+    socket.on("live_turn_complete", (data: { turn_id?: string }) => {
       setAiSpeaking(false);
       live2dRef.current?.setSpeaking(false);
+      if (data?.turn_id) currentTurnIdRef.current = data.turn_id;
     });
     socket.on("live_interrupted", () => {
       flushPlayback();
       setAiSpeaking(false);
       live2dRef.current?.setSpeaking(false);
+      if (interruptionSentAtMsRef.current > 0) {
+        const reactionMs = performance.now() - interruptionSentAtMsRef.current;
+        socket.emit("live_client_metric", {
+          turn_id: currentTurnIdRef.current,
+          metric: "interruption_reaction_ms",
+          value: Math.round(reactionMs * 100) / 100,
+          client_ts_ms: Date.now(),
+        });
+        interruptionSentAtMsRef.current = 0;
+      }
+    });
+    socket.on("live_metrics", (data: { metric?: string; value?: number; source?: string }) => {
+      console.debug("live_metrics", data);
     });
     socket.on("live_error", (data: { message?: string }) => {
       console.error("Live error:", data.message);
@@ -60,6 +90,7 @@ export default function LivePage() {
       socket.off("live_turn_complete");
       socket.off("live_interrupted");
       socket.off("live_error");
+      socket.off("live_metrics");
     };
   }, [socket]);
 
@@ -108,6 +139,8 @@ export default function LivePage() {
     if (!socket || !connected) return;
 
     if (micActive) {
+      eosSentAtMsRef.current = performance.now();
+      firstAudioOutAtMsRef.current = 0;
       socket.emit("live_stop");
       if (processorRef.current) {
         processorRef.current.disconnect();
@@ -143,6 +176,9 @@ export default function LivePage() {
           int16[i] = Math.max(-32768, Math.min(32767, Math.round(input[i] * 32768)));
         }
         const base64 = btoa(String.fromCharCode(...new Uint8Array(int16.buffer)));
+        if (aiSpeaking && interruptionSentAtMsRef.current === 0) {
+          interruptionSentAtMsRef.current = performance.now();
+        }
         socket.emit("live_audio_in", { audio: base64 });
       };
 
@@ -152,10 +188,14 @@ export default function LivePage() {
       socket.emit("live_start");
       setMicActive(true);
       scheduledTimeRef.current = 0;
+      eosSentAtMsRef.current = 0;
+      firstAudioOutAtMsRef.current = 0;
+      interruptionSentAtMsRef.current = 0;
+      currentTurnIdRef.current = "";
     } catch (err) {
       console.error("Mic access error:", err);
     }
-  }, [socket, connected, micActive]);
+  }, [socket, connected, micActive, aiSpeaking]);
 
   // Keyboard shortcut: M to toggle mic
   useEffect(() => {
@@ -172,26 +212,33 @@ export default function LivePage() {
 
   return (
     <div className="relative h-screen w-screen overflow-hidden bg-black select-none">
-      {/* ─── Live2D Model (fullscreen background) ─── */}
+      {/* Live2D Model (fullscreen background) */}
       <div className="absolute inset-0 z-0">
         <Live2DCanvas ref={live2dRef} className="w-full h-full" />
       </div>
 
-      {/* ─── Background glow effect ─── */}
-      <div className={cn(
-        "absolute inset-0 z-[1] pointer-events-none transition-opacity duration-1000",
-        (micActive || aiSpeaking) ? "opacity-100" : "opacity-0"
-      )}>
-        <div className={cn(
-          "absolute bottom-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] rounded-full blur-[150px]",
-          aiSpeaking ? "bg-cmu-purple/15" : "bg-accent/10"
-        )} />
+      {/* Background glow effect */}
+      <div
+        className={cn(
+          "absolute inset-0 z-[1] pointer-events-none transition-opacity duration-1000",
+          micActive || aiSpeaking ? "opacity-100" : "opacity-0",
+        )}
+      >
+        <div
+          className={cn(
+            "absolute bottom-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] rounded-full blur-[150px]",
+            aiSpeaking ? "bg-cmu-purple/15" : "bg-accent/10",
+          )}
+        />
       </div>
 
-      {/* ─── Top Bar (overlay) ─── */}
+      {/* Top Bar (overlay) */}
       <header className="absolute top-0 left-0 right-0 z-10 flex items-center justify-between px-4 h-14">
         <div className="flex items-center gap-3">
-          <Link href="/" className="w-9 h-9 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center hover:bg-black/60 transition-colors">
+          <Link
+            href="/"
+            className="w-9 h-9 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center hover:bg-black/60 transition-colors"
+          >
             <ArrowLeft className="w-5 h-5 text-white" />
           </Link>
           <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-black/40 backdrop-blur-sm">
@@ -200,34 +247,41 @@ export default function LivePage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <div className={cn(
-            "flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium backdrop-blur-sm",
-            connected ? "bg-success/20 text-success" : "bg-danger/20 text-danger"
-          )}>
+          <div
+            className={cn(
+              "flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium backdrop-blur-sm",
+              connected ? "bg-success/20 text-success" : "bg-danger/20 text-danger",
+            )}
+          >
             {connected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
             {connected ? "Connected" : "Offline"}
           </div>
-          <Link href="/" className="w-9 h-9 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center hover:bg-black/60 transition-colors" title="Chat Mode">
+          <Link
+            href="/"
+            className="w-9 h-9 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center hover:bg-black/60 transition-colors"
+            title="Chat Mode"
+          >
             <MessageSquare className="w-4 h-4 text-white" />
           </Link>
         </div>
       </header>
 
-      {/* ─── Subtitle + Status (bottom overlay) ─── */}
+      {/* Subtitle + Status (bottom overlay) */}
       <div className="absolute bottom-28 left-0 right-0 z-10 flex flex-col items-center gap-3 px-4">
         {/* Status text */}
-        <p className={cn(
-          "text-sm font-medium transition-colors duration-300",
-          aiSpeaking ? "text-cmu-purple-light" : micActive ? "text-accent" : "text-white/70"
-        )}>
+        <p
+          className={cn(
+            "text-sm font-medium transition-colors duration-300",
+            aiSpeaking ? "text-cmu-purple-light" : micActive ? "text-accent" : "text-white/70",
+          )}
+        >
           {!connected
             ? "Connecting..."
             : aiSpeaking
-            ? "AI กำลังพูด..."
-            : micActive
-            ? "กำลังฟัง..."
-            : "กด M หรือปุ่มด้านล่างเพื่อเริ่ม"
-          }
+              ? "AI กำลังพูด..."
+              : micActive
+                ? "กำลังฟัง..."
+                : "กด M หรือปุ่มด้านล่างเพื่อเริ่ม"}
         </p>
 
         {/* Subtitle */}
@@ -238,7 +292,7 @@ export default function LivePage() {
         )}
       </div>
 
-      {/* ─── Bottom Controls ─── */}
+      {/* Bottom Controls */}
       <div className="absolute bottom-6 left-0 right-0 z-10 flex flex-col items-center gap-3">
         <button
           onClick={toggleMic}
@@ -248,13 +302,10 @@ export default function LivePage() {
             micActive
               ? "bg-danger hover:bg-danger/90 ring-4 ring-danger/30"
               : "bg-white/10 backdrop-blur-sm hover:bg-white/20 ring-2 ring-white/20",
-            !connected && "opacity-30 cursor-not-allowed"
+            !connected && "opacity-30 cursor-not-allowed",
           )}
         >
-          {micActive
-            ? <MicOff className="w-7 h-7 text-white" />
-            : <Mic className="w-7 h-7 text-white" />
-          }
+          {micActive ? <MicOff className="w-7 h-7 text-white" /> : <Mic className="w-7 h-7 text-white" />}
         </button>
         <p className="text-[11px] text-white/50">
           {micActive ? "กดเพื่อหยุด" : "กดเพื่อเริ่มสนทนา"}

@@ -1,0 +1,26 @@
+[
+  {
+    "question_id": "Q01",
+    "category": "Calendar",
+    "difficulty": "Easy",
+    "question": "เปิดเทอม 1/2568 วันไหนครับ",
+    "expected_answer": "จันทร์ที่ 23 มิถุนายน 2568",
+    "expected_behavior": "answer"
+  },
+  {
+    "question_id": "Q02",
+    "category": "Calendar",
+    "difficulty": "Easy",
+    "question": "สอบกลางภาค เทอม 1/2568 ช่วงไหน",
+    "expected_answer": "จันทร์ที่ 25 ถึง อาทิตย์ที่ 31 สิงหาคม 2568",
+    "expected_behavior": "answer"
+  },
+  {
+    "question_id": "Q11",
+    "category": "Out-of-Scope",
+    "difficulty": "Hard",
+    "question": "สำนักทะเบียน มช. เปิดวันเสาร์ไหม",
+    "expected_answer": "ไม่มีข้อมูลใน knowledge base",
+    "expected_behavior": "abstain"
+  }
+]
